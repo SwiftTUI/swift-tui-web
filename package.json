@@ -11,6 +11,8 @@
     "test": "bun test packages/web packages/build",
     "build:web": "bun run --cwd packages/web build:web",
     "build": "bun run --cwd packages/web build",
-    "ci": "bun install --frozen-lockfile && bun run test && bun run build:web"
+    "ci": "bun install --frozen-lockfile && bun run test && bun run build:web",
+    "pack:web": "cd packages/web && bun pm pack",
+    "pack:build": "cd packages/build && bun pm pack"
   }
 }
