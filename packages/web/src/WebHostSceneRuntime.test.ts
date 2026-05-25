@@ -216,6 +216,101 @@ test("runtime redraws only damaged cells when a compatible frame includes damage
   }
 });
 
+test("runtime clears stale overlay text when dirty rects remove an overlay", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 24,
+      rows: 4,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {
+        fontSize: 20,
+        fontFamily: "Test Mono",
+      },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+
+    const canvas = dom.canvases[0]!;
+    const context = canvas.context;
+    context.operations = [];
+
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 24,
+      height: 4,
+      styles: [null],
+      rows: [
+        [[0, "Base content", 12, 0]],
+        [],
+        [],
+        [],
+      ],
+      images: [],
+    })));
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 24,
+      height: 4,
+      styles: [null],
+      rows: [
+        [[0, "Base content", 12, 0]],
+        [[0, "Command palette", 15, 0]],
+        [[0, "Search actions", 14, 0]],
+        [],
+      ],
+      images: [],
+      damage: {
+        textRows: [
+          [1, [[0, 24]]],
+          [2, [[0, 24]]],
+        ],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    })));
+
+    const overlayText = readCanvasTextLikePixels(canvas);
+    expect(overlayText).toContain("Command palette");
+    expect(overlayText).toContain("Search actions");
+
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 24,
+      height: 4,
+      styles: [null],
+      rows: [
+        [[0, "Base content", 12, 0]],
+        [],
+        [],
+        [],
+      ],
+      images: [],
+      damage: {
+        textRows: [
+          [1, [[0, 24]]],
+          [2, [[0, 24]]],
+        ],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    })));
+
+    const dismissedText = readCanvasTextLikePixels(canvas);
+    expect(dismissedText).not.toContain("Command palette");
+    expect(dismissedText).not.toContain("Search actions");
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime skips canvas drawing for compatible empty damage", async () => {
   const dom = installFakeDOM();
   try {
@@ -1136,6 +1231,82 @@ function drawImageOperations(
   context: RecordingCanvasContext
 ): RecordingCanvasOperation[] {
   return context.operations.filter((operation) => operation.type === "drawImage");
+}
+
+function readCanvasTextLikePixels(
+  canvas: FakeCanvasElement
+): string {
+  const textSamples = new Map<string, { x: number; y: number; text: string }>();
+
+  for (const operation of canvas.context.operations) {
+    if (operation.type === "clearRect") {
+      const rect = operationRect(operation);
+      if (!rect) {
+        continue;
+      }
+      for (const [key, sample] of textSamples) {
+        if (textSampleInRect(sample, rect)) {
+          textSamples.delete(key);
+        }
+      }
+      continue;
+    }
+
+    if (operation.type !== "fillText" || typeof operation.text !== "string") {
+      continue;
+    }
+    const x = Number(operation.x);
+    const y = Number(operation.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      continue;
+    }
+    textSamples.set(`${x}:${y}`, { x, y, text: operation.text });
+  }
+
+  const rows = new Map<number, Array<{ x: number; text: string }>>();
+  for (const sample of textSamples.values()) {
+    const row = rows.get(sample.y) ?? [];
+    row.push({ x: sample.x, text: sample.text });
+    rows.set(sample.y, row);
+  }
+
+  return Array.from(rows.entries())
+    .sort(([lhs], [rhs]) => lhs - rhs)
+    .map(([, row]) =>
+      row
+        .sort((lhs, rhs) => lhs.x - rhs.x)
+        .map((sample) => sample.text)
+        .join("")
+    )
+    .join("\n");
+}
+
+function operationRect(
+  operation: RecordingCanvasOperation
+): { x: number; y: number; width: number; height: number } | undefined {
+  const x = Number(operation.x);
+  const y = Number(operation.y);
+  const width = Number(operation.width);
+  const height = Number(operation.height);
+  if (
+    !Number.isFinite(x)
+    || !Number.isFinite(y)
+    || !Number.isFinite(width)
+    || !Number.isFinite(height)
+  ) {
+    return undefined;
+  }
+  return { x, y, width, height };
+}
+
+function textSampleInRect(
+  sample: { x: number; y: number },
+  rect: { x: number; y: number; width: number; height: number }
+): boolean {
+  return sample.x >= rect.x
+    && sample.x < rect.x + rect.width
+    && sample.y >= rect.y
+    && sample.y < rect.y + rect.height;
 }
 
 function childWithClass(
