@@ -77,6 +77,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   private readonly inputQueue?: SharedInputQueueBuffers;
   private readonly inputWriter?: SharedInputQueueWriter;
 
+  private detachBridgeInputListener?: () => void;
   private detachResizeListener?: () => void;
   private worker?: Worker;
   private didMount = false;
@@ -122,6 +123,9 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     }
 
     this.didMount = true;
+    this.detachBridgeInputListener = this.bridge?.stdin.subscribe((chunk) => {
+      this.inputWriter?.write(chunk);
+    });
     this.detachResizeListener = this.bridge?.subscribeResize((columns, rows, cellWidth, cellHeight) => {
       this.onSceneResize?.({
         sceneId: this.descriptor.id,
@@ -130,7 +134,6 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
         cellWidth,
         cellHeight,
       });
-      this.inputWriter?.write(encodeResizeControlMessage(columns, rows, cellWidth, cellHeight));
     });
 
     const initialColumns = Number(this.bridge?.environment.TUIGUI_COLUMNS ?? "0") || 0;
@@ -172,6 +175,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   }
 
   override dispose(): void {
+    this.detachBridgeInputListener?.();
     this.detachResizeListener?.();
     this.inputWriter?.close();
     this.worker?.terminate();

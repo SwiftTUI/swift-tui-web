@@ -488,15 +488,15 @@ export class WebHostSceneRuntime {
       return;
     }
 
-    const scale = globalThis.window?.devicePixelRatio || 1;
-    context.setTransform(scale, 0, 0, scale, 0, 0);
-    context.textBaseline = "alphabetic";
-
     const frame = this.currentFrame;
     const dirtyRects = frame ? this.dirtyRectsForDamage(damage, frame) : undefined;
     if (dirtyRects?.length === 0) {
       return;
     }
+
+    const scale = globalThis.window?.devicePixelRatio || 1;
+    context.setTransform(scale, 0, 0, scale, 0, 0);
+    context.textBaseline = "alphabetic";
 
     context.fillStyle = webTUITerminalBackgroundColor(this.currentStyle);
     if (dirtyRects) {

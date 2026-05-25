@@ -3,6 +3,7 @@ import {
   SharedInputQueueReader,
   type SharedInputQueueBuffers,
 } from "./SharedInputQueue.ts";
+import { WasiPollScheduler } from "./WasiPollScheduler.ts";
 
 export interface StartWasmSceneWorkerMessage {
   type: "start";
@@ -90,84 +91,51 @@ class BlockingInputFileDescriptor extends Fd {
       data: new Uint8Array(),
     };
   }
+
+  availableBytes(): number {
+    return this.reader.availableBytes();
+  }
+
+  waitForReadable(
+    timeoutMilliseconds?: number
+  ) {
+    return this.reader.waitForReadable(timeoutMilliseconds);
+  }
+
+  isClosed(): boolean {
+    return this.reader.isClosed();
+  }
 }
 
-function installEfficientClockPoll(
-  wasiBridge: WASI
+function installWasiPollScheduler(
+  wasiBridge: WASI,
+  stdin: BlockingInputFileDescriptor
 ): void {
   const originalPoll = wasiBridge.wasiImport.poll_oneoff;
   if (typeof originalPoll !== "function") {
     return;
   }
 
-  if (typeof SharedArrayBuffer === "undefined" || typeof Atomics.wait !== "function") {
-    return;
-  }
-
-  const waitBuffer = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-  wasiBridge.wasiImport.poll_oneoff = (inPtr: number, outPtr: number, nsubscriptions: number) => {
-    if (nsubscriptions !== 1) {
-      return originalPoll(inPtr, outPtr, nsubscriptions);
-    }
-
-    const memory = wasiBridge.inst?.exports.memory;
-    if (!memory) {
-      return originalPoll(inPtr, outPtr, nsubscriptions);
-    }
-
-    const view = new DataView(memory.buffer);
-    const subscription = wasi.Subscription.read_bytes(view, inPtr);
-    if (subscription.eventtype !== wasi.EVENTTYPE_CLOCK) {
-      return originalPoll(inPtr, outPtr, nsubscriptions);
-    }
-
-    const now = () => {
-      switch (subscription.clockid) {
-      case wasi.CLOCKID_MONOTONIC:
-        return BigInt(Math.round(performance.now() * 1_000_000));
-      case wasi.CLOCKID_REALTIME:
-        return BigInt(Date.now()) * 1_000_000n;
-      default:
-        return undefined;
-      }
-    };
-
-    const start = now();
-    if (start === undefined) {
-      return wasi.ERRNO_INVAL;
-    }
-
-    const deadline = (subscription.flags & wasi.SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME) !== 0
-      ? subscription.timeout
-      : start + subscription.timeout;
-    const remainingNanoseconds = deadline - start;
-    if (remainingNanoseconds > 0n) {
-      Atomics.wait(
-        waitBuffer,
-        0,
-        0,
-        Math.min(Number(remainingNanoseconds) / 1_000_000, 2_147_483_647)
-      );
-    }
-
-    new wasi.Event(
-      subscription.userdata,
-      wasi.ERRNO_SUCCESS,
-      subscription.eventtype
-    ).write_bytes(view, outPtr);
-    return wasi.ERRNO_SUCCESS;
-  };
+  const scheduler = new WasiPollScheduler({
+    memory: () => wasiBridge.inst?.exports.memory as WebAssembly.Memory | undefined,
+    stdin,
+    fallbackPoll: (inPtr, outPtr, nsubscriptions, neventsPtr) =>
+      originalPoll(inPtr, outPtr, nsubscriptions, neventsPtr),
+  });
+  wasiBridge.wasiImport.poll_oneoff = (inPtr, outPtr, nsubscriptions, neventsPtr) =>
+    scheduler.pollOneOff(inPtr, outPtr, nsubscriptions, neventsPtr);
 }
 
 async function startWasmScene(
   message: StartWasmSceneWorkerMessage
 ): Promise<void> {
   try {
+    const stdin = new BlockingInputFileDescriptor(message.inputQueue);
     const wasiBridge = new WASI(
       ["app.wasm"],
       Object.entries(message.environment).map(([key, value]) => `${key}=${value}`),
       [
-        new BlockingInputFileDescriptor(message.inputQueue),
+        stdin,
         new ConsoleStdout((chunk) => {
           postWorkerMessage({
             type: "stdout",
@@ -182,7 +150,7 @@ async function startWasmScene(
         }),
       ]
     );
-    installEfficientClockPoll(wasiBridge);
+    installWasiPollScheduler(wasiBridge, stdin);
 
     const response = await fetch(message.wasmURL);
     if (!response.ok) {

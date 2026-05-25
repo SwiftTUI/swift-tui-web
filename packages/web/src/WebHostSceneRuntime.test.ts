@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
 
-import { BrowserWASIBridge } from "./wasi/BrowserWASIBridge.ts";
+import {
+  BrowserWASIBridge,
+  encodeRenderStyleControlMessage,
+  encodeResizeControlMessage,
+} from "./wasi/BrowserWASIBridge.ts";
+import { SharedInputQueueReader } from "./wasi/SharedInputQueue.ts";
+import { createWasmSceneRuntimeFactory } from "./wasi/WasmSceneRuntime.ts";
 import { WebHostSceneRuntime } from "./WebHostSceneRuntime.ts";
 import { transportFixture } from "./WebHostTestFixtures.ts";
 
@@ -206,6 +212,189 @@ test("runtime redraws only damaged cells when a compatible frame includes damage
     expect(fillTextOperations(context, "A")).toEqual([]);
     expect(fillTextOperations(context, "D")).toEqual([]);
   } finally {
+    dom.restore();
+  }
+});
+
+test("runtime skips canvas drawing for compatible empty damage", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20, fontFamily: "Test Mono" },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[[0, "A", 1, 0]], []],
+      images: [],
+    })));
+
+    const context = dom.canvases[0]!.context;
+    context.operations = [];
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[[0, "A", 1, 0]], []],
+      images: [],
+      damage: {
+        textRows: [],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    })));
+
+    expect(context.operations).toEqual([]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("runtime clears dirty rows when an image disappears", async () => {
+  const dom = installFakeDOM({
+    createImageBitmap: async () => ({ imageId: "decoded-image" }),
+  });
+  try {
+    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20, fontFamily: "Test Mono" },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [
+        [[0, "A", 1, 0]],
+        [[0, "B", 1, 0]],
+      ],
+      images: [
+        {
+          id: "png:test",
+          format: "png",
+          bounds: [1, 1, 2, 1],
+          visibleBounds: [1, 1, 2, 1],
+          scalingMode: "stretch",
+          dataBase64: "iVBORw==",
+        },
+      ],
+    })));
+    await flushPromises();
+
+    const context = dom.canvases[0]!.context;
+    context.operations = [];
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [
+        [[0, "A", 1, 0]],
+        [[0, "B", 1, 0]],
+      ],
+      images: [],
+      damage: {
+        textRows: [[1, [[1, 3]]]],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    })));
+
+    expect(context.operations).toContainEqual({
+      type: "clearRect",
+      x: 10,
+      y: 27,
+      width: 20,
+      height: 27,
+    });
+    expect(drawImageOperations(context)).toEqual([]);
+    expect(fillTextOperations(context, "A")).toEqual([]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("WASI runtime forwards bridge control input into the worker queue", async () => {
+  const dom = installFakeDOM();
+  const previousWorker = globalThis.Worker;
+  const postedMessages: Array<{ inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0] }> = [];
+
+  class FakeWorker {
+    constructor(
+      _url: string | URL,
+      _options?: WorkerOptions
+    ) {}
+
+    addEventListener(
+      _type: string,
+      _listener: EventListener
+    ): void {}
+
+    postMessage(
+      message: { inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0] }
+    ): void {
+      postedMessages.push(message);
+    }
+
+    terminate(): void {}
+  }
+
+  globalThis.Worker = FakeWorker as unknown as typeof Worker;
+  try {
+    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+    const mount = new FakeElement("div");
+    const runtime = createWasmSceneRuntimeFactory(new URL("https://example.test/app.wasm"), {
+      workerModuleURL: "fake-worker.js",
+    })({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    const inputQueue = postedMessages[0]?.inputQueue;
+    if (!inputQueue) {
+      throw new Error("worker did not receive an input queue");
+    }
+    const reader = new SharedInputQueueReader(inputQueue);
+    reader.readAvailable(reader.availableBytes());
+
+    const style = { cursorBlink: true };
+    bridge.updateRenderStyle(style);
+    const styleBytes = reader.readAvailable(reader.availableBytes());
+    expect(Array.from(styleBytes ?? [])).toEqual(
+      Array.from(encodeRenderStyleControlMessage(style))
+    );
+
+    bridge.resize(10, 4, 9, 18);
+    const resizeBytes = reader.readAvailable(reader.availableBytes());
+    expect(Array.from(resizeBytes ?? [])).toEqual(
+      Array.from(encodeResizeControlMessage(10, 4, 9, 18))
+    );
+
+    runtime.dispose();
+  } finally {
+    globalThis.Worker = previousWorker;
     dom.restore();
   }
 });

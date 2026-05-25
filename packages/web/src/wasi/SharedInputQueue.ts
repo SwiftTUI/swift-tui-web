@@ -13,6 +13,8 @@ export interface SharedInputQueueBuffers {
   readonly dataBuffer: SharedArrayBuffer;
 }
 
+export type SharedInputReadiness = "readable" | "closed" | "timedOut";
+
 interface SharedInputQueueState {
   readonly control: Int32Array;
   readonly data: Uint8Array;
@@ -125,6 +127,36 @@ export class SharedInputQueueReader {
     const chunk = readFromRingBuffer(this.queue.data, readIndex, byteCount);
     Atomics.store(this.queue.control, ControlSlot.readIndex, readIndex + byteCount);
     return chunk;
+  }
+
+  availableBytes(): number {
+    const readIndex = Atomics.load(this.queue.control, ControlSlot.readIndex);
+    const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
+    return Math.max(0, writeIndex - readIndex);
+  }
+
+  waitForReadable(
+    timeoutMilliseconds?: number
+  ): SharedInputReadiness {
+    while (true) {
+      if (this.availableBytes() > 0) {
+        return "readable";
+      }
+      if (this.isClosed()) {
+        return "closed";
+      }
+
+      const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
+      const result = Atomics.wait(
+        this.queue.control,
+        ControlSlot.writeIndex,
+        writeIndex,
+        timeoutMilliseconds
+      );
+      if (result === "timed-out") {
+        return "timedOut";
+      }
+    }
   }
 
   isClosed(): boolean {
