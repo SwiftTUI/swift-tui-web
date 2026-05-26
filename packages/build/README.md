@@ -7,6 +7,10 @@ This package owns manifest generation, Swift WASI builds, browser
 outside `@swifttui/web` so browser runtime imports do not pull in Swift process
 spawning, Node filesystem APIs, or wasm packaging helpers.
 
+Publication status: the package name is reserved for the first public web
+release. Until it is published to npm or attached as a public release tarball,
+use the source checkout and the `swift-tui-examples/WebExample` template.
+
 ## API
 
 ```ts

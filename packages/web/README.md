@@ -6,6 +6,10 @@ This package owns browser-safe runtime APIs: scene manifest loading, canvas
 rendering, ARIA mounting, WebSocket scene bridges, and WASI scene bridges. Build
 tooling lives in the sibling [`@swifttui/build`](../build) workspace package.
 
+Publication status: the package name is reserved for the first public web
+release. Until it is published to npm or attached as a public release tarball,
+use the source checkout and the `swift-tui-examples/WebExample` template.
+
 ## Toolchains
 
 Use Bun for repo-local development of this package, and use the repo-default
@@ -21,9 +25,9 @@ swiftly run swift --version
 Native-only development should also work in Xcode, but the documented package
 and wasm build path uses `swiftly` plus Bun.
 
-This package now lives in the repo's Bun workspace. Run `bun install` from the
-repo root or from any workspace package directory, and Bun will maintain one
-root `bun.lock` plus stable relative workspace links.
+For source development, run `bun install` from the repo root or from any
+workspace package directory, and Bun will maintain one root `bun.lock` plus
+stable relative workspace links.
 
 ## Surface Transport
 

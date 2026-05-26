@@ -6,7 +6,7 @@ packages.
 
 ## What this repo is
 
-A Bun workspace with two published packages:
+A Bun workspace with two packages intended for public release:
 
 | Package | Path | Role |
 | --- | --- | --- |
@@ -37,5 +37,6 @@ bun run build:web   # build the web package's browser bundle
 ## Conventions
 
 `AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it. Edit `AGENTS.md`.
-This repo is consumed both standalone (npm) and as a submodule of
-`SwiftTUI/swift-tui-org`; keep it Bun/npm-consumable.
+This repo must remain Bun/npm-consumable. Public release work should publish
+`@swifttui/web` and `@swifttui/build` to npm or attach package tarballs to a
+tagged GitHub release.
