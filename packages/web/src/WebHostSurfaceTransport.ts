@@ -101,6 +101,25 @@ export interface WebHostSurfaceFrame {
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
 }
 
+export type WebHostSurfaceDeltaRow = [
+  row: number,
+  cells: WebHostSurfaceCell[],
+];
+
+export interface WebHostSurfaceDeltaFrame {
+  version: 3;
+  encoding: "delta";
+  sequence?: number;
+  width: number;
+  height: number;
+  styles: Array<WebHostSurfaceStyle | null>;
+  deltaRows: WebHostSurfaceDeltaRow[];
+  images?: WebHostSurfaceImage[];
+  damage?: WebHostSurfaceDamage;
+  accessibilityTree?: WebHostAccessibilityNode[];
+  accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
+}
+
 export interface WebHostRuntimeIssue {
   severity: "warning" | "error";
   code: string;
@@ -110,16 +129,24 @@ export interface WebHostRuntimeIssue {
   source?: string;
 }
 
+export interface WebHostFrameDiagnosticRecord {
+  format: "swift-tui-frame-diagnostics-v1";
+  header: string[];
+  fields: string[];
+}
+
 export type WebHostOutputRecord =
   | { type: "surface"; frame: WebHostSurfaceFrame }
   | { type: "clipboard"; text: string }
   | { type: "runtimeIssue"; issue: WebHostRuntimeIssue }
+  | { type: "frameDiagnostic"; diagnostic: WebHostFrameDiagnosticRecord }
   | { type: "text"; text: string };
 
 export interface WebHostOutputSink {
   presentSurface(frame: WebHostSurfaceFrame): void;
   writeClipboard?(text: string): void | Promise<void>;
   notifyRuntimeIssue?(issue: WebHostRuntimeIssue): void;
+  recordFrameDiagnostic?(diagnostic: WebHostFrameDiagnosticRecord): void;
   writeOutput?(text: string): void;
   writeError?(text: string): void;
 }
@@ -158,6 +185,7 @@ const textEncoder = new TextEncoder();
 export class WebHostOutputDecoder {
   private readonly textDecoder = new TextDecoder();
   private bufferedText = "";
+  private lastSurfaceFrame?: WebHostSurfaceFrame;
 
   feed(
     chunk: Uint8Array
@@ -222,6 +250,19 @@ export class WebHostOutputDecoder {
       return { type: "text", text: `${line}\n` };
     }
 
+    if (line.startsWith(`${recordPrefix}frameDiagnostic:`)) {
+      try {
+        const record = JSON.parse(line.slice(`${recordPrefix}frameDiagnostic:`.length));
+        if (isWebHostFrameDiagnosticRecord(record)) {
+          return { type: "frameDiagnostic", diagnostic: record };
+        }
+      } catch {
+        // Fall through to the text path below so malformed output remains visible.
+      }
+
+      return { type: "text", text: `${line}\n` };
+    }
+
     if (!line.startsWith(`${recordPrefix}surface:`)) {
       return { type: "text", text: `${line}\n` };
     }
@@ -229,13 +270,51 @@ export class WebHostOutputDecoder {
     try {
       const frame = JSON.parse(line.slice(`${recordPrefix}surface:`.length));
       if (isWebHostSurfaceFrame(frame)) {
+        this.lastSurfaceFrame = frame;
         return { type: "surface", frame };
+      }
+      if (isWebHostSurfaceDeltaFrame(frame)) {
+        const materialized = this.materializeDeltaFrame(frame);
+        if (materialized) {
+          this.lastSurfaceFrame = materialized;
+          return { type: "surface", frame: materialized };
+        }
       }
     } catch {
       // Fall through to the text path below so malformed output remains visible.
     }
 
     return { type: "text", text: `${line}\n` };
+  }
+
+  private materializeDeltaFrame(
+    frame: WebHostSurfaceDeltaFrame
+  ): WebHostSurfaceFrame | undefined {
+    const baseline = this.lastSurfaceFrame;
+    if (!baseline || baseline.width !== frame.width || baseline.height !== frame.height) {
+      return undefined;
+    }
+
+    const rows = baseline.rows.slice();
+    for (const [row, cells] of frame.deltaRows) {
+      if (!Number.isSafeInteger(row) || row < 0 || row >= frame.height) {
+        return undefined;
+      }
+      rows[row] = cells;
+    }
+
+    return {
+      version: baseline.version,
+      sequence: frame.sequence,
+      width: frame.width,
+      height: frame.height,
+      styles: frame.styles,
+      rows,
+      images: frame.images,
+      damage: frame.damage,
+      accessibilityTree: frame.accessibilityTree,
+      accessibilityAnnouncements: frame.accessibilityAnnouncements,
+    };
   }
 }
 
@@ -258,6 +337,20 @@ function isWebHostRuntimeIssue(
     && typeof record.description === "string"
     && (record.identity === undefined || typeof record.identity === "string")
     && (record.source === undefined || typeof record.source === "string");
+}
+
+function isWebHostFrameDiagnosticRecord(
+  value: unknown
+): value is WebHostFrameDiagnosticRecord {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Partial<WebHostFrameDiagnosticRecord>;
+  return record.format === "swift-tui-frame-diagnostics-v1"
+    && Array.isArray(record.header)
+    && record.header.every((field) => typeof field === "string")
+    && Array.isArray(record.fields)
+    && record.fields.every((field) => typeof field === "string");
 }
 
 export function encodeResizeControlMessage(
@@ -341,6 +434,7 @@ function isWebHostSurfaceFrame(
     && typeof frame.height === "number"
     && Array.isArray(frame.styles)
     && Array.isArray(frame.rows)
+    && frame.rows.every(isWebHostSurfaceRow)
     && (frame.images === undefined || isWebHostSurfaceImages(frame.images))
     && (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage))
     && (
@@ -351,6 +445,66 @@ function isWebHostSurfaceFrame(
       frame.accessibilityAnnouncements === undefined
         || isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)
     );
+}
+
+function isWebHostSurfaceDeltaFrame(
+  value: unknown
+): value is WebHostSurfaceDeltaFrame {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const frame = value as Partial<WebHostSurfaceDeltaFrame>;
+  return frame.version === 3
+    && frame.encoding === "delta"
+    && (
+      frame.sequence === undefined
+        || (Number.isSafeInteger(frame.sequence) && frame.sequence >= 0)
+    )
+    && typeof frame.width === "number"
+    && typeof frame.height === "number"
+    && Array.isArray(frame.styles)
+    && Array.isArray(frame.deltaRows)
+    && frame.deltaRows.every(isWebHostSurfaceDeltaRow)
+    && (frame.images === undefined || isWebHostSurfaceImages(frame.images))
+    && (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage))
+    && (
+      frame.accessibilityTree === undefined
+        || isWebHostAccessibilityNodes(frame.accessibilityTree)
+    )
+    && (
+      frame.accessibilityAnnouncements === undefined
+        || isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)
+    );
+}
+
+function isWebHostSurfaceDeltaRow(
+  value: unknown
+): value is WebHostSurfaceDeltaRow {
+  return Array.isArray(value)
+    && value.length === 2
+    && Number.isSafeInteger(value[0])
+    && value[0] >= 0
+    && isWebHostSurfaceRow(value[1]);
+}
+
+function isWebHostSurfaceRow(
+  value: unknown
+): value is WebHostSurfaceCell[] {
+  return Array.isArray(value) && value.every(isWebHostSurfaceCell);
+}
+
+function isWebHostSurfaceCell(
+  value: unknown
+): value is WebHostSurfaceCell {
+  return Array.isArray(value)
+    && value.length === 4
+    && Number.isSafeInteger(value[0])
+    && value[0] >= 0
+    && typeof value[1] === "string"
+    && Number.isSafeInteger(value[2])
+    && value[2] >= 1
+    && Number.isSafeInteger(value[3])
+    && value[3] >= 0;
 }
 
 function isWebHostAccessibilityNodes(

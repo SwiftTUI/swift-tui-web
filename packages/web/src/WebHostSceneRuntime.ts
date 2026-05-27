@@ -14,6 +14,7 @@ import {
   encodeKeyInputMessage,
   encodeMouseInputMessage,
   encodePasteInputMessage,
+  type WebHostFrameDiagnosticRecord,
   type WebHostOutputSink,
   type WebHostKeyInput,
   type WebHostRuntimeIssue,
@@ -39,6 +40,7 @@ export interface WebHostSceneRuntimeOptions {
   style: WebHostTerminalStyle;
   bridge?: WebHostSceneBridge;
   onInput(chunk: Uint8Array): void;
+  onFrameDiagnostic?: (diagnostic: WebHostFrameDiagnosticRecord) => void;
   synchronizeAccessibilityFocus?: boolean;
   captureWheelInput?: boolean;
 }
@@ -62,6 +64,7 @@ export class WebHostSceneRuntime {
 
   private readonly bridge?: WebHostSceneBridge;
   private readonly onInput: (chunk: Uint8Array) => void;
+  private readonly onFrameDiagnostic?: (diagnostic: WebHostFrameDiagnosticRecord) => void;
   private readonly synchronizeAccessibilityFocus: boolean;
   private readonly captureWheelInput: boolean;
   private readonly imageCache = new Map<string, CachedWebHostImage>();
@@ -91,6 +94,7 @@ export class WebHostSceneRuntime {
     this.currentStyle = normalizeWebHostTerminalStyle(options.style);
     this.bridge = options.bridge;
     this.onInput = options.onInput;
+    this.onFrameDiagnostic = options.onFrameDiagnostic;
     this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
     this.captureWheelInput = options.captureWheelInput ?? true;
     this.element = document.createElement("section");
@@ -133,6 +137,7 @@ export class WebHostSceneRuntime {
       presentSurface: (frame) => this.presentSurface(frame),
       writeClipboard: (text) => this.writeClipboard(text),
       notifyRuntimeIssue: (issue) => this.notifyRuntimeIssue(issue),
+      recordFrameDiagnostic: (diagnostic) => this.recordFrameDiagnostic(diagnostic),
       writeOutput: (text) => this.writeOutput(text),
       writeError: (text) => this.writeOutput(text),
     });
@@ -196,6 +201,12 @@ export class WebHostSceneRuntime {
     issue: WebHostRuntimeIssue
   ): void {
     console.log(issue.description);
+  }
+
+  private recordFrameDiagnostic(
+    diagnostic: WebHostFrameDiagnosticRecord
+  ): void {
+    this.onFrameDiagnostic?.(diagnostic);
   }
 
   async writeClipboard(

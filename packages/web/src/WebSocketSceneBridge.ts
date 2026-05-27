@@ -161,6 +161,9 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     case "runtimeIssue":
       sink.notifyRuntimeIssue?.(record.issue);
       break;
+    case "frameDiagnostic":
+      sink.recordFrameDiagnostic?.(record.diagnostic);
+      break;
     case "text":
       sink.writeOutput?.(record.text);
       break;

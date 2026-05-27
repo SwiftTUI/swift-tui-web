@@ -45,6 +45,7 @@ export class BrowserWASIBridge {
     this.environment = {
       TUIGUI_MODE: "browser",
       TUIGUI_TRANSPORT: "surface",
+      TUIGUI_SURFACE_DELTA: "1",
       TUIGUI_SCENE: options.sceneId,
       TUIGUI_COLUMNS: String(Math.max(1, options.columns)),
       TUIGUI_ROWS: String(Math.max(1, options.rows)),
@@ -77,6 +78,12 @@ export class BrowserWASIBridge {
           break;
         case "clipboard":
           void sink.writeClipboard?.(record.text);
+          break;
+        case "runtimeIssue":
+          sink.notifyRuntimeIssue?.(record.issue);
+          break;
+        case "frameDiagnostic":
+          sink.recordFrameDiagnostic?.(record.diagnostic);
           break;
         case "text":
           sink.writeOutput?.(record.text);

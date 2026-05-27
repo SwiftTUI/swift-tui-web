@@ -106,11 +106,13 @@ test("bridge decodes websocket output and sends queued input when the socket ope
   const text: string[] = [];
   const clipboard: string[] = [];
   const runtimeIssues: unknown[] = [];
+  const frameDiagnostics: unknown[] = [];
 
   bridge.bindOutput({
     presentSurface: (frame) => frames.push(frame),
     writeClipboard: (value) => clipboard.push(value),
     notifyRuntimeIssue: (issue) => runtimeIssues.push(issue),
+    recordFrameDiagnostic: (diagnostic) => frameDiagnostics.push(diagnostic),
     writeOutput: (chunk) => text.push(chunk),
   });
 
@@ -127,6 +129,8 @@ test("bridge decodes websocket output and sends queued input when the socket ope
       + '\u001EruntimeIssue:{"severity":"warning","code":"toolbar.unhostedItems",'
       + '"message":"Toolbar item was not rendered",'
       + '"description":"SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered"}\n'
+      + '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",'
+      + '"header":["frame","total_ms"],"fields":["7","14.20"]}\n'
       + "legacy output\n"
   ));
   await Promise.resolve();
@@ -144,6 +148,13 @@ test("bridge decodes websocket output and sends queued input when the socket ope
       code: "toolbar.unhostedItems",
       message: "Toolbar item was not rendered",
       description: "SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered",
+    },
+  ]);
+  expect(frameDiagnostics).toEqual([
+    {
+      format: "swift-tui-frame-diagnostics-v1",
+      header: ["frame", "total_ms"],
+      fields: ["7", "14.20"],
     },
   ]);
   expect(text).toEqual(["legacy output\n"]);

@@ -971,6 +971,46 @@ test("runtime keeps diagnostic stdout visible when output is not a surface frame
   }
 });
 
+test("runtime reports frame diagnostics without rendering them as terminal text", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const diagnostics: unknown[] = [];
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      bridge,
+      onInput: () => {},
+      onFrameDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+
+    await runtime.mount();
+    bridge.stdout.write(encoder.encode(
+      '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",'
+        + '"header":["frame","total_ms"],"fields":["7","14.20"]}\n'
+    ));
+
+    expect(diagnostics).toEqual([
+      {
+        format: "swift-tui-frame-diagnostics-v1",
+        header: ["frame", "total_ms"],
+        fields: ["7", "14.20"],
+      },
+    ]);
+    expect(runtime.terminalMount.children.some(
+      (child) => child.className === "webhost-scene__diagnostic"
+    )).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime maps browser input events to web-surface messages", async () => {
   const dom = installFakeDOM();
   try {

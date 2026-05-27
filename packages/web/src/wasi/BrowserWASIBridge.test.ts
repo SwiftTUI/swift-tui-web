@@ -45,12 +45,26 @@ test("bridge seeds initial render style and emits runtime style updates", async 
     bridge.environment.TUIGUI_RENDER_STYLE
   ).toBe(encodeWebHostTerminalRenderStyleBase64(style));
   expect(bridge.environment.TUIGUI_TRANSPORT).toBe("surface");
+  expect(bridge.environment.TUIGUI_SURFACE_DELTA).toBe("1");
 
   bridge.updateRenderStyle(style);
   const input = await bridge.stdin.read();
   expect(Array.from(input ?? [])).toEqual(
     Array.from(encodeRenderStyleControlMessage(style))
   );
+});
+
+test("bridge allows callers to disable surface delta support", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+    environment: {
+      TUIGUI_SURFACE_DELTA: "0",
+    },
+  });
+
+  expect(bridge.environment.TUIGUI_SURFACE_DELTA).toBe("0");
 });
 
 test("bridge resize updates environment, emits control input, and notifies listeners", async () => {
@@ -108,4 +122,47 @@ test("bridge delivers typed clipboard output to sinks", () => {
   bridge.stdout.write(new TextEncoder().encode('\u001Eclipboard:{"text":"copied text"}\n'));
 
   expect(clipboard).toEqual(["copied text"]);
+});
+
+test("bridge delivers typed runtime issues and frame diagnostics to sinks", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  const runtimeIssues: unknown[] = [];
+  const frameDiagnostics: unknown[] = [];
+  const text: string[] = [];
+
+  bridge.bindOutput({
+    presentSurface: () => {},
+    notifyRuntimeIssue: (issue) => runtimeIssues.push(issue),
+    recordFrameDiagnostic: (diagnostic) => frameDiagnostics.push(diagnostic),
+    writeOutput: (chunk) => text.push(chunk),
+  });
+
+  bridge.stdout.write(new TextEncoder().encode(
+    '\u001EruntimeIssue:{"severity":"warning","code":"toolbar.unhostedItems",'
+      + '"message":"Toolbar item was not rendered",'
+      + '"description":"SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered"}\n'
+      + '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",'
+      + '"header":["frame","total_ms"],"fields":["7","14.20"]}\n'
+  ));
+
+  expect(runtimeIssues).toEqual([
+    {
+      severity: "warning",
+      code: "toolbar.unhostedItems",
+      message: "Toolbar item was not rendered",
+      description: "SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered",
+    },
+  ]);
+  expect(frameDiagnostics).toEqual([
+    {
+      format: "swift-tui-frame-diagnostics-v1",
+      header: ["frame", "total_ms"],
+      fields: ["7", "14.20"],
+    },
+  ]);
+  expect(text).toEqual([]);
 });

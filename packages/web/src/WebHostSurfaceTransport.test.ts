@@ -196,6 +196,135 @@ test("decoder reads typed runtime issue records", () => {
   ]);
 });
 
+test("decoder keeps malformed runtime issue records visible as text", () => {
+  const decoder = new WebHostOutputDecoder();
+  const line = '\u001EruntimeIssue:{"severity":"warning","code":"toolbar.unhostedItems",'
+    + '"message":7,'
+    + '"description":"SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered"}\n';
+
+  expect(decoder.feed(encoder.encode(line))).toEqual([
+    {
+      type: "text",
+      text: line,
+    },
+  ]);
+});
+
+test("decoder reads typed frame diagnostic records", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",'
+      + '"header":["frame","total_ms"],"fields":["7","14.20"]}\n'
+  ));
+
+  expect(records).toEqual([
+    {
+      type: "frameDiagnostic",
+      diagnostic: {
+        format: "swift-tui-frame-diagnostics-v1",
+        header: ["frame", "total_ms"],
+        fields: ["7", "14.20"],
+      },
+    },
+  ]);
+});
+
+test("decoder keeps malformed frame diagnostic records visible as text", () => {
+  const decoder = new WebHostOutputDecoder();
+  const line = '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",'
+    + '"header":["frame"],"fields":[7]}\n';
+
+  expect(decoder.feed(encoder.encode(line))).toEqual([
+    {
+      type: "text",
+      text: line,
+    },
+  ]);
+});
+
+test("decoder materializes delta surface frames from a full baseline", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    '\u001Esurface:{"version":2,"width":2,"height":2,"styles":[null],'
+      + '"rows":[[[0,"A",1,0]],[[0,"B",1,0]]],"images":[]}\n'
+      + '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":2,'
+      + '"sequence":7,"styles":[null],"deltaRows":[[1,[[0,"C",1,0]]]],"images":[],'
+      + '"damage":{"textRows":[[1,[[0,1]]]],'
+      + '"requiresFullTextRepaint":false,"requiresFullGraphicsReplay":false}}\n'
+  ));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "surface"]);
+  expect(surfaceFrame(records[1])).toEqual({
+    version: 2,
+    sequence: 7,
+    width: 2,
+    height: 2,
+    styles: [null],
+    rows: [
+      [[0, "A", 1, 0]],
+      [[0, "C", 1, 0]],
+    ],
+    images: [],
+    damage: {
+      textRows: [[1, [[0, 1]]]],
+      requiresFullTextRepaint: false,
+      requiresFullGraphicsReplay: false,
+    },
+  });
+});
+
+test("decoder keeps delta surface output before any full baseline visible as text", () => {
+  const decoder = new WebHostOutputDecoder();
+  const line = '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":2,'
+    + '"styles":[null],"deltaRows":[[1,[[0,"C",1,0]]]],"images":[]}\n';
+
+  expect(decoder.feed(encoder.encode(line))).toEqual([
+    {
+      type: "text",
+      text: line,
+    },
+  ]);
+});
+
+test("decoder keeps delta surface output with changed dimensions visible as text", () => {
+  const decoder = new WebHostOutputDecoder();
+  const baseline = '\u001Esurface:{"version":2,"width":2,"height":2,"styles":[null],'
+    + '"rows":[[[0,"A",1,0]],[[0,"B",1,0]]]}\n';
+  const delta = '\u001Esurface:{"version":3,"encoding":"delta","width":3,"height":2,'
+    + '"styles":[null],"deltaRows":[[1,[[0,"C",1,0]]]],"images":[]}\n';
+
+  const records = decoder.feed(encoder.encode(baseline + delta));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "text"]);
+  expect(records[1]).toEqual({ type: "text", text: delta });
+});
+
+test("decoder keeps delta surface output with out-of-range row indexes visible as text", () => {
+  const decoder = new WebHostOutputDecoder();
+  const baseline = '\u001Esurface:{"version":2,"width":2,"height":2,"styles":[null],'
+    + '"rows":[[[0,"A",1,0]],[[0,"B",1,0]]]}\n';
+  const delta = '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":2,'
+    + '"styles":[null],"deltaRows":[[2,[[0,"C",1,0]]]],"images":[]}\n';
+
+  const records = decoder.feed(encoder.encode(baseline + delta));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "text"]);
+  expect(records[1]).toEqual({ type: "text", text: delta });
+});
+
+test("decoder keeps delta surface output with malformed cells visible as text", () => {
+  const decoder = new WebHostOutputDecoder();
+  const baseline = '\u001Esurface:{"version":2,"width":2,"height":2,"styles":[null],'
+    + '"rows":[[[0,"A",1,0]],[[0,"B",1,0]]]}\n';
+  const delta = '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":2,'
+    + '"styles":[null],"deltaRows":[[1,[["not-a-cell"],[1,"C",1,"bad-style"]]]],"images":[]}\n';
+
+  const records = decoder.feed(encoder.encode(baseline + delta));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "text"]);
+  expect(records[1]).toEqual({ type: "text", text: delta });
+});
+
 test("decoder flushes partial buffered text as diagnostic output", () => {
   const decoder = new WebHostOutputDecoder();
 
