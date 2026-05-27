@@ -14,16 +14,20 @@ process spawning and filesystem work.
 
 ## Installation
 
-These package names are reserved for the first public web release. After the
-packages are published, consumers will install both:
+The `0.0.1` public pre-release is available as npm-compatible tarballs attached
+to the GitHub release:
+
+```bash
+npm install \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.1/swifttui-web-0.0.1.tgz \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.1/swifttui-build-0.0.1.tgz
+```
+
+After npm publication, consumers can install the package names directly:
 
 ```bash
 npm install @swifttui/web @swifttui/build
 ```
-
-Until then, use this source checkout and the
-[`WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample)
-template to evaluate the browser path.
 
 ## Basic Use
 
@@ -71,6 +75,6 @@ bun run pack:web
 bun run pack:build
 ```
 
-Remaining public-release work: publish both packages to npm, or attach those
-tarballs to a tagged public GitHub release so downstream repos can depend on
-stable HTTPS artifacts.
+The GitHub release tarballs are the public dependency path for `0.0.1`. npm
+publication is the remaining packaging follow-up once npm credentials are
+available.
