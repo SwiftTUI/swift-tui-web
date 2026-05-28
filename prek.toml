@@ -1,0 +1,20 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+#
+# Hooks run against the staged change being committed (prek's default
+# scope), so biome's in-place rewrites only touch the files in the commit.
+# biome runs via `bunx` at a pinned version so no global install is needed.
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "biome",
+    name = "biome check (format + lint)",
+    entry = "bunx @biomejs/biome@2.4.16 check --write --files-ignore-unknown=true",
+    language = "system",
+    files = '\.(js|jsx|ts|tsx|mjs|cjs)$',
+    pass_filenames = true
+  },
+]
