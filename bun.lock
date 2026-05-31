@@ -7,7 +7,7 @@
     },
     "packages/build": {
       "name": "@swifttui/build",
-      "version": "0.0.6",
+      "version": "0.0.7",
       "bin": {
         "swifttui-web": "./cli.ts",
       },
@@ -23,7 +23,7 @@
     },
     "packages/web": {
       "name": "@swifttui/web",
-      "version": "0.0.6",
+      "version": "0.0.7",
       "dependencies": {
         "@bjorn3/browser_wasi_shim": "^0.4.2",
       },
