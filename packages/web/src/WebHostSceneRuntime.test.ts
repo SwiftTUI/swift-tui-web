@@ -216,6 +216,72 @@ test("runtime redraws only damaged cells when a compatible frame includes damage
   }
 });
 
+test("runtime redraws spanning cells that overlap a dirty range", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 6,
+      rows: 1,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {
+        fontSize: 20,
+        fontFamily: "Test Mono",
+      },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+
+    const canvas = dom.canvases[0]!;
+    const context = canvas.context;
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 6,
+      height: 1,
+      styles: [null],
+      rows: [
+        [[0, "Wide", 4, 0], [4, "Z", 1, 0]],
+      ],
+      images: [],
+    })));
+
+    context.operations = [];
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 6,
+      height: 1,
+      styles: [null],
+      rows: [
+        [[0, "wide", 4, 0], [4, "Z", 1, 0]],
+      ],
+      images: [],
+      damage: {
+        textRows: [[0, [[2, 3]]]],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    })));
+
+    expect(context.operations).toContainEqual({
+      type: "clearRect",
+      x: 20,
+      y: 0,
+      width: 10,
+      height: 27,
+    });
+    expect(fillTextOperations(context, "wide")).toHaveLength(1);
+    expect(fillTextOperations(context, "Z")).toEqual([]);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime clears stale overlay text when dirty rects remove an overlay", async () => {
   const dom = installFakeDOM();
   try {

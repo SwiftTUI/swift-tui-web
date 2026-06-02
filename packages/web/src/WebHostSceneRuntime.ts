@@ -57,6 +57,18 @@ interface DirtyRect {
   height: number;
 }
 
+interface DirtyCellRange {
+  start: number;
+  end: number;
+}
+
+type DirtyRowRanges = "full" | DirtyCellRange[];
+
+interface DirtyRegion {
+  rects: DirtyRect[];
+  rows: Map<number, DirtyRowRanges>;
+}
+
 export class WebHostSceneRuntime {
   readonly descriptor: WebHostSceneDescriptor;
   readonly element: HTMLElement;
@@ -500,8 +512,8 @@ export class WebHostSceneRuntime {
     }
 
     const frame = this.currentFrame;
-    const dirtyRects = frame ? this.dirtyRectsForDamage(damage, frame) : undefined;
-    if (dirtyRects?.length === 0) {
+    const dirtyRegion = frame ? this.dirtyRegionForDamage(damage, frame) : undefined;
+    if (dirtyRegion?.rects.length === 0) {
       return;
     }
 
@@ -510,8 +522,8 @@ export class WebHostSceneRuntime {
     context.textBaseline = "alphabetic";
 
     context.fillStyle = webTUITerminalBackgroundColor(this.currentStyle);
-    if (dirtyRects) {
-      for (const rect of dirtyRects) {
+    if (dirtyRegion) {
+      for (const rect of dirtyRegion.rects) {
         context.clearRect(rect.x, rect.y, rect.width, rect.height);
         context.fillRect(rect.x, rect.y, rect.width, rect.height);
       }
@@ -524,26 +536,43 @@ export class WebHostSceneRuntime {
       return;
     }
 
-    this.drawRows(context, frame, dirtyRects);
-    this.drawImages(context, frame.images ?? [], dirtyRects);
+    this.drawRows(context, frame, dirtyRegion);
+    this.drawImages(context, frame.images ?? [], dirtyRegion);
   }
 
   private drawRows(
     context: CanvasRenderingContext2D,
     frame: WebHostSurfaceFrame,
-    dirtyRects?: DirtyRect[]
+    dirtyRegion?: DirtyRegion
   ): void {
+    if (dirtyRegion) {
+      for (const [y, ranges] of dirtyRegion.rows) {
+        const row = frame.rows[y] ?? [];
+        this.drawRow(context, frame, row, y, ranges);
+      }
+      return;
+    }
+
     for (let y = 0; y < frame.rows.length; y += 1) {
       const row = frame.rows[y] ?? [];
-      for (const cell of row) {
-        const [x, text, span, styleIndex] = cell;
-        const cellRect = this.cellRect(x, y, span);
-        if (dirtyRects && !dirtyRects.some((rect) => rectsIntersect(rect, cellRect))) {
-          continue;
-        }
-        const style = frame.styles[styleIndex] ?? undefined;
-        this.drawCell(context, x, y, text, span, style);
+      this.drawRow(context, frame, row, y);
+    }
+  }
+
+  private drawRow(
+    context: CanvasRenderingContext2D,
+    frame: WebHostSurfaceFrame,
+    row: WebHostSurfaceFrame["rows"][number],
+    y: number,
+    ranges?: DirtyRowRanges
+  ): void {
+    for (const cell of row) {
+      const [x, text, span, styleIndex] = cell;
+      if (ranges !== undefined && !cellIntersectsRanges(x, span, ranges)) {
+        continue;
       }
+      const style = frame.styles[styleIndex] ?? undefined;
+      this.drawCell(context, x, y, text, span, style);
     }
   }
 
@@ -564,17 +593,17 @@ export class WebHostSceneRuntime {
   private drawImages(
     context: CanvasRenderingContext2D,
     images: WebHostSurfaceImage[],
-    dirtyRects?: DirtyRect[]
+    dirtyRegion?: DirtyRegion
   ): void {
     for (const image of images) {
-      this.drawImage(context, image, dirtyRects);
+      this.drawImage(context, image, dirtyRegion);
     }
   }
 
   private drawImage(
     context: CanvasRenderingContext2D,
     image: WebHostSurfaceImage,
-    dirtyRects?: DirtyRect[]
+    dirtyRegion?: DirtyRegion
   ): void {
     const decodedImage = this.cachedImage(image);
     if (!decodedImage) {
@@ -586,13 +615,10 @@ export class WebHostSceneRuntime {
     if (boundsWidth <= 0 || boundsHeight <= 0 || clipWidth <= 0 || clipHeight <= 0) {
       return;
     }
-    const imageRect = {
-      x: clipX * this.cellWidth,
-      y: clipY * this.cellHeight,
-      width: clipWidth * this.cellWidth,
-      height: clipHeight * this.cellHeight,
-    };
-    if (dirtyRects && !dirtyRects.some((rect) => rectsIntersect(rect, imageRect))) {
+    if (
+      dirtyRegion
+      && !dirtyRegionIntersectsCellRect(dirtyRegion, clipX, clipY, clipWidth, clipHeight)
+    ) {
       return;
     }
 
@@ -686,23 +712,28 @@ export class WebHostSceneRuntime {
     context.globalAlpha = 1;
   }
 
-  private dirtyRectsForDamage(
+  private dirtyRegionForDamage(
     damage: WebHostSurfaceDamage | undefined,
     frame: WebHostSurfaceFrame
-  ): DirtyRect[] | undefined {
+  ): DirtyRegion | undefined {
     if (!damage || damage.requiresFullTextRepaint || damage.requiresFullGraphicsReplay) {
       return undefined;
     }
 
     const rects: DirtyRect[] = [];
+    const rows = new Map<number, DirtyRowRanges>();
     for (const [row, ranges] of damage.textRows) {
       if (row < 0 || row >= frame.height) {
         continue;
       }
       if (ranges.length === 0) {
         rects.push(this.cellRect(0, row, frame.width));
+        rows.set(row, "full");
         continue;
       }
+      const rowRanges: DirtyCellRange[] = rows.get(row) === "full"
+        ? []
+        : [...(rows.get(row) as DirtyCellRange[] | undefined ?? [])];
       for (const [start, end] of ranges) {
         const lowerBound = Math.max(0, Math.min(frame.width, Math.floor(start)));
         const upperBound = Math.max(lowerBound, Math.min(frame.width, Math.ceil(end)));
@@ -710,9 +741,13 @@ export class WebHostSceneRuntime {
           continue;
         }
         rects.push(this.cellRect(lowerBound, row, upperBound - lowerBound));
+        rowRanges.push({ start: lowerBound, end: upperBound });
+      }
+      if (rows.get(row) !== "full" && rowRanges.length > 0) {
+        rows.set(row, normalizeCellRanges(rowRanges));
       }
     }
-    return rects;
+    return { rects, rows };
   }
 
   private cellRect(
@@ -924,14 +959,60 @@ function normalizedWheelDelta(
   return 0;
 }
 
-function rectsIntersect(
-  lhs: DirtyRect,
-  rhs: DirtyRect
+function normalizeCellRanges(
+  ranges: DirtyCellRange[]
+): DirtyCellRange[] {
+  const sorted = ranges
+    .filter((range) => range.end > range.start)
+    .sort((lhs, rhs) => lhs.start - rhs.start || lhs.end - rhs.end);
+  const normalized: DirtyCellRange[] = [];
+  for (const range of sorted) {
+    const previous = normalized[normalized.length - 1];
+    if (previous && range.start <= previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+      continue;
+    }
+    normalized.push({ ...range });
+  }
+  return normalized;
+}
+
+function cellIntersectsRanges(
+  x: number,
+  span: number,
+  ranges: DirtyRowRanges
 ): boolean {
-  return lhs.x < rhs.x + rhs.width
-    && lhs.x + lhs.width > rhs.x
-    && lhs.y < rhs.y + rhs.height
-    && lhs.y + lhs.height > rhs.y;
+  if (ranges === "full") {
+    return true;
+  }
+  const start = Math.floor(x);
+  const end = start + Math.max(1, Math.ceil(span));
+  return ranges.some((range) => start < range.end && end > range.start);
+}
+
+function dirtyRegionIntersectsCellRect(
+  region: DirtyRegion,
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): boolean {
+  const startRow = Math.max(0, Math.floor(y));
+  const endRow = Math.max(startRow, Math.ceil(y + height));
+  const rectRange = {
+    start: Math.floor(x),
+    end: Math.floor(x) + Math.max(1, Math.ceil(width)),
+  };
+  for (let row = startRow; row < endRow; row += 1) {
+    const ranges = region.rows.get(row);
+    if (!ranges) {
+      continue;
+    }
+    if (cellIntersectsRanges(rectRange.start, rectRange.end - rectRange.start, ranges)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function resolvedForeground(
