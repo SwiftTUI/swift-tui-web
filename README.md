@@ -14,13 +14,13 @@ process spawning and filesystem work.
 
 ## Installation
 
-The `0.0.9` public pre-release is available as npm-compatible tarballs attached
+The `0.0.10` public pre-release is available as npm-compatible tarballs attached
 to the GitHub release:
 
 ```bash
 npm install \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.9/swifttui-web-0.0.9.tgz \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.9/swifttui-build-0.0.9.tgz
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.10/swifttui-web-0.0.10.tgz \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.10/swifttui-build-0.0.10.tgz
 ```
 
 After npm publication, consumers can install the package names directly:
@@ -75,6 +75,6 @@ bun run pack:web
 bun run pack:build
 ```
 
-The GitHub release tarballs are the public dependency path for `0.0.9`. npm
+The GitHub release tarballs are the public dependency path for `0.0.10`. npm
 publication is the remaining packaging follow-up once npm credentials are
 available.
