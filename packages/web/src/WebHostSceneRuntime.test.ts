@@ -7,7 +7,7 @@ import {
 } from "./wasi/BrowserWASIBridge.ts";
 import { SharedInputQueueReader } from "./wasi/SharedInputQueue.ts";
 import { createWasmSceneRuntimeFactory } from "./wasi/WasmSceneRuntime.ts";
-import { WebHostSceneRuntime } from "./WebHostSceneRuntime.ts";
+import { WebHostSceneRuntime, type WheelMode } from "./WebHostSceneRuntime.ts";
 import { transportFixture } from "./WebHostTestFixtures.ts";
 
 const encoder = new TextEncoder();
@@ -1211,6 +1211,114 @@ test("runtime can run as a passive embed without stealing focus or wheel scroll"
   }
 });
 
+test("chain mode captures the wheel when a region under the pointer can scroll", async () => {
+  const dom = installFakeDOM();
+  try {
+    // Region covers the whole 4x2 surface; content is taller than the viewport
+    // and scrolled to the top, so a downward wheel has headroom.
+    const result = await wheelScenario({
+      wheelMode: "chain",
+      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] }],
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(true);
+    expect(result.wheelPrevented).toBe(true);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("chain mode lets the wheel fall through at the region's scroll edge", async () => {
+  const dom = installFakeDOM();
+  try {
+    // Same region, but scrolled to the bottom (offset.y == maxY == 10 - 2),
+    // so a further downward wheel has no headroom and must chain to the page.
+    const result = await wheelScenario({
+      wheelMode: "chain",
+      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] }],
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(false);
+    expect(result.wheelPrevented).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("chain mode captures an upward wheel when scrolled away from the top", async () => {
+  const dom = installFakeDOM();
+  try {
+    // At the bottom edge, downward chains but upward still has headroom.
+    const result = await wheelScenario({
+      wheelMode: "chain",
+      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] }],
+      wheel: { clientX: 5, clientY: 5, deltaY: -20 },
+    });
+    expect(result.captured).toBe(true);
+    expect(result.wheelPrevented).toBe(true);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("chain mode falls through when the pointer is outside every scroll region", async () => {
+  const dom = installFakeDOM();
+  try {
+    // Region only covers the right half (cells x>=2); wheel at cell (0,0).
+    const result = await wheelScenario({
+      wheelMode: "chain",
+      scrollRegions: [{ id: "list", rect: [2, 0, 2, 2], offset: [0, 0], content: [2, 10] }],
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(false);
+    expect(result.wheelPrevented).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("chain mode falls through when the scene publishes no scroll regions", async () => {
+  const dom = installFakeDOM();
+  try {
+    const result = await wheelScenario({
+      wheelMode: "chain",
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(false);
+    expect(result.wheelPrevented).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("capture mode always eats the wheel even without scroll regions", async () => {
+  const dom = installFakeDOM();
+  try {
+    const result = await wheelScenario({
+      wheelMode: "capture",
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(true);
+    expect(result.wheelPrevented).toBe(true);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("legacy captureWheelInput:true maps to capture mode", async () => {
+  const dom = installFakeDOM();
+  try {
+    const result = await wheelScenario({
+      captureWheelInput: true,
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(true);
+    expect(result.wheelPrevented).toBe(true);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime preserves pointer movement within one cell", async () => {
   const dom = installFakeDOM();
   try {
@@ -1441,6 +1549,62 @@ function childWithData(
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+// Drives a single wheel event over a 4x2 surface (cellWidth 10, cellHeight 27
+// under the fake DOM) with the given wheel mode and published scroll regions,
+// and reports whether the wheel was forwarded to the app and/or preventDefault'd.
+// Assumes a fake DOM is already installed by the caller.
+async function wheelScenario(options: {
+  wheelMode?: WheelMode;
+  captureWheelInput?: boolean;
+  scrollRegions?: Array<Record<string, unknown>>;
+  wheel: { clientX: number; clientY: number; deltaX?: number; deltaY?: number };
+}): Promise<{ captured: boolean; wheelPrevented: boolean }> {
+  const inputs: string[] = [];
+  const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+  const mount = new FakeElement("div");
+  const runtime = new WebHostSceneRuntime({
+    mount: mount as unknown as HTMLElement,
+    descriptor: { id: "main", title: "Main", isDefault: true },
+    style: { fontSize: 20 },
+    bridge,
+    onInput: (chunk) => {
+      inputs.push(decoder.decode(chunk));
+    },
+    synchronizeAccessibilityFocus: false,
+    wheelMode: options.wheelMode,
+    captureWheelInput: options.captureWheelInput,
+  });
+
+  await runtime.mount();
+  const frame: Record<string, unknown> = {
+    version: 2,
+    width: 4,
+    height: 2,
+    styles: [null],
+    rows: [[], []],
+  };
+  if (options.scrollRegions) {
+    frame.scrollRegions = options.scrollRegions;
+  }
+  bridge.stdout.write(encoder.encode(surfaceRecord(frame)));
+
+  let wheelPrevented = false;
+  runtime.terminalMount.dispatch("wheel", {
+    clientX: options.wheel.clientX,
+    clientY: options.wheel.clientY,
+    deltaX: options.wheel.deltaX ?? 0,
+    deltaY: options.wheel.deltaY ?? 0,
+    shiftKey: false,
+    altKey: false,
+    ctrlKey: false,
+    preventDefault() {
+      wheelPrevented = true;
+    },
+  });
+
+  return { captured: inputs.some((i) => i.includes("scrolled")), wheelPrevented };
 }
 
 function surfaceRecord(

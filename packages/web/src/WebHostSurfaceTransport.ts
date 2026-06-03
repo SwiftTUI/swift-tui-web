@@ -88,6 +88,25 @@ export interface WebHostSurfaceDamage {
   requiresFullGraphicsReplay: boolean;
 }
 
+/**
+ * Per-region scroll extent published with each frame so the host can implement
+ * scroll-chaining: capture the wheel only while the region under the pointer can
+ * still scroll in the wheel's direction, otherwise let it fall through to the
+ * page. The host recomputes the per-direction headroom from `offset`/`content`/
+ * the viewport `rect`, mirroring SwiftTUI's
+ * `min(max(0, offset), max(0, content - viewport))` clamp.
+ */
+export interface WebHostScrollRegion {
+  /** identity path — same key space as accessibility node ids */
+  id: string;
+  /** viewport rect in cells: [x, y, width, height] */
+  rect: WebHostSurfaceRect;
+  /** current clamped scroll offset in cells: [x, y] */
+  offset: WebHostAccessibilityPoint;
+  /** total content size in cells: [width, height] */
+  content: WebHostSurfaceSize;
+}
+
 export interface WebHostSurfaceFrame {
   version: 1 | 2;
   sequence?: number;
@@ -99,6 +118,7 @@ export interface WebHostSurfaceFrame {
   damage?: WebHostSurfaceDamage;
   accessibilityTree?: WebHostAccessibilityNode[];
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
+  scrollRegions?: WebHostScrollRegion[];
 }
 
 export type WebHostSurfaceDeltaRow = [
@@ -118,6 +138,7 @@ export interface WebHostSurfaceDeltaFrame {
   damage?: WebHostSurfaceDamage;
   accessibilityTree?: WebHostAccessibilityNode[];
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
+  scrollRegions?: WebHostScrollRegion[];
 }
 
 export interface WebHostRuntimeIssue {
@@ -314,6 +335,7 @@ export class WebHostOutputDecoder {
       damage: frame.damage,
       accessibilityTree: frame.accessibilityTree,
       accessibilityAnnouncements: frame.accessibilityAnnouncements,
+      scrollRegions: frame.scrollRegions,
     };
   }
 }
@@ -444,7 +466,8 @@ function isWebHostSurfaceFrame(
     && (
       frame.accessibilityAnnouncements === undefined
         || isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)
-    );
+    )
+    && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions));
 }
 
 function isWebHostSurfaceDeltaFrame(
@@ -474,7 +497,8 @@ function isWebHostSurfaceDeltaFrame(
     && (
       frame.accessibilityAnnouncements === undefined
         || isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)
-    );
+    )
+    && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions));
 }
 
 function isWebHostSurfaceDeltaRow(
@@ -623,6 +647,25 @@ function isWebHostSurfaceImageFormat(
   value: unknown
 ): value is WebHostSurfaceImageFormat {
   return value === "png" || value === "jpeg" || value === "gif";
+}
+
+function isWebHostScrollRegions(
+  value: unknown
+): value is WebHostScrollRegion[] {
+  return Array.isArray(value) && value.every(isWebHostScrollRegion);
+}
+
+function isWebHostScrollRegion(
+  value: unknown
+): value is WebHostScrollRegion {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const region = value as Partial<WebHostScrollRegion>;
+  return typeof region.id === "string"
+    && isWebHostSurfaceRect(region.rect)
+    && isWebHostSurfaceSize(region.offset)
+    && isWebHostSurfaceSize(region.content);
 }
 
 function isWebHostSurfaceRect(

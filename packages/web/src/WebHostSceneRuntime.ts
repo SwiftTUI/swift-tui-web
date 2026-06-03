@@ -18,6 +18,7 @@ import {
   type WebHostOutputSink,
   type WebHostKeyInput,
   type WebHostRuntimeIssue,
+  type WebHostScrollRegion,
   type WebHostSurfaceDamage,
   type WebHostSurfaceFrame,
   type WebHostSurfaceImage,
@@ -42,8 +43,27 @@ export interface WebHostSceneRuntimeOptions {
   onInput(chunk: Uint8Array): void;
   onFrameDiagnostic?: (diagnostic: WebHostFrameDiagnosticRecord) => void;
   synchronizeAccessibilityFocus?: boolean;
+  /**
+   * How the embedded view treats mouse-wheel input.
+   * - `"capture"`: always forward the wheel to the app while the pointer is over
+   *   the surface (and `preventDefault` page scroll). Legacy default.
+   * - `"chain"`: forward the wheel only while a scrollable region under the
+   *   pointer can still scroll in that direction; otherwise let it fall through
+   *   so the page (or parent iframe) scrolls. Requires the app to publish
+   *   `scrollRegions` in its frames.
+   * - `"passive"`: never capture; the page always scrolls.
+   *
+   * Takes precedence over the legacy `captureWheelInput` flag.
+   */
+  wheelMode?: WheelMode;
+  /**
+   * Legacy boolean wheel gate. `true` → `"capture"`, `false` → `"passive"`.
+   * Prefer `wheelMode`. Ignored when `wheelMode` is set.
+   */
   captureWheelInput?: boolean;
 }
+
+export type WheelMode = "capture" | "chain" | "passive";
 
 interface CachedWebHostImage {
   image?: CanvasImageSource;
@@ -78,7 +98,7 @@ export class WebHostSceneRuntime {
   private readonly onInput: (chunk: Uint8Array) => void;
   private readonly onFrameDiagnostic?: (diagnostic: WebHostFrameDiagnosticRecord) => void;
   private readonly synchronizeAccessibilityFocus: boolean;
-  private readonly captureWheelInput: boolean;
+  private readonly wheelMode: WheelMode;
   private readonly imageCache = new Map<string, CachedWebHostImage>();
   private currentStyle: ResolvedWebHostTerminalStyle;
   private canvas?: HTMLCanvasElement;
@@ -108,7 +128,8 @@ export class WebHostSceneRuntime {
     this.onInput = options.onInput;
     this.onFrameDiagnostic = options.onFrameDiagnostic;
     this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
-    this.captureWheelInput = options.captureWheelInput ?? true;
+    this.wheelMode = options.wheelMode
+      ?? (options.captureWheelInput === false ? "passive" : "capture");
     this.element = document.createElement("section");
     this.element.className = "webhost-scene";
     this.element.dataset.sceneId = options.descriptor.id;
@@ -274,6 +295,9 @@ export class WebHostSceneRuntime {
 
     this.terminalMount.style.position = "relative";
     this.terminalMount.style.overflow = "hidden";
+    // Keep a captured wheel from rubber-banding/chaining the page; the wheel
+    // capture vs. fall-through decision lives in handleWheel.
+    this.terminalMount.style.overscrollBehavior = "contain";
     this.terminalMount.style.outline = "none";
     this.terminalMount.style.background = webTUITerminalBackgroundColor(this.currentStyle);
     this.terminalMount.style.minHeight = `${this.cellHeight * 8}px`;
@@ -390,12 +414,23 @@ export class WebHostSceneRuntime {
     };
 
     const handleWheel = (event: WheelEvent) => {
-      if (!this.captureWheelInput) {
+      if (this.wheelMode === "passive") {
         return;
       }
 
       const location = this.cellLocation(event);
       if (!location) {
+        // Pointer is outside the cell grid (sub-cell margin / gutter). Don't
+        // capture — let the wheel fall through to the page.
+        return;
+      }
+
+      // In "chain" mode, capture only while a scrollable region under the
+      // pointer can still move in this direction; otherwise let the wheel fall
+      // through so the page (or parent iframe) scrolls — iframe-like behavior.
+      // "capture" mode always forwards while over the surface (legacy).
+      if (this.wheelMode === "chain"
+        && !this.wheelTargetCanScroll(location, event.deltaX, event.deltaY)) {
         return;
       }
 
@@ -804,6 +839,41 @@ export class WebHostSceneRuntime {
     return `${italic}${weight}${this.currentStyle.fontSize}px ${this.currentStyle.fontFamily}`;
   }
 
+  /**
+   * Whether any scrollable region under `location` can still scroll in the
+   * wheel's direction. Mirrors the Swift host's scroll hit-test: a region
+   * qualifies when its viewport contains the cell AND it has remaining headroom
+   * in the delta's direction. Used by "chain" wheel mode to decide capture vs.
+   * fall-through. With no published `scrollRegions`, nothing can scroll, so the
+   * wheel chains to the page (a scene with no ScrollView stays fully passive).
+   */
+  private wheelTargetCanScroll(
+    location: { x: number; y: number },
+    deltaX: number,
+    deltaY: number
+  ): boolean {
+    const regions = this.currentFrame?.scrollRegions;
+    if (!regions || regions.length === 0) {
+      return false;
+    }
+
+    const cellX = Math.floor(location.x);
+    const cellY = Math.floor(location.y);
+    // Any region under the pointer that can move in this direction qualifies —
+    // this is what lets an outer ScrollView take over when an inner one is at
+    // its edge (nested scroll), and chains to the page only when none can.
+    for (const region of regions) {
+      const [rx, ry, rw, rh] = region.rect;
+      if (cellX < rx || cellY < ry || cellX >= rx + rw || cellY >= ry + rh) {
+        continue;
+      }
+      if (regionCanScrollInDirection(region, deltaX, deltaY)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private cellLocation(
     event: MouseEvent
   ): { x: number; y: number } | undefined {
@@ -957,6 +1027,42 @@ function normalizedWheelDelta(
     return -1;
   }
   return 0;
+}
+
+/**
+ * Whether a published scroll region has remaining headroom in the wheel's
+ * direction, recomputing the per-direction extent from offset/content/viewport.
+ * Mirrors SwiftTUI's clamp (`min(max(0, offset), max(0, content - viewport))`)
+ * so the host and the app agree on "at edge". Wheel sign convention matches the
+ * app: `deltaY > 0` scrolls down (offset grows toward the content bottom).
+ * Diagonal wheels qualify if either axis has headroom.
+ */
+function regionCanScrollInDirection(
+  region: WebHostScrollRegion,
+  deltaX: number,
+  deltaY: number
+): boolean {
+  const [, , viewportWidth, viewportHeight] = region.rect;
+  const [offsetX, offsetY] = region.offset;
+  const [contentWidth, contentHeight] = region.content;
+  const maxX = Math.max(0, contentWidth - viewportWidth);
+  const maxY = Math.max(0, contentHeight - viewportHeight);
+  const clampedX = Math.min(Math.max(0, offsetX), maxX);
+  const clampedY = Math.min(Math.max(0, offsetY), maxY);
+
+  if (deltaY > 0 && clampedY < maxY) {
+    return true;
+  }
+  if (deltaY < 0 && clampedY > 0) {
+    return true;
+  }
+  if (deltaX > 0 && clampedX < maxX) {
+    return true;
+  }
+  if (deltaX < 0 && clampedX > 0) {
+    return true;
+  }
+  return false;
 }
 
 function normalizeCellRanges(
