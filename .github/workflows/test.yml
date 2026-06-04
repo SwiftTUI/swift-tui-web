@@ -24,6 +24,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      # Stages mirror `bun run ci` (the repo gate). build:packages must run
+      # before build:web: since 0.0.15 the packages ship compiled dist/, so
+      # @swifttui/build imports @swifttui/web/manifest from dist/manifest.js.
       - run: bun install --frozen-lockfile
       - run: bun run test
+      - run: bun run build:packages
       - run: bun run build:web
