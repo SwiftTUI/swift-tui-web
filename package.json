@@ -1,7 +1,7 @@
 {
   "name": "swift-tui-web-workspace",
   "private": true,
-  "version": "0.0.14",
+  "version": "0.0.15",
   "license": "MIT",
   "workspaces": [
     "packages/web",
@@ -9,10 +9,16 @@
   ],
   "scripts": {
     "test": "bun test packages/web packages/build",
+    "build": "bun run build:packages",
+    "build:packages": "bun run --cwd packages/web build && bun run --cwd packages/build build",
     "build:web": "bun run --cwd packages/web build:web",
-    "build": "bun run --cwd packages/web build",
-    "ci": "bun install --frozen-lockfile && bun run test && bun run build:web",
+    "ci": "bun install --frozen-lockfile && bun run test && bun run build:packages && bun run build:web",
     "pack:web": "cd packages/web && bun pm pack",
     "pack:build": "cd packages/build && bun pm pack"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsdown": "^0.22.1",
+    "typescript": "5.7.3"
   }
 }

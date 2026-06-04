@@ -14,19 +14,21 @@ process spawning and filesystem work.
 
 ## Installation
 
-The `0.0.14` public pre-release is available as npm-compatible tarballs attached
-to the GitHub release:
-
-```bash
-npm install \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.14/swifttui-web-0.0.14.tgz \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.14/swifttui-build-0.0.14.tgz
-```
-
-After npm publication, consumers can install the package names directly:
+Both packages are published to npm as ESM with bundled TypeScript declarations.
+No Bun or TypeScript toolchain is required to consume them — they ship compiled
+`dist/` JavaScript (`.js` + `.d.ts`):
 
 ```bash
 npm install @swifttui/web @swifttui/build
+```
+
+The GitHub release also attaches npm-compatible tarballs as an alternative
+install path:
+
+```bash
+npm install \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.15/swifttui-web-0.0.15.tgz \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.15/swifttui-build-0.0.15.tgz
 ```
 
 ## Basic Use
@@ -64,9 +66,15 @@ Cross-Origin-Embedder-Policy: require-corp
 ```bash
 bun install
 bun test
-bun run build:web
-bun run ci
+bun run build:packages   # compile both packages to dist/ (tsdown: ESM + .d.ts)
+bun run build:web        # bundle the in-repo browser demo to dist-demo/
+bun run ci               # frozen install + test + build:packages + build:web
 ```
+
+The publishable artifacts are the compiled `dist/` directories produced by
+`build:packages` (each package's `prepublishOnly` also runs the build, so
+`npm publish` always ships fresh output). `package.json` `exports` point at
+`dist/*`; raw TypeScript source is never shipped.
 
 Package tarballs for release can be generated locally with:
 
@@ -75,6 +83,6 @@ bun run pack:web
 bun run pack:build
 ```
 
-The GitHub release tarballs are the public dependency path for `0.0.14`. npm
-publication is the remaining packaging follow-up once npm credentials are
-available.
+`bun pm pack` (and `bun publish`) rewrite the internal `workspace:*` dependency
+to the concrete version, so the published `@swifttui/build` depends on a real
+`@swifttui/web` version.

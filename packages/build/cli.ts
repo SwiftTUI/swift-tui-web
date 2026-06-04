@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { resolve } from "node:path";
 import {
@@ -15,8 +15,11 @@ async function runCli(argv: string[]): Promise<void> {
   const flags = parseFlags(argv.slice(1));
   const packagePath = resolve(flags["package-path"] ?? "../../");
   const distPath = resolve(flags["dist"] ?? "./dist");
-  const appExecutable = flags.app ?? flags.product ?? flags["app-product"] ?? "";
-  const configuration = parseWasmBuildConfiguration(flags.configuration ?? "release");
+  const appExecutable =
+    flags.app ?? flags.product ?? flags["app-product"] ?? "";
+  const configuration = parseWasmBuildConfiguration(
+    flags.configuration ?? "release",
+  );
 
   switch (command) {
     case "build:manifest":
@@ -50,9 +53,7 @@ async function runCli(argv: string[]): Promise<void> {
   }
 }
 
-function parseFlags(
-  argv: string[]
-): Record<string, string> {
+function parseFlags(argv: string[]): Record<string, string> {
   const flags: Record<string, string> = {};
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -76,9 +77,7 @@ function parseFlags(
   return flags;
 }
 
-function parseWasmBuildConfiguration(
-  value: string
-): WasmBuildConfiguration {
+function parseWasmBuildConfiguration(value: string): WasmBuildConfiguration {
   switch (value) {
     case "debug":
       return "debug";
@@ -89,9 +88,7 @@ function parseWasmBuildConfiguration(
   }
 }
 
-function assertAppExecutable(
-  value: string
-): asserts value is string {
+function assertAppExecutable(value: string): asserts value is string {
   if (!value) {
     throw new Error("missing --app or --product flag");
   }

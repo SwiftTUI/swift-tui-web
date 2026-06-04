@@ -22,14 +22,18 @@ APIs live in `@swifttui/web`.** This package depends on `@swifttui/web`.
 ## Commands
 
 ```bash
-bun test                         # package tests
+bun test                                # package tests
+bun run build                           # compile the publishable package to dist/ (tsdown: ESM .js + .d.ts + bin)
 bun run build:manifest -- --app <Exe>   # capture TUIGUI_MODE=manifest output
 bun run build:wasm     -- --app <Exe>   # copy + validate the app's wasm
-bun run build          -- --app <Exe>   # manifest + wasm
+bun run cli.ts build   -- --app <Exe>   # full app pipeline (manifest + wasm) via the CLI
 ```
 
-`build:wasm`/`build` default to `--configuration release`; pass
-`--configuration debug` for local debug wasm.
+`build` produces the published library + `swifttui-web` bin (`prepublishOnly`
+re-runs it on publish). The full app pipeline is the CLI's `build` command —
+`bun run cli.ts build --app <Exe>` from source, or `npx swifttui-web build --app
+<Exe>` from the published bin. `build:wasm` and the CLI `build` default to
+`--configuration release`; pass `--configuration debug` for local debug wasm.
 
 ## Gotcha
 

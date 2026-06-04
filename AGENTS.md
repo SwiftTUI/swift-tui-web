@@ -27,9 +27,10 @@ Run `bun install` from this root; one root `bun.lock` covers both packages.
 ## Commands
 
 ```bash
-bun run ci          # repo gate: install --frozen-lockfile + test + build:web
-bun test            # all package tests
-bun run build:web   # build the web package's browser bundle
+bun run ci             # repo gate: install --frozen-lockfile + test + build:packages + build:web
+bun test               # all package tests
+bun run build:packages # compile both packages to dist/ (tsdown: ESM .js + .d.ts)
+bun run build:web      # build the web package's browser demo bundle (dist-demo/)
 ```
 
 `//:swift_tui_web_native_gate` in the org root runs `bun run ci`.

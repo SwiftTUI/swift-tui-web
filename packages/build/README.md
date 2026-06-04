@@ -7,9 +7,19 @@ This package owns manifest generation, Swift WASI builds, browser
 outside `@swifttui/web` so browser runtime imports do not pull in Swift process
 spawning, Node filesystem APIs, or wasm packaging helpers.
 
-Publication status: the package name is reserved for the first public web
-release. Until it is published to npm or attached as a public release tarball,
-use the source checkout and the `swift-tui-examples/WebExample` template.
+## Installation
+
+Published to npm as an ESM package with a Node CLI and bundled TypeScript
+declarations:
+
+```bash
+npm install --save-dev @swifttui/build
+```
+
+This exposes the `swifttui-web` CLI (`npx swifttui-web build --app <Exe>`) and a
+programmatic ESM API. The package ships compiled `dist/` JavaScript — the bin
+runs on plain Node (`#!/usr/bin/env node`), no Bun or TypeScript toolchain
+required to consume it.
 
 ## API
 
@@ -41,6 +51,15 @@ Callers can override `swiftCommand`, `swiftSDK`, `configuration`,
 ## Scripts
 
 - `bun test`
+- `bun run build` — compile the publishable package to `dist/` with tsdown
+  (ESM `.js` + `.d.ts`, plus the `swifttui-web` bin). Run automatically on
+  publish via `prepublishOnly`.
 - `bun run build:manifest -- --app <AppExecutable>`
 - `bun run build:wasm -- --app <AppExecutable>`
-- `bun run build -- --app <AppExecutable>`
+
+The full app pipeline (manifest + wasm) is exposed through the CLI:
+
+```bash
+bun run cli.ts build --app <AppExecutable>   # from source
+npx swifttui-web build --app <AppExecutable>  # from the published bin
+```

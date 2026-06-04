@@ -6,9 +6,19 @@ This package owns browser-safe runtime APIs: scene manifest loading, canvas
 rendering, ARIA mounting, WebSocket scene bridges, and WASI scene bridges. Build
 tooling lives in the sibling [`@swifttui/build`](../build) workspace package.
 
-Publication status: the package name is reserved for the first public web
-release. Until it is published to npm or attached as a public release tarball,
-use the source checkout and the `swift-tui-examples/WebExample` template.
+## Installation
+
+Published to npm as an ESM package with bundled TypeScript declarations — no
+TypeScript toolchain required to consume it:
+
+```bash
+npm install @swifttui/web
+```
+
+The package ships compiled `dist/` JavaScript (`.js` + `.d.ts`); consuming it
+does **not** require Bun or a TypeScript build step. Subpath entrypoints
+(`./wasi`, `./wasi-worker`, `./manifest`, `./websocket`, `./testing`) and the
+`./style.css` asset are declared in `package.json` `exports`.
 
 ## Toolchains
 
@@ -86,21 +96,25 @@ startWasmSceneWorker();
 ## Scripts
 
 - `bun test`
+- `bun run build` — compile the publishable package to `dist/` with tsdown
+  (ESM `.js` + `.d.ts`). Run automatically on publish via `prepublishOnly`.
 - `bun run build:manifest -- --app <AppExecutable>`
 - `bun run build:wasm -- --app <AppExecutable>`
 - `bun run build:web`
-- `bun run build -- --app <AppExecutable>`
+- `bun run build:app -- --app <AppExecutable>`
 - `bun run dev`
 
-`build:manifest`, `build:wasm`, and `build` delegate manifest/WASI packaging to
-`@swifttui/build`. `build:wasm` and `build` default to
-`--configuration release`; pass `--configuration debug` for local
-debug-oriented wasm builds.
+`build` produces the published library. `build:manifest`, `build:wasm`, and
+`build:app` delegate manifest/WASI packaging to `@swifttui/build`; `build:wasm`
+and `build:app` default to `--configuration release` (pass
+`--configuration debug` for local debug-oriented wasm builds). The demo/app
+pipeline writes its artifacts to `dist-demo/` so they stay separate from the
+published `dist/` library output.
 
-The build flow is intentionally small:
+The demo/app build flow is intentionally small:
 
 1. `build:manifest` captures `TUIGUI_MODE=manifest` output from the Swift app by invoking `swiftly run swift`.
-2. `build:wasm` copies the app's wasm artifact into `dist/assets/app.wasm`,
+2. `build:wasm` copies the app's wasm artifact into `dist-demo/assets/app.wasm`,
    validates it with the browser `WebAssembly` API, then keeps the stripped
    artifact only if stripping still produces browser-parseable wasm.
 3. `build:web` bundles `index.html` and the browser entrypoint with Bun.

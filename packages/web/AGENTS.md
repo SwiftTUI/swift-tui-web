@@ -23,15 +23,19 @@ maintained.
 ## Commands
 
 ```bash
-bun test                      # this package's tests (or `bun run test`)
-bun run build:web             # bundle index.html + browser entrypoint
-bun run build -- --app <Exe>  # full build (manifest + wasm + web)
-bun run dev                   # watch/dev
+bun test                          # this package's tests (or `bun run test`)
+bun run build                     # compile the publishable package to dist/ (tsdown: ESM .js + .d.ts)
+bun run build:web                 # bundle the browser demo (index.html) to dist-demo/
+bun run build:app -- --app <Exe>  # full app pipeline (manifest + wasm + web) to dist-demo/
+bun run dev                       # watch/dev
 ```
 
-`build:manifest` and `build:wasm` delegate to `@swifttui/build` and default to
-`--configuration release`. The org-level gate for this repo is `bun run ci`
-(install --frozen-lockfile + test + build:web), run from the `swift-tui-web` root.
+`build` produces the published library (`dist/` is what npm ships; `prepublishOnly`
+re-runs it on publish). `build:manifest`, `build:wasm`, and `build:app` delegate to
+`@swifttui/build` and default to `--configuration release`; their output goes to
+`dist-demo/`, kept separate from the published `dist/`. The org-level gate for this
+repo is `bun run ci` (install --frozen-lockfile + test + build:packages + build:web),
+run from the `swift-tui-web` root.
 
 ## Architecture notes
 
