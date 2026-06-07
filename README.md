@@ -27,8 +27,8 @@ install path:
 
 ```bash
 npm install \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.16/swifttui-web-0.0.16.tgz \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.16/swifttui-build-0.0.16.tgz
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.18/swifttui-web-0.0.18.tgz \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.0.18/swifttui-build-0.0.18.tgz
 ```
 
 ## Basic Use
