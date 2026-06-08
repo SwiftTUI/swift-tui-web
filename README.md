@@ -12,6 +12,11 @@ This repo publishes two packages:
 The split keeps browser-safe runtime imports separate from build-time Swift
 process spawning and filesystem work.
 
+**See it running:** a live SwiftTUI app compiled to `wasm32-wasi` and mounted in
+the browser via `@swifttui/web` is at <https://swifttui.sh/webexample>. The
+reference template that produces it is
+[`swift-tui-examples/WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample).
+
 ## Installation
 
 Both packages are published to npm as ESM with bundled TypeScript declarations.
@@ -86,3 +91,8 @@ bun run pack:build
 `bun pm pack` (and `bun publish`) rewrite the internal `workspace:*` dependency
 to the concrete version, so the published `@swifttui/build` depends on a real
 `@swifttui/web` version.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Each published package (`@swifttui/web`,
+`@swifttui/build`) also bundles the license text.
