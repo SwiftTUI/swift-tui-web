@@ -8,6 +8,12 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+## [0.0.19] - 2026-06-10
+
+Lockstep release across the SwiftTUI org (the Android host preview lands in
+`swift-tui`; no functional changes to the web packages). `@swifttui/web` and
+`@swifttui/build` attached to the GitHub `0.0.19` release as tarballs.
+
 ### Added
 
 - `LICENSE` (MIT) at the repo root and inside both publishable packages
