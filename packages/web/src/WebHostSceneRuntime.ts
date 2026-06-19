@@ -45,12 +45,14 @@ export interface WebHostSceneRuntimeOptions {
   synchronizeAccessibilityFocus?: boolean;
   /**
    * How the embedded view treats mouse-wheel input.
+   * - `"chain"` (default): forward the wheel only while a scrollable region
+   *   under the pointer can still scroll in that direction; otherwise let it
+   *   fall through so the page (or parent iframe) scrolls — iframe-like nested
+   *   scrolling. A scene with no `ScrollView` never traps the wheel. Uses the
+   *   `scrollRegions` the app publishes in its frames.
    * - `"capture"`: always forward the wheel to the app while the pointer is over
-   *   the surface (and `preventDefault` page scroll). Legacy default.
-   * - `"chain"`: forward the wheel only while a scrollable region under the
-   *   pointer can still scroll in that direction; otherwise let it fall through
-   *   so the page (or parent iframe) scrolls. Requires the app to publish
-   *   `scrollRegions` in its frames.
+   *   the surface (and `preventDefault` page scroll). Best for full-screen apps
+   *   where there is no page to scroll past.
    * - `"passive"`: never capture; the page always scrolls.
    *
    * Takes precedence over the legacy `captureWheelInput` flag.
@@ -58,12 +60,26 @@ export interface WebHostSceneRuntimeOptions {
   wheelMode?: WheelMode;
   /**
    * Legacy boolean wheel gate. `true` → `"capture"`, `false` → `"passive"`.
-   * Prefer `wheelMode`. Ignored when `wheelMode` is set.
+   * Prefer `wheelMode`. Ignored when `wheelMode` is set. When neither is set the
+   * mode defaults to `"chain"`.
    */
   captureWheelInput?: boolean;
 }
 
 export type WheelMode = "capture" | "chain" | "passive";
+
+/**
+ * Resolves the legacy `captureWheelInput` flag to a {@link WheelMode}. When the
+ * flag is unset the mode defaults to `"chain"`, so embeds never trap a visitor
+ * who is merely scrolling past the view; `true` maps to `"capture"` and `false`
+ * to `"passive"` to preserve the old boolean behavior.
+ */
+function legacyWheelMode(captureWheelInput: boolean | undefined): WheelMode {
+  if (captureWheelInput === undefined) {
+    return "chain";
+  }
+  return captureWheelInput ? "capture" : "passive";
+}
 
 interface CachedWebHostImage {
   image?: CanvasImageSource;
@@ -128,8 +144,7 @@ export class WebHostSceneRuntime {
     this.onInput = options.onInput;
     this.onFrameDiagnostic = options.onFrameDiagnostic;
     this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
-    this.wheelMode = options.wheelMode
-      ?? (options.captureWheelInput === false ? "passive" : "capture");
+    this.wheelMode = options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
     this.element = document.createElement("section");
     this.element.className = "webhost-scene";
     this.element.dataset.sceneId = options.descriptor.id;

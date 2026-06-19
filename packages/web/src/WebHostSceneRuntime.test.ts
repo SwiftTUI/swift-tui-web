@@ -1089,6 +1089,9 @@ test("runtime maps browser input events to web-surface messages", async () => {
       onInput: (chunk) => {
         inputs.push(decoder.decode(chunk));
       },
+      // This test checks wheel-input encoding, not chaining: force capture so
+      // the wheel is always forwarded regardless of published scroll regions.
+      wheelMode: "capture",
     });
 
     await runtime.mount();
@@ -1314,6 +1317,53 @@ test("legacy captureWheelInput:true maps to capture mode", async () => {
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("legacy captureWheelInput:false maps to passive mode", async () => {
+  const dom = installFakeDOM();
+  try {
+    const result = await wheelScenario({
+      captureWheelInput: false,
+      // A scrollable region is published, but passive never captures.
+      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] }],
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(false);
+    expect(result.wheelPrevented).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("default wheel mode is chain: captures over a scrollable region", async () => {
+  const dom = installFakeDOM();
+  try {
+    // Neither wheelMode nor captureWheelInput set — the runtime must default to
+    // "chain", so the wheel is captured while the region has headroom.
+    const result = await wheelScenario({
+      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] }],
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(true);
+    expect(result.wheelPrevented).toBe(true);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("default wheel mode is chain: page scrolls with no scrollable region", async () => {
+  const dom = installFakeDOM();
+  try {
+    // No mode set and no scroll regions published — the default "chain" mode
+    // must let the wheel fall through so the page scrolls.
+    const result = await wheelScenario({
+      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+    });
+    expect(result.captured).toBe(false);
+    expect(result.wheelPrevented).toBe(false);
   } finally {
     dom.restore();
   }
