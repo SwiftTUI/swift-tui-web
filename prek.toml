@@ -6,9 +6,20 @@
 # scope), so biome's in-place rewrites only touch the files in the commit.
 # biome runs via `bunx` at a pinned version so no global install is needed.
 
+default_install_hook_types = ["pre-commit", "commit-msg"]
+
 [[repos]]
 repo = "local"
 hooks = [
+  {
+    id = "no-ai-coauthors",
+    name = "forbid AI model Co-authored-by trailers",
+    entry = "./Scripts/check_commit_message_policy.sh",
+    language = "system",
+    stages = ["commit-msg"],
+    always_run = true,
+    pass_filenames = true
+  },
   {
     id = "biome",
     name = "biome check (format + lint)",
