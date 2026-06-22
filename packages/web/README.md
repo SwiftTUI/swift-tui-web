@@ -1,10 +1,26 @@
 # `@swifttui/web`
 
-Browser runtime package for SwiftTUI apps.
+**Browser runtime for [SwiftTUI](https://swifttui.sh) apps — draw a
+Swift-authored UI into a `<canvas>`, no terminal emulator.**
 
-This package owns browser-safe runtime APIs: scene manifest loading, canvas
-rendering, ARIA mounting, WebSocket scene bridges, and WASI scene bridges. Build
-tooling lives in the sibling [`@swifttui/build`](../build) workspace package.
+[![npm](https://img.shields.io/npm/v/@swifttui/web)](https://www.npmjs.com/package/@swifttui/web)
+![License](https://img.shields.io/badge/license-MIT-3DA639)
+
+`@swifttui/web` is the browser host for SwiftTUI. A SwiftTUI app compiles to
+`wasm32-wasi` and streams a structured raster surface on stdout; this package
+loads the scene manifest, renders that surface into a canvas, mounts an ARIA
+tree for accessibility, and bridges input back to the running app — so the same
+view code you run in a terminal runs on a web page. It does not load a terminal
+emulator.
+
+The build side — compiling your Swift app to wasm and capturing its manifest —
+lives in the sibling
+[`@swifttui/build`](https://www.npmjs.com/package/@swifttui/build) package.
+
+- **Live demo:** <https://swifttui.sh/webexample>
+- **Reference template:** [`swift-tui-examples/WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample)
+  (≈60 lines of embedding code)
+- **The framework:** [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui)
 
 ## Installation
 
@@ -19,36 +35,6 @@ The package ships compiled `dist/` JavaScript (`.js` + `.d.ts`); consuming it
 does **not** require Bun or a TypeScript build step. Subpath entrypoints
 (`./wasi`, `./wasi-worker`, `./manifest`, `./websocket`, `./testing`) and the
 `./style.css` asset are declared in `package.json` `exports`.
-
-## Toolchains
-
-Use Bun for repo-local development of this package, and use the repo-default
-`swiftly` Swift 6.3.1 toolchain for every Swift command that the build pipeline
-triggers.
-
-Quick check:
-
-```bash
-swiftly run swift --version
-```
-
-Native-only development should also work in Xcode, but the documented package
-and wasm build path uses `swiftly` plus Bun.
-
-For source development, run `bun install` from the repo root or from any
-workspace package directory, and Bun will maintain one root `bun.lock` plus
-stable relative workspace links.
-
-## Surface Transport
-
-This package uses SwiftTUI's `web-surface` WASI transport. The Swift runner
-emits structured raster-surface records on stdout, and the browser host draws
-rectangles and text into a canvas. It does not load a terminal emulator and does
-not depend on `ghostty-web` or `ghostty-vt.wasm`.
-
-`web-surface` is the default `SwiftTUIWASI` browser transport. WebHost still
-sets `TUIGUI_TRANSPORT=surface` explicitly so generated app environments are
-self-describing.
 
 ## API
 
@@ -93,7 +79,42 @@ import { startWasmSceneWorker } from "@swifttui/web/wasi-worker";
 startWasmSceneWorker();
 ```
 
-## Scripts
+The page that hosts the WASI runtime must serve
+`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` so the `SharedArrayBuffer`-backed
+stdin works.
+
+## Surface transport
+
+This package uses SwiftTUI's `web-surface` WASI transport. The Swift runner
+emits structured raster-surface records on stdout, and the browser host draws
+rectangles and text into a canvas. It does not load a terminal emulator and does
+not depend on `ghostty-web` or `ghostty-vt.wasm`.
+
+`web-surface` is the default `SwiftTUIWASI` browser transport. WebHost still
+sets `TUIGUI_TRANSPORT=surface` explicitly so generated app environments are
+self-describing.
+
+## Notes
+
+- Scene switching is controller-managed and retains existing scene runtimes.
+- Terminal styling is host-owned through `WebHostTerminalStyle`, which carries
+  one active palette/theme pair plus the runtime payload sent into SwiftTUI.
+- Hosts that want multiple themes swap entire `WebHostTerminalStyle` objects;
+  the library does not provide a built-in mode switcher.
+- `BrowserWASIBridge` sets `TUIGUI_TRANSPORT=surface` and decodes surface
+  frames before handing them to the canvas runtime.
+
+## Developing this package
+
+> Only needed if you are working **on** `@swifttui/web` itself. Consuming the
+> package from an app needs only `npm install` (above) — not Bun or the Swift
+> toolchain.
+
+Use Bun for repo-local development, and the repo-default `swiftly` Swift 6.3.1
+toolchain for any Swift command the build pipeline triggers
+(`swiftly run swift --version`). Run `bun install` from the repo root or any
+workspace package directory; Bun maintains one root `bun.lock`.
 
 - `bun test`
 - `bun run build` — compile the publishable package to `dist/` with tsdown
@@ -119,12 +140,6 @@ The demo/app build flow is intentionally small:
    artifact only if stripping still produces browser-parseable wasm.
 3. `build:web` bundles `index.html` and the browser entrypoint with Bun.
 
-## Notes
+## License
 
-- Scene switching is controller-managed and retains existing scene runtimes.
-- Terminal styling is host-owned through `WebHostTerminalStyle`, which carries
-  one active palette/theme pair plus the runtime payload sent into SwiftTUI.
-- Hosts that want multiple themes swap entire `WebHostTerminalStyle` objects;
-  the library does not provide a built-in mode switcher.
-- `BrowserWASIBridge` sets `TUIGUI_TRANSPORT=surface` and decodes surface
-  frames before handing them to the canvas runtime.
+MIT — see [LICENSE](LICENSE).

@@ -1,6 +1,21 @@
 # SwiftTUI Web Packages
 
-Browser runtime and build tooling for SwiftTUI web deployments.
+**Ship a SwiftTUI app to the browser — same Swift view code, no terminal
+emulator, rendered to a `<canvas>`.**
+
+[![npm @swifttui/web](https://img.shields.io/npm/v/@swifttui/web?label=%40swifttui%2Fweb)](https://www.npmjs.com/package/@swifttui/web)
+[![npm @swifttui/build](https://img.shields.io/npm/v/@swifttui/build?label=%40swifttui%2Fbuild)](https://www.npmjs.com/package/@swifttui/build)
+![License](https://img.shields.io/badge/license-MIT-3DA639)
+
+These are the browser-side packages for [SwiftTUI](https://swifttui.sh). A
+SwiftTUI app compiles to `wasm32-wasi` and streams a structured raster surface;
+`@swifttui/web` draws that surface into a canvas and mounts an ARIA tree, so the
+same `App` and `Scene` you run in a terminal runs on a web page without a
+rewrite and without shipping a terminal emulator.
+
+The framework itself lives in
+[`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui); these two
+packages are the deployment story for the browser host.
 
 This repo publishes two packages:
 
@@ -15,7 +30,8 @@ process spawning and filesystem work.
 **See it running:** a live SwiftTUI app compiled to `wasm32-wasi` and mounted in
 the browser via `@swifttui/web` is at <https://swifttui.sh/webexample>. The
 reference template that produces it is
-[`swift-tui-examples/WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample).
+[`swift-tui-examples/WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample)
+— its load-bearing embedding code is roughly 60 lines.
 
 ## Installation
 
@@ -59,7 +75,8 @@ await createWebHostApp({
 });
 ```
 
-The page that hosts the WASI runtime must serve:
+The page that hosts the WASI runtime must serve these headers so the
+`SharedArrayBuffer`-backed stdin works:
 
 ```text
 Cross-Origin-Opener-Policy: same-origin
@@ -67,6 +84,9 @@ Cross-Origin-Embedder-Policy: require-corp
 ```
 
 ## Source Development
+
+The commands below are for working **on** these packages. Consuming them from an
+app needs only `npm install` (above) — not Bun or the Swift toolchain.
 
 ```bash
 bun install
@@ -91,6 +111,16 @@ bun run pack:build
 `bun pm pack` (and `bun publish`) rewrite the internal `workspace:*` dependency
 to the concrete version, so the published `@swifttui/build` depends on a real
 `@swifttui/web` version.
+
+## Documentation & support
+
+- **Project site & live API reference:** <https://swifttui.sh/docs/documentation/>
+- **The framework:** [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui)
+  — the authoring API, products, and platform matrix.
+- **Other hosts:** [`swift-tui-swiftui`](https://github.com/SwiftTUI/swift-tui-swiftui)
+  (native macOS/iOS) and [`swift-tui-android`](https://github.com/SwiftTUI/swift-tui-android)
+  (Jetpack Compose).
+- **Questions & issues:** <https://github.com/SwiftTUI/swift-tui-web/issues>
 
 ## License
 
