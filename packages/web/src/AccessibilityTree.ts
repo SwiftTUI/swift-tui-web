@@ -21,7 +21,7 @@ export class AccessibilityTreeMounter {
   readonly element: HTMLElement;
   readonly announcerElement: HTMLElement;
 
-  private readonly nodesById = new Map<string, HTMLElement>();
+  private nodesById = new Map<string, HTMLElement>();
   private previousLabelsById = new Map<string, string>();
   private hasLiveRegionBaseline = false;
 
@@ -42,21 +42,31 @@ export class AccessibilityTreeMounter {
     announcements: WebHostAccessibilityAnnouncement[] = [],
     options: AccessibilityTreePresentationOptions = {}
   ): void {
-    this.element.replaceChildren();
-    this.nodesById.clear();
+    const previousById = this.nodesById;
+    const nextById = new Map<string, HTMLElement>();
 
     for (const node of nodes) {
-      const element = this.elementForNode(node, metrics);
-      this.nodesById.set(node.id, element);
+      const existing = previousById.get(node.id);
+      const element = existing ?? document.createElement("div");
+      this.applyNodeAttributes(element, node, metrics);
+      nextById.set(node.id, element);
     }
 
+    for (const id of previousById.keys()) {
+      if (!nextById.has(id)) {
+        previousById.get(id)?.remove();
+      }
+    }
+
+    this.nodesById = nextById;
+
     for (const node of nodes) {
-      const element = this.nodesById.get(node.id);
+      const element = nextById.get(node.id);
       if (!element) {
         continue;
       }
 
-      const parent = node.parentId ? this.nodesById.get(node.parentId) : undefined;
+      const parent = node.parentId ? nextById.get(node.parentId) : undefined;
       (parent ?? this.element).appendChild(element);
     }
 
@@ -68,33 +78,29 @@ export class AccessibilityTreeMounter {
     }
   }
 
-  private elementForNode(
+  private applyNodeAttributes(
+    element: HTMLElement,
     node: WebHostAccessibilityNode,
     metrics: AccessibilityTreeMetrics
-  ): HTMLElement {
-    const element = document.createElement("div");
+  ): void {
     element.id = `swifttui-a11y-${stableDOMId(node.id)}`;
     element.dataset.accessibilityId = node.id;
     element.tabIndex = node.isFocused ? 0 : -1;
 
     const role = roleMapping(node.role);
-    if (role.role) {
-      element.setAttribute("role", role.role);
-    }
-    if (role.level !== undefined) {
-      element.setAttribute("aria-level", String(role.level));
-    }
-    if (node.label) {
-      element.setAttribute("aria-label", node.label);
-    }
-    if (node.hint) {
-      element.setAttribute("aria-description", node.hint);
-    }
-    if (node.liveRegion) {
-      element.setAttribute("aria-live", node.liveRegion);
-    }
+    setOrRemoveAttribute(element, "role", role.role);
+    setOrRemoveAttribute(
+      element,
+      "aria-level",
+      role.level !== undefined ? String(role.level) : undefined
+    );
+    setOrRemoveAttribute(element, "aria-label", node.label || undefined);
+    setOrRemoveAttribute(element, "aria-description", node.hint || undefined);
+    setOrRemoveAttribute(element, "aria-live", node.liveRegion || undefined);
     if (node.isFocused) {
       element.dataset.focused = "true";
+    } else {
+      delete element.dataset.focused;
     }
 
     const [x, y, width, height] = node.rect;
@@ -103,8 +109,6 @@ export class AccessibilityTreeMounter {
     element.style.top = `${y * metrics.cellHeight}px`;
     element.style.width = `${Math.max(1, width) * metrics.cellWidth}px`;
     element.style.height = `${Math.max(1, height) * metrics.cellHeight}px`;
-
-    return element;
   }
 
   private announceLiveRegionChanges(
@@ -162,6 +166,18 @@ export class AccessibilityTreeMounter {
       return entry.label ?? "";
     }).join("\n");
   }
+}
+
+function setOrRemoveAttribute(
+  element: HTMLElement,
+  name: string,
+  value: string | undefined
+): void {
+  if (value === undefined) {
+    element.removeAttribute(name);
+    return;
+  }
+  element.setAttribute(name, value);
 }
 
 function applyScreenReaderOnlyStyle(

@@ -1810,6 +1810,12 @@ class FakeElement {
     return this.attributes.get(name) ?? null;
   }
 
+  removeAttribute(
+    name: string
+  ): void {
+    this.attributes.delete(name);
+  }
+
   getBoundingClientRect(): typeof this.rect {
     return this.rect;
   }
