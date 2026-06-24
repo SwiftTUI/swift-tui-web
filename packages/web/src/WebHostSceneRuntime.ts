@@ -6,24 +6,28 @@ import {
   webTUITerminalBackgroundColor,
 } from "./WebHostTerminalStyle.ts";
 import {
-  canRenderBoxDrawing,
-  drawBoxDrawing,
-} from "./BoxDrawingRenderer.ts";
+  CanvasSurfacePainter,
+  fontForStyle,
+  type CanvasSurfaceMetrics,
+} from "./CanvasSurfacePainter.ts";
+import {
+  InputEventEncoder,
+  type CellLocation,
+  type PointerButton,
+} from "./InputEventEncoder.ts";
+import {
+  cellLocationForEvent,
+  rawCellLocationForEvent,
+  wheelTargetCanScroll,
+  type PointerGeometryMetrics,
+} from "./PointerGeometry.ts";
 import { AccessibilityTreeMounter } from "./AccessibilityTree.ts";
 import {
-  encodeKeyInputMessage,
-  encodeMouseInputMessage,
-  encodePasteInputMessage,
   type WebHostFrameDiagnosticRecord,
   type WebHostOutputSink,
-  type WebHostKeyInput,
   type WebHostRuntimeIssue,
-  type WebHostScrollRegion,
   type WebHostSurfaceDamage,
   type WebHostSurfaceFrame,
-  type WebHostSurfaceImage,
-  type WebHostSurfaceImageFormat,
-  type WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
 import type { WebHostSceneDescriptor } from "./WebHostSceneManifest.ts";
 
@@ -81,30 +85,13 @@ function legacyWheelMode(captureWheelInput: boolean | undefined): WheelMode {
   return captureWheelInput ? "capture" : "passive";
 }
 
-interface CachedWebHostImage {
-  image?: CanvasImageSource;
-  promise?: Promise<CanvasImageSource>;
-}
-
-interface DirtyRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface DirtyCellRange {
-  start: number;
-  end: number;
-}
-
-type DirtyRowRanges = "full" | DirtyCellRange[];
-
-interface DirtyRegion {
-  rects: DirtyRect[];
-  rows: Map<number, DirtyRowRanges>;
-}
-
+/**
+ * Coordinates a single SwiftTUI scene's browser presentation: it owns the DOM
+ * mount, canvas, accessibility tree, and bridge wiring, and delegates the heavy
+ * responsibilities to focused collaborators — {@link CanvasSurfacePainter} for
+ * canvas drawing, {@link InputEventEncoder} for wire-message encoding, and the
+ * {@link PointerGeometry} helpers for pixel→cell hit-testing and wheel chaining.
+ */
 export class WebHostSceneRuntime {
   readonly descriptor: WebHostSceneDescriptor;
   readonly element: HTMLElement;
@@ -115,7 +102,8 @@ export class WebHostSceneRuntime {
   private readonly onFrameDiagnostic?: (diagnostic: WebHostFrameDiagnosticRecord) => void;
   private readonly synchronizeAccessibilityFocus: boolean;
   private readonly wheelMode: WheelMode;
-  private readonly imageCache = new Map<string, CachedWebHostImage>();
+  private readonly painter = new CanvasSurfacePainter();
+  private readonly inputEncoder = new InputEventEncoder();
   private currentStyle: ResolvedWebHostTerminalStyle;
   private canvas?: HTMLCanvasElement;
   private accessibilityTree?: AccessibilityTreeMounter;
@@ -127,7 +115,7 @@ export class WebHostSceneRuntime {
   private rows = 24;
   private cellWidth = 8;
   private cellHeight = 18;
-  private activePointerButton: "primary" | "middle" | "secondary" = "primary";
+  private activePointerButton: PointerButton = "primary";
   private hasCapturedPointer = false;
   private lastSentResize?: {
     columns: number;
@@ -172,6 +160,7 @@ export class WebHostSceneRuntime {
     canvas.className = "webhost-scene__surface";
     canvas.setAttribute("aria-hidden", "true");
     this.canvas = canvas;
+    this.painter.attach(canvas, () => this.draw());
     this.accessibilityTree = new AccessibilityTreeMounter();
     this.terminalMount.replaceChildren(
       canvas,
@@ -349,15 +338,12 @@ export class WebHostSceneRuntime {
       if (event.metaKey || event.isComposing) {
         return;
       }
-      const key = keyInputFromKeyboardEvent(event);
-      if (!key) {
+      const message = this.inputEncoder.encodeKey(event);
+      if (!message) {
         return;
       }
 
-      this.onInput(encodeKeyInputMessage({
-        ...key,
-        modifiers: modifierMask(event),
-      }));
+      this.onInput(message);
       event.preventDefault();
     };
 
@@ -366,7 +352,7 @@ export class WebHostSceneRuntime {
       if (!text) {
         return;
       }
-      this.onInput(encodePasteInputMessage(text));
+      this.onInput(this.inputEncoder.encodePaste(text));
       event.preventDefault();
     };
 
@@ -376,18 +362,12 @@ export class WebHostSceneRuntime {
         return;
       }
 
-      const button = pointerButton(event.button);
+      const button = this.inputEncoder.pointerButton(event.button);
       this.activePointerButton = button;
       this.hasCapturedPointer = true;
       this.terminalMount.focus?.({ preventScroll: true });
       this.terminalMount.setPointerCapture?.(event.pointerId);
-      this.onInput(encodeMouseInputMessage({
-        kind: "down",
-        x: location.x,
-        y: location.y,
-        button,
-        modifiers: modifierMask(event),
-      }));
+      this.onInput(this.inputEncoder.encodePointerDown(location, button, event));
       event.preventDefault();
     };
 
@@ -401,13 +381,8 @@ export class WebHostSceneRuntime {
         return;
       }
 
-      this.onInput(encodeMouseInputMessage({
-        kind: "up",
-        x: location.x,
-        y: location.y,
-        button: pointerButton(event.button) ?? this.activePointerButton,
-        modifiers: modifierMask(event),
-      }));
+      const button = this.inputEncoder.pointerButton(event.button) ?? this.activePointerButton;
+      this.onInput(this.inputEncoder.encodePointerUp(location, button, event));
       event.preventDefault();
     };
 
@@ -419,13 +394,7 @@ export class WebHostSceneRuntime {
         return;
       }
 
-      this.onInput(encodeMouseInputMessage({
-        kind: event.buttons ? "dragged" : "moved",
-        x: location.x,
-        y: location.y,
-        button: this.activePointerButton,
-        modifiers: modifierMask(event),
-      }));
+      this.onInput(this.inputEncoder.encodePointerMove(location, this.activePointerButton, event));
     };
 
     const handleWheel = (event: WheelEvent) => {
@@ -445,18 +414,11 @@ export class WebHostSceneRuntime {
       // through so the page (or parent iframe) scrolls — iframe-like behavior.
       // "capture" mode always forwards while over the surface (legacy).
       if (this.wheelMode === "chain"
-        && !this.wheelTargetCanScroll(location, event.deltaX, event.deltaY)) {
+        && !wheelTargetCanScroll(this.currentFrame?.scrollRegions, location, event.deltaX, event.deltaY)) {
         return;
       }
 
-      this.onInput(encodeMouseInputMessage({
-        kind: "scrolled",
-        x: location.x,
-        y: location.y,
-        deltaX: normalizedWheelDelta(event.deltaX),
-        deltaY: normalizedWheelDelta(event.deltaY),
-        modifiers: modifierMask(event),
-      }));
+      this.onInput(this.inputEncoder.encodeWheel(location, event));
       event.preventDefault();
     };
 
@@ -547,7 +509,7 @@ export class WebHostSceneRuntime {
       return;
     }
 
-    context.font = this.fontForStyle();
+    context.font = fontForStyle(this.currentStyle);
     this.cellWidth = Math.max(1, Math.ceil(context.measureText("W").width));
     this.cellHeight = Math.max(1, Math.ceil(this.currentStyle.fontSize * 1.35));
   }
@@ -555,75 +517,7 @@ export class WebHostSceneRuntime {
   private draw(
     damage?: WebHostSurfaceDamage
   ): void {
-    const canvas = this.canvas;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) {
-      return;
-    }
-
-    const frame = this.currentFrame;
-    const dirtyRegion = frame ? this.dirtyRegionForDamage(damage, frame) : undefined;
-    if (dirtyRegion?.rects.length === 0) {
-      return;
-    }
-
-    const scale = globalThis.window?.devicePixelRatio || 1;
-    context.setTransform(scale, 0, 0, scale, 0, 0);
-    context.textBaseline = "alphabetic";
-
-    context.fillStyle = webTUITerminalBackgroundColor(this.currentStyle);
-    if (dirtyRegion) {
-      for (const rect of dirtyRegion.rects) {
-        context.clearRect(rect.x, rect.y, rect.width, rect.height);
-        context.fillRect(rect.x, rect.y, rect.width, rect.height);
-      }
-    } else {
-      context.clearRect(0, 0, canvas.width / scale, canvas.height / scale);
-      context.fillRect(0, 0, this.columns * this.cellWidth, this.rows * this.cellHeight);
-    }
-
-    if (!frame) {
-      return;
-    }
-
-    this.drawRows(context, frame, dirtyRegion);
-    this.drawImages(context, frame.images ?? [], dirtyRegion);
-  }
-
-  private drawRows(
-    context: CanvasRenderingContext2D,
-    frame: WebHostSurfaceFrame,
-    dirtyRegion?: DirtyRegion
-  ): void {
-    if (dirtyRegion) {
-      for (const [y, ranges] of dirtyRegion.rows) {
-        const row = frame.rows[y] ?? [];
-        this.drawRow(context, frame, row, y, ranges);
-      }
-      return;
-    }
-
-    for (let y = 0; y < frame.rows.length; y += 1) {
-      const row = frame.rows[y] ?? [];
-      this.drawRow(context, frame, row, y);
-    }
-  }
-
-  private drawRow(
-    context: CanvasRenderingContext2D,
-    frame: WebHostSurfaceFrame,
-    row: WebHostSurfaceFrame["rows"][number],
-    y: number,
-    ranges?: DirtyRowRanges
-  ): void {
-    for (const cell of row) {
-      const [x, text, span, styleIndex] = cell;
-      if (ranges !== undefined && !cellIntersectsRanges(x, span, ranges)) {
-        continue;
-      }
-      const style = frame.styles[styleIndex] ?? undefined;
-      this.drawCell(context, x, y, text, span, style);
-    }
+    this.painter.paint(this.surfaceMetrics(), this.currentFrame, damage);
   }
 
   private syncAccessibilityTree(): void {
@@ -640,518 +534,35 @@ export class WebHostSceneRuntime {
     });
   }
 
-  private drawImages(
-    context: CanvasRenderingContext2D,
-    images: WebHostSurfaceImage[],
-    dirtyRegion?: DirtyRegion
-  ): void {
-    for (const image of images) {
-      this.drawImage(context, image, dirtyRegion);
-    }
-  }
-
-  private drawImage(
-    context: CanvasRenderingContext2D,
-    image: WebHostSurfaceImage,
-    dirtyRegion?: DirtyRegion
-  ): void {
-    const decodedImage = this.cachedImage(image);
-    if (!decodedImage) {
-      return;
-    }
-
-    const [boundsX, boundsY, boundsWidth, boundsHeight] = image.bounds;
-    const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
-    if (boundsWidth <= 0 || boundsHeight <= 0 || clipWidth <= 0 || clipHeight <= 0) {
-      return;
-    }
-    if (
-      dirtyRegion
-      && !dirtyRegionIntersectsCellRect(dirtyRegion, clipX, clipY, clipWidth, clipHeight)
-    ) {
-      return;
-    }
-
-    context.save();
-    context.beginPath();
-    context.rect(
-      clipX * this.cellWidth,
-      clipY * this.cellHeight,
-      clipWidth * this.cellWidth,
-      clipHeight * this.cellHeight
-    );
-    context.clip();
-    context.drawImage(
-      decodedImage,
-      boundsX * this.cellWidth,
-      boundsY * this.cellHeight,
-      boundsWidth * this.cellWidth,
-      boundsHeight * this.cellHeight
-    );
-    context.restore();
-  }
-
-  private cachedImage(
-    image: WebHostSurfaceImage
-  ): CanvasImageSource | undefined {
-    const cached = this.imageCache.get(image.id);
-    if (cached?.image) {
-      return cached.image;
-    }
-
-    if (!cached?.promise && image.dataBase64) {
-      const promise = decodeImage(image.dataBase64, image.format);
-      this.imageCache.set(image.id, { promise });
-      void promise.then((decodedImage) => {
-        const latest = this.imageCache.get(image.id);
-        if (latest?.promise !== promise) {
-          return;
-        }
-        this.imageCache.set(image.id, { image: decodedImage });
-        this.draw();
-      }).catch(() => {
-        this.imageCache.delete(image.id);
-      });
-    }
-
-    return undefined;
-  }
-
-  private drawCell(
-    context: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    text: string,
-    span: number,
-    style?: WebHostSurfaceStyle | null
-  ): void {
-    const rectX = x * this.cellWidth;
-    const rectY = y * this.cellHeight;
-    const width = Math.max(1, span) * this.cellWidth;
-    const background = resolvedBackground(style, this.currentStyle);
-    const foreground = resolvedForeground(style, this.currentStyle);
-    const opacity = style?.opacity ?? 1;
-
-    if (background) {
-      context.globalAlpha = opacity;
-      context.fillStyle = background;
-      context.fillRect(rectX, rectY, width, this.cellHeight);
-    }
-
-    if (text !== " ") {
-      context.globalAlpha = opacity;
-      context.fillStyle = foreground;
-      context.strokeStyle = foreground;
-      if (!canRenderBoxDrawing(text) || !drawBoxDrawing(context, text, {
-        x: rectX,
-        y: rectY,
-        width,
-        height: this.cellHeight,
-      })) {
-        context.font = this.fontForStyle(style);
-        context.fillText(
-          text,
-          rectX,
-          rectY + Math.floor((this.cellHeight + this.currentStyle.fontSize) / 2) - 2
-        );
-      }
-    }
-
-    this.drawTextLine(context, rectX, rectY, width, style?.underline, "underline", foreground);
-    this.drawTextLine(context, rectX, rectY, width, style?.strikethrough, "strike", foreground);
-    context.globalAlpha = 1;
-  }
-
-  private dirtyRegionForDamage(
-    damage: WebHostSurfaceDamage | undefined,
-    frame: WebHostSurfaceFrame
-  ): DirtyRegion | undefined {
-    if (!damage || damage.requiresFullTextRepaint || damage.requiresFullGraphicsReplay) {
-      return undefined;
-    }
-
-    const rects: DirtyRect[] = [];
-    const rows = new Map<number, DirtyRowRanges>();
-    for (const [row, ranges] of damage.textRows) {
-      if (row < 0 || row >= frame.height) {
-        continue;
-      }
-      if (ranges.length === 0) {
-        rects.push(this.cellRect(0, row, frame.width));
-        rows.set(row, "full");
-        continue;
-      }
-      const rowRanges: DirtyCellRange[] = rows.get(row) === "full"
-        ? []
-        : [...(rows.get(row) as DirtyCellRange[] | undefined ?? [])];
-      for (const [start, end] of ranges) {
-        const lowerBound = Math.max(0, Math.min(frame.width, Math.floor(start)));
-        const upperBound = Math.max(lowerBound, Math.min(frame.width, Math.ceil(end)));
-        if (lowerBound >= upperBound) {
-          continue;
-        }
-        rects.push(this.cellRect(lowerBound, row, upperBound - lowerBound));
-        rowRanges.push({ start: lowerBound, end: upperBound });
-      }
-      if (rows.get(row) !== "full" && rowRanges.length > 0) {
-        rows.set(row, normalizeCellRanges(rowRanges));
-      }
-    }
-    return { rects, rows };
-  }
-
-  private cellRect(
-    x: number,
-    y: number,
-    span: number
-  ): DirtyRect {
+  private surfaceMetrics(): CanvasSurfaceMetrics {
     return {
-      x: x * this.cellWidth,
-      y: y * this.cellHeight,
-      width: Math.max(1, span) * this.cellWidth,
-      height: this.cellHeight,
+      columns: this.columns,
+      rows: this.rows,
+      cellWidth: this.cellWidth,
+      cellHeight: this.cellHeight,
+      style: this.currentStyle,
     };
   }
 
-  private drawTextLine(
-    context: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    width: number,
-    line: WebHostSurfaceStyle["underline"],
-    placement: "underline" | "strike",
-    fallbackColor: string
-  ): void {
-    if (!line) {
-      return;
-    }
-    context.strokeStyle = line.color ?? fallbackColor;
-    context.lineWidth = line.pattern === "double" ? 2 : 1;
-    if (line.pattern === "dot") {
-      context.setLineDash([1, 3]);
-    } else if (line.pattern === "dash") {
-      context.setLineDash([4, 3]);
-    } else {
-      context.setLineDash([]);
-    }
-
-    const lineY = placement === "underline"
-      ? y + this.cellHeight - 2
-      : y + Math.floor(this.cellHeight / 2);
-    context.beginPath();
-    context.moveTo(x, lineY);
-    context.lineTo(x + width, lineY);
-    context.stroke();
-    context.setLineDash([]);
-  }
-
-  private fontForStyle(
-    style?: WebHostSurfaceStyle | null
-  ): string {
-    const emphasis = style?.em ?? 0;
-    const italic = (emphasis & 2) !== 0 ? "italic " : "";
-    const weight = (emphasis & 1) !== 0 ? "700 " : "";
-    return `${italic}${weight}${this.currentStyle.fontSize}px ${this.currentStyle.fontFamily}`;
-  }
-
-  /**
-   * Whether any scrollable region under `location` can still scroll in the
-   * wheel's direction. Mirrors the Swift host's scroll hit-test: a region
-   * qualifies when its viewport contains the cell AND it has remaining headroom
-   * in the delta's direction. Used by "chain" wheel mode to decide capture vs.
-   * fall-through. With no published `scrollRegions`, nothing can scroll, so the
-   * wheel chains to the page (a scene with no ScrollView stays fully passive).
-   */
-  private wheelTargetCanScroll(
-    location: { x: number; y: number },
-    deltaX: number,
-    deltaY: number
-  ): boolean {
-    const regions = this.currentFrame?.scrollRegions;
-    if (!regions || regions.length === 0) {
-      return false;
-    }
-
-    const cellX = Math.floor(location.x);
-    const cellY = Math.floor(location.y);
-    // Any region under the pointer that can move in this direction qualifies —
-    // this is what lets an outer ScrollView take over when an inner one is at
-    // its edge (nested scroll), and chains to the page only when none can.
-    for (const region of regions) {
-      const [rx, ry, rw, rh] = region.rect;
-      if (cellX < rx || cellY < ry || cellX >= rx + rw || cellY >= ry + rh) {
-        continue;
-      }
-      if (regionCanScrollInDirection(region, deltaX, deltaY)) {
-        return true;
-      }
-    }
-    return false;
+  private pointerMetrics(): PointerGeometryMetrics {
+    return {
+      rect: this.canvas?.getBoundingClientRect?.() ?? this.terminalMount.getBoundingClientRect?.(),
+      cellWidth: this.cellWidth,
+      cellHeight: this.cellHeight,
+      columns: this.columns,
+      rows: this.rows,
+    };
   }
 
   private cellLocation(
     event: MouseEvent
-  ): { x: number; y: number } | undefined {
-    const location = this.rawCellLocation(event);
-    if (!location) {
-      return undefined;
-    }
-
-    const cellX = Math.floor(location.x);
-    const cellY = Math.floor(location.y);
-    if (cellX < 0 || cellY < 0 || cellX >= this.columns || cellY >= this.rows) {
-      return undefined;
-    }
-    return location;
+  ): CellLocation | undefined {
+    return cellLocationForEvent(event, this.pointerMetrics());
   }
 
   private rawCellLocation(
     event: MouseEvent
-  ): { x: number; y: number } | undefined {
-    const rect = this.canvas?.getBoundingClientRect?.() ?? this.terminalMount.getBoundingClientRect?.();
-    if (!rect) {
-      return undefined;
-    }
-
-    const x = (event.clientX - rect.left) / this.cellWidth;
-    const y = (event.clientY - rect.top) / this.cellHeight;
-    return { x, y };
+  ): CellLocation | undefined {
+    return rawCellLocationForEvent(event, this.pointerMetrics());
   }
-}
-
-async function decodeImage(
-  dataBase64: string,
-  format: WebHostSurfaceImageFormat
-): Promise<CanvasImageSource> {
-  const bytes = decodeBase64Bytes(dataBase64);
-  const blob = new Blob([bytes], { type: `image/${format}` });
-
-  if (typeof createImageBitmap === "function") {
-    // Animated GIFs collapse to their first frame in createImageBitmap
-    // — that matches the Kitty path's first-frame composite. Phase 7
-    // will replace this with a frame ticker.
-    return createImageBitmap(blob);
-  }
-
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    const url = URL.createObjectURL(blob);
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error(`Failed to decode ${format} image`));
-    };
-    image.src = url;
-  });
-}
-
-function decodeBase64Bytes(
-  value: string
-): Uint8Array {
-  if (typeof atob === "function") {
-    const binary = atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  }
-
-  return new Uint8Array(Buffer.from(value, "base64"));
-}
-
-function keyInputFromKeyboardEvent(
-  event: KeyboardEvent
-): Pick<WebHostKeyInput, "key" | "character"> | undefined {
-  switch (event.key) {
-  case "Enter":
-    return { key: "return" };
-  case " ":
-    return { key: "space" };
-  case "Tab":
-    return { key: "tab" };
-  case "ArrowLeft":
-    return { key: "arrowLeft" };
-  case "ArrowRight":
-    return { key: "arrowRight" };
-  case "ArrowUp":
-    return { key: "arrowUp" };
-  case "ArrowDown":
-    return { key: "arrowDown" };
-  case "Backspace":
-    return { key: "backspace" };
-  case "Escape":
-    return { key: "escape" };
-  case "Home":
-    return { key: "home" };
-  case "End":
-    return { key: "end" };
-  default:
-    {
-      const characters = Array.from(event.key);
-      if (characters.length !== 1) {
-        return undefined;
-      }
-      return {
-        key: "character",
-        character: characters[0],
-      };
-    }
-  }
-}
-
-function pointerButton(
-  button: number
-): "primary" | "middle" | "secondary" {
-  switch (button) {
-  case 1:
-    return "middle";
-  case 2:
-    return "secondary";
-  default:
-    return "primary";
-  }
-}
-
-function modifierMask(
-  event: MouseEvent | KeyboardEvent
-): number {
-  let mask = 0;
-  if (event.shiftKey) {
-    mask |= 1;
-  }
-  if (event.altKey) {
-    mask |= 2;
-  }
-  if (event.ctrlKey) {
-    mask |= 4;
-  }
-  return mask;
-}
-
-function normalizedWheelDelta(
-  delta: number
-): number {
-  if (delta > 0) {
-    return 1;
-  }
-  if (delta < 0) {
-    return -1;
-  }
-  return 0;
-}
-
-/**
- * Whether a published scroll region has remaining headroom in the wheel's
- * direction, recomputing the per-direction extent from offset/content/viewport.
- * Mirrors SwiftTUI's clamp (`min(max(0, offset), max(0, content - viewport))`)
- * so the host and the app agree on "at edge". Wheel sign convention matches the
- * app: `deltaY > 0` scrolls down (offset grows toward the content bottom).
- * Diagonal wheels qualify if either axis has headroom.
- */
-function regionCanScrollInDirection(
-  region: WebHostScrollRegion,
-  deltaX: number,
-  deltaY: number
-): boolean {
-  const [, , viewportWidth, viewportHeight] = region.rect;
-  const [offsetX, offsetY] = region.offset;
-  const [contentWidth, contentHeight] = region.content;
-  const maxX = Math.max(0, contentWidth - viewportWidth);
-  const maxY = Math.max(0, contentHeight - viewportHeight);
-  const clampedX = Math.min(Math.max(0, offsetX), maxX);
-  const clampedY = Math.min(Math.max(0, offsetY), maxY);
-
-  if (deltaY > 0 && clampedY < maxY) {
-    return true;
-  }
-  if (deltaY < 0 && clampedY > 0) {
-    return true;
-  }
-  if (deltaX > 0 && clampedX < maxX) {
-    return true;
-  }
-  if (deltaX < 0 && clampedX > 0) {
-    return true;
-  }
-  return false;
-}
-
-function normalizeCellRanges(
-  ranges: DirtyCellRange[]
-): DirtyCellRange[] {
-  const sorted = ranges
-    .filter((range) => range.end > range.start)
-    .sort((lhs, rhs) => lhs.start - rhs.start || lhs.end - rhs.end);
-  const normalized: DirtyCellRange[] = [];
-  for (const range of sorted) {
-    const previous = normalized[normalized.length - 1];
-    if (previous && range.start <= previous.end) {
-      previous.end = Math.max(previous.end, range.end);
-      continue;
-    }
-    normalized.push({ ...range });
-  }
-  return normalized;
-}
-
-function cellIntersectsRanges(
-  x: number,
-  span: number,
-  ranges: DirtyRowRanges
-): boolean {
-  if (ranges === "full") {
-    return true;
-  }
-  const start = Math.floor(x);
-  const end = start + Math.max(1, Math.ceil(span));
-  return ranges.some((range) => start < range.end && end > range.start);
-}
-
-function dirtyRegionIntersectsCellRect(
-  region: DirtyRegion,
-  x: number,
-  y: number,
-  width: number,
-  height: number
-): boolean {
-  const startRow = Math.max(0, Math.floor(y));
-  const endRow = Math.max(startRow, Math.ceil(y + height));
-  const rectRange = {
-    start: Math.floor(x),
-    end: Math.floor(x) + Math.max(1, Math.ceil(width)),
-  };
-  for (let row = startRow; row < endRow; row += 1) {
-    const ranges = region.rows.get(row);
-    if (!ranges) {
-      continue;
-    }
-    if (cellIntersectsRanges(rectRange.start, rectRange.end - rectRange.start, ranges)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function resolvedForeground(
-  style: WebHostSurfaceStyle | null | undefined,
-  terminalStyle: ResolvedWebHostTerminalStyle
-): string {
-  if ((style?.em ?? 0) & 16) {
-    return style?.bg ?? terminalStyle.theme.background;
-  }
-  return style?.fg ?? terminalStyle.theme.foreground;
-}
-
-function resolvedBackground(
-  style: WebHostSurfaceStyle | null | undefined,
-  terminalStyle: ResolvedWebHostTerminalStyle
-): string | undefined {
-  if ((style?.em ?? 0) & 16) {
-    return style?.fg ?? terminalStyle.theme.foreground;
-  }
-  return style?.bg;
 }
