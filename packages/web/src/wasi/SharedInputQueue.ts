@@ -65,10 +65,11 @@ export class SharedInputQueueWriter {
       return;
     }
 
+    const length = this.queue.data.length;
     const readIndex = Atomics.load(this.queue.control, ControlSlot.readIndex);
     const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
-    const usedCapacity = writeIndex - readIndex;
-    const availableCapacity = this.queue.data.length - usedCapacity;
+    const usedCapacity = ringUsed(readIndex, writeIndex, length);
+    const availableCapacity = length - usedCapacity;
 
     if (bytes.length > availableCapacity) {
       throw new Error(
@@ -77,7 +78,11 @@ export class SharedInputQueueWriter {
     }
 
     writeToRingBuffer(this.queue.data, bytes, writeIndex);
-    Atomics.store(this.queue.control, ControlSlot.writeIndex, writeIndex + bytes.length);
+    Atomics.store(
+      this.queue.control,
+      ControlSlot.writeIndex,
+      ringAdvance(writeIndex, bytes.length, length)
+    );
     Atomics.notify(this.queue.control, ControlSlot.writeIndex);
   }
 
@@ -115,9 +120,10 @@ export class SharedInputQueueReader {
       return new Uint8Array();
     }
 
+    const length = this.queue.data.length;
     const readIndex = Atomics.load(this.queue.control, ControlSlot.readIndex);
     const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
-    const availableBytes = writeIndex - readIndex;
+    const availableBytes = ringUsed(readIndex, writeIndex, length);
 
     if (availableBytes <= 0) {
       return undefined;
@@ -125,14 +131,18 @@ export class SharedInputQueueReader {
 
     const byteCount = Math.min(maxBytes, availableBytes);
     const chunk = readFromRingBuffer(this.queue.data, readIndex, byteCount);
-    Atomics.store(this.queue.control, ControlSlot.readIndex, readIndex + byteCount);
+    Atomics.store(
+      this.queue.control,
+      ControlSlot.readIndex,
+      ringAdvance(readIndex, byteCount, length)
+    );
     return chunk;
   }
 
   availableBytes(): number {
     const readIndex = Atomics.load(this.queue.control, ControlSlot.readIndex);
     const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
-    return Math.max(0, writeIndex - readIndex);
+    return ringUsed(readIndex, writeIndex, this.queue.data.length);
   }
 
   waitForReadable(
@@ -168,6 +178,28 @@ function normalizeChunk(
   chunk: Uint8Array | string
 ): Uint8Array {
   return typeof chunk == "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk);
+}
+
+// The read/write cursors are kept in the half-open range [0, 2 * length) — the
+// classic "two indices mod 2N" ring buffer. Bounding both cursors keeps them
+// from growing without limit and overflowing Int32 across long sessions, while
+// still distinguishing a full queue (used == length) from an empty one
+// (used == 0). The data-buffer offset for either cursor is cursor % length.
+function ringUsed(
+  readIndex: number,
+  writeIndex: number,
+  length: number
+): number {
+  const span = 2 * length;
+  return ((writeIndex - readIndex) % span + span) % span;
+}
+
+function ringAdvance(
+  index: number,
+  delta: number,
+  length: number
+): number {
+  return (index + delta) % (2 * length);
 }
 
 function writeToRingBuffer(

@@ -46,10 +46,16 @@ export async function packageBrowserValidatedWasm(
   const sourceBytes = await readFile(options.sourceWasmPath);
   await writeFile(options.outputWasmPath, sourceBytes);
 
+  // Track the last bytes that passed browser validation and are on disk, so a
+  // later stage failure restores the best validated output rather than the raw
+  // source (discarding an earlier successful optimize pass).
+  let lastGood = sourceBytes;
+
   const optimize = options.optimize ?? optimizePackagedWasm;
   try {
     await optimize(options.outputWasmPath);
     await validateBrowserWasm(options.outputWasmPath, "optimized wasm");
+    lastGood = await readFile(options.outputWasmPath);
   } catch (error) {
     await writeFile(options.outputWasmPath, sourceBytes);
     const message = error instanceof Error ? error.message : String(error);
@@ -77,9 +83,11 @@ export async function packageBrowserValidatedWasm(
     await strip(options.outputWasmPath);
     await validateBrowserWasm(options.outputWasmPath, "stripped wasm");
   } catch (error) {
-    // Stripping is a size optimization only. Keep the known-good raw wasm
-    // whenever toolchain-specific objcopy output fails browser validation.
-    await writeFile(options.outputWasmPath, sourceBytes);
+    // Stripping is a size optimization only. Restore the last validated wasm
+    // (the optimized bytes when optimization succeeded, otherwise the raw
+    // source) whenever toolchain-specific objcopy output fails browser
+    // validation, rather than discarding a successful optimize pass.
+    await writeFile(options.outputWasmPath, lastGood);
     const message = error instanceof Error ? error.message : String(error);
     const warning = [
       `warning: keeping unstripped wasm at ${options.outputWasmPath}`,
