@@ -1,0 +1,173 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: web-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: "1.3.13"
+  NODE_VERSION: "24"
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Validate release tag and package versions
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::Release tag '$version' is not semver-like"
+            exit 1
+          fi
+          node <<'NODE'
+          const fs = require("fs");
+          const version = process.env.GITHUB_REF_NAME;
+          const manifests = [
+            "package.json",
+            "packages/web/package.json",
+            "packages/build/package.json",
+          ];
+          for (const manifest of manifests) {
+            const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"));
+            if (parsed.version !== version) {
+              console.error(`${manifest} version ${parsed.version} does not match tag ${version}`);
+              process.exitCode = 1;
+            }
+          }
+          if (process.exitCode) {
+            process.exit(process.exitCode);
+          }
+          NODE
+
+      - name: Install and validate
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run test
+          bun run build:packages
+          bun run build:web
+
+      - name: Pack release tarballs
+        id: pack
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          assets="$RUNNER_TEMP/swifttui-release-assets"
+          mkdir -p "$assets"
+          (cd packages/web && bun pm pack --destination "$assets")
+          (cd packages/build && bun pm pack --destination "$assets")
+          web_tarball="$assets/swifttui-web-$version.tgz"
+          build_tarball="$assets/swifttui-build-$version.tgz"
+          test -f "$web_tarball"
+          test -f "$build_tarball"
+          echo "assets=$assets" >> "$GITHUB_OUTPUT"
+          echo "web_tarball=$web_tarball" >> "$GITHUB_OUTPUT"
+          echo "build_tarball=$build_tarball" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect tarball metadata
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          node - "${{ steps.pack.outputs.web_tarball }}" "${{ steps.pack.outputs.build_tarball }}" "$version" <<'NODE'
+          const childProcess = require("child_process");
+          const [webTarball, buildTarball, version] = process.argv.slice(2);
+
+          function readPackage(tarball) {
+            const raw = childProcess.execFileSync("tar", ["-xOzf", tarball, "package/package.json"], {
+              encoding: "utf8",
+            });
+            return JSON.parse(raw);
+          }
+
+          const webPackage = readPackage(webTarball);
+          const buildPackage = readPackage(buildTarball);
+          const checks = [
+            [webPackage.name, "@swifttui/web", `${webTarball} package name`],
+            [webPackage.version, version, `${webTarball} version`],
+            [buildPackage.name, "@swifttui/build", `${buildTarball} package name`],
+            [buildPackage.version, version, `${buildTarball} version`],
+            [
+              buildPackage.dependencies?.["@swifttui/web"],
+              version,
+              `${buildTarball} @swifttui/web dependency`,
+            ],
+          ];
+          for (const [actual, expected, label] of checks) {
+            if (actual !== expected) {
+              console.error(`${label}: ${actual} !== ${expected}`);
+              process.exitCode = 1;
+            }
+          }
+          if (process.exitCode) {
+            process.exit(process.exitCode);
+          }
+          NODE
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          web_tarball="${{ steps.pack.outputs.web_tarball }}"
+          build_tarball="${{ steps.pack.outputs.build_tarball }}"
+          if gh release view "$version" >/dev/null 2>&1; then
+            gh release upload "$version" "$web_tarball" "$build_tarball" --clobber
+          else
+            gh release create "$version" \
+              --target "$GITHUB_SHA" \
+              --title "$version" \
+              --notes "SwiftTUI web packages $version" \
+              "$web_tarball" \
+              "$build_tarball"
+          fi
+
+      - name: Publish npm packages
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if npm view "@swifttui/web@$version" version >/dev/null 2>&1; then
+            echo "@swifttui/web@$version already exists on npm; skipping"
+          else
+            npm publish "${{ steps.pack.outputs.web_tarball }}" --access public --provenance
+          fi
+
+          if npm view "@swifttui/build@$version" version >/dev/null 2>&1; then
+            echo "@swifttui/build@$version already exists on npm; skipping"
+          else
+            npm publish "${{ steps.pack.outputs.build_tarball }}" --access public --provenance
+          fi
+
+      - name: Verify published artifacts
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          for f in "swifttui-web-$version.tgz" "swifttui-build-$version.tgz"; do
+            curl -fsSL -o /dev/null \
+              "https://github.com/SwiftTUI/swift-tui-web/releases/download/$version/$f"
+          done
+          test "$(npm view "@swifttui/web@$version" version --json | tr -d '\"')" = "$version"
+          test "$(npm view "@swifttui/build@$version" version --json | tr -d '\"')" = "$version"
