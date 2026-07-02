@@ -2,6 +2,11 @@
   "name": "@swifttui/build",
   "version": "0.1.1",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SwiftTUI/swift-tui-web.git",
+    "directory": "packages/build"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
