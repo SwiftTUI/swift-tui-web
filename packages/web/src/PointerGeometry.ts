@@ -1,5 +1,6 @@
 import type {
   WebHostScrollRegion,
+  WebHostSurfaceLinkRow,
 } from "./WebHostSurfaceTransport.ts";
 import type { CellLocation } from "./InputEventEncoder.ts";
 
@@ -55,6 +56,36 @@ export function rawCellLocationForEvent(
   const x = (event.clientX - rect.left) / metrics.cellWidth;
   const y = (event.clientY - rect.top) / metrics.cellHeight;
   return { x, y };
+}
+
+/**
+ * The hyperlink destination under `location`, resolved through the frame's
+ * per-row link runs and deduplicated `linkTargets` table. Mirrors the Android
+ * host's cell hit-test (tap on a linked cell opens its URI). Returns
+ * `undefined` when the cell carries no link or the frame published none.
+ */
+export function linkTargetAt(
+  links: readonly WebHostSurfaceLinkRow[] | undefined,
+  linkTargets: readonly string[] | undefined,
+  location: CellLocation
+): string | undefined {
+  if (!links || !linkTargets || linkTargets.length === 0) {
+    return undefined;
+  }
+
+  const cellX = Math.floor(location.x);
+  const cellY = Math.floor(location.y);
+  for (const [row, runs] of links) {
+    if (row !== cellY) {
+      continue;
+    }
+    for (const [x, span, targetIndex] of runs) {
+      if (cellX >= x && cellX < x + span) {
+        return linkTargets[targetIndex];
+      }
+    }
+  }
+  return undefined;
 }
 
 /**

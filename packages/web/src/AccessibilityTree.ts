@@ -42,10 +42,14 @@ export class AccessibilityTreeMounter {
     announcements: WebHostAccessibilityAnnouncement[] = [],
     options: AccessibilityTreePresentationOptions = {}
   ): void {
+    // Nodes the app marked hidden stay out of the assistive-technology tree,
+    // mirroring the Android host's overlay filter. Hidden is per-node on the
+    // wire, so children of a hidden node re-parent to the mount root.
+    const visibleNodes = nodes.filter((node) => !node.hidden);
     const previousById = this.nodesById;
     const nextById = new Map<string, HTMLElement>();
 
-    for (const node of nodes) {
+    for (const node of visibleNodes) {
       const existing = previousById.get(node.id);
       const element = existing ?? document.createElement("div");
       this.applyNodeAttributes(element, node, metrics);
@@ -60,7 +64,7 @@ export class AccessibilityTreeMounter {
 
     this.nodesById = nextById;
 
-    for (const node of nodes) {
+    for (const node of visibleNodes) {
       const element = nextById.get(node.id);
       if (!element) {
         continue;
@@ -70,9 +74,9 @@ export class AccessibilityTreeMounter {
       (parent ?? this.element).appendChild(element);
     }
 
-    this.announceLiveRegionChanges(nodes, announcements);
+    this.announceLiveRegionChanges(visibleNodes, announcements);
 
-    const focused = nodes.find((node) => node.isFocused);
+    const focused = visibleNodes.find((node) => node.isFocused);
     if ((options.synchronizeFocus ?? true) && focused) {
       this.nodesById.get(focused.id)?.focus?.({ preventScroll: true });
     }

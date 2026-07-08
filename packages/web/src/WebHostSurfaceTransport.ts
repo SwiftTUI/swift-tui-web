@@ -50,9 +50,40 @@ export interface WebHostAccessibilityNode {
   role: string;
   label?: string;
   hint?: string;
+  /** omitted when false */
+  hidden?: boolean;
   liveRegion?: WebHostAccessibilityLiveRegion;
   cursorAnchor?: WebHostAccessibilityPoint;
   isFocused?: boolean;
+}
+
+/**
+ * One hyperlink run within a row: [x, spanWidth, linkTargetIndex]. The index
+ * points into the frame's deduplicated `linkTargets` table.
+ */
+export type WebHostSurfaceLinkRun = [
+  x: number,
+  span: number,
+  targetIndex: number,
+];
+
+/** Hyperlink runs for one row: [rowIndex, runs]. */
+export type WebHostSurfaceLinkRow = [
+  row: number,
+  runs: WebHostSurfaceLinkRun[],
+];
+
+export type WebHostFocusSemantics = "none" | "automatic" | "activate" | "edit";
+
+/**
+ * The settled focus presentation for a committed frame — the same derivation
+ * the Android host consumes (`prefersTextInput` gates its IME).
+ */
+export interface WebHostFocusPresentation {
+  focusedIdentity?: string;
+  semantics: WebHostFocusSemantics;
+  prefersTextInput: boolean;
+  hasFocusedRegion: boolean;
 }
 
 export interface WebHostAccessibilityAnnouncement {
@@ -119,6 +150,11 @@ export interface WebHostSurfaceFrame {
   accessibilityTree?: WebHostAccessibilityNode[];
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
   scrollRegions?: WebHostScrollRegion[];
+  links?: WebHostSurfaceLinkRow[];
+  linkTargets?: string[];
+  focusPresentation?: WebHostFocusPresentation;
+  preferredGridWidth?: number;
+  preferredGridHeight?: number;
 }
 
 export type WebHostSurfaceDeltaRow = [
@@ -139,6 +175,11 @@ export interface WebHostSurfaceDeltaFrame {
   accessibilityTree?: WebHostAccessibilityNode[];
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
   scrollRegions?: WebHostScrollRegion[];
+  links?: WebHostSurfaceLinkRow[];
+  linkTargets?: string[];
+  focusPresentation?: WebHostFocusPresentation;
+  preferredGridWidth?: number;
+  preferredGridHeight?: number;
 }
 
 export interface WebHostRuntimeIssue {
@@ -336,6 +377,11 @@ export class WebHostOutputDecoder {
       accessibilityTree: frame.accessibilityTree,
       accessibilityAnnouncements: frame.accessibilityAnnouncements,
       scrollRegions: frame.scrollRegions,
+      links: frame.links,
+      linkTargets: frame.linkTargets,
+      focusPresentation: frame.focusPresentation,
+      preferredGridWidth: frame.preferredGridWidth,
+      preferredGridHeight: frame.preferredGridHeight,
     };
   }
 }
@@ -467,7 +513,8 @@ function isWebHostSurfaceFrame(
       frame.accessibilityAnnouncements === undefined
         || isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)
     )
-    && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions));
+    && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions))
+    && hasValidAdditiveFrameFields(frame);
 }
 
 function isWebHostSurfaceDeltaFrame(
@@ -498,7 +545,90 @@ function isWebHostSurfaceDeltaFrame(
       frame.accessibilityAnnouncements === undefined
         || isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)
     )
-    && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions));
+    && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions))
+    && hasValidAdditiveFrameFields(frame);
+}
+
+/**
+ * The F19 additive fields shared by the full and delta record shapes. Absent
+ * means "feature not present" — servers older than the field omit it.
+ */
+function hasValidAdditiveFrameFields(
+  frame: Partial<WebHostSurfaceFrame> | Partial<WebHostSurfaceDeltaFrame>
+): boolean {
+  return (frame.links === undefined || isWebHostSurfaceLinks(frame.links))
+    && (frame.linkTargets === undefined || isWebHostSurfaceLinkTargets(frame.linkTargets))
+    && (
+      frame.focusPresentation === undefined
+        || isWebHostFocusPresentation(frame.focusPresentation)
+    )
+    && (
+      frame.preferredGridWidth === undefined
+        || (Number.isSafeInteger(frame.preferredGridWidth) && frame.preferredGridWidth >= 0)
+    )
+    && (
+      frame.preferredGridHeight === undefined
+        || (Number.isSafeInteger(frame.preferredGridHeight) && frame.preferredGridHeight >= 0)
+    );
+}
+
+function isWebHostSurfaceLinks(
+  value: unknown
+): value is WebHostSurfaceLinkRow[] {
+  return Array.isArray(value) && value.every(isWebHostSurfaceLinkRow);
+}
+
+function isWebHostSurfaceLinkRow(
+  value: unknown
+): value is WebHostSurfaceLinkRow {
+  return Array.isArray(value)
+    && value.length === 2
+    && Number.isSafeInteger(value[0])
+    && value[0] >= 0
+    && Array.isArray(value[1])
+    && value[1].every(isWebHostSurfaceLinkRun);
+}
+
+function isWebHostSurfaceLinkRun(
+  value: unknown
+): value is WebHostSurfaceLinkRun {
+  if (!Array.isArray(value) || value.length !== 3) {
+    return false;
+  }
+  const [x, span, targetIndex] = value as number[];
+  return Number.isSafeInteger(x)
+    && x >= 0
+    && Number.isSafeInteger(span)
+    && span >= 1
+    && Number.isSafeInteger(targetIndex)
+    && targetIndex >= 0;
+}
+
+function isWebHostSurfaceLinkTargets(
+  value: unknown
+): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isWebHostFocusPresentation(
+  value: unknown
+): value is WebHostFocusPresentation {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const presentation = value as Partial<WebHostFocusPresentation>;
+  return (
+    presentation.focusedIdentity === undefined
+      || typeof presentation.focusedIdentity === "string"
+  )
+    && (
+      presentation.semantics === "none"
+        || presentation.semantics === "automatic"
+        || presentation.semantics === "activate"
+        || presentation.semantics === "edit"
+    )
+    && typeof presentation.prefersTextInput === "boolean"
+    && typeof presentation.hasFocusedRegion === "boolean";
 }
 
 function isWebHostSurfaceDeltaRow(
@@ -550,6 +680,7 @@ function isWebHostAccessibilityNode(
     && typeof node.role === "string"
     && (node.label === undefined || typeof node.label === "string")
     && (node.hint === undefined || typeof node.hint === "string")
+    && (node.hidden === undefined || typeof node.hidden === "boolean")
     && (
       node.liveRegion === undefined
         || node.liveRegion === "off"

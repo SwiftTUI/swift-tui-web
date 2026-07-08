@@ -17,12 +17,14 @@ import {
 } from "./InputEventEncoder.ts";
 import {
   cellLocationForEvent,
+  linkTargetAt,
   rawCellLocationForEvent,
   wheelTargetCanScroll,
   type PointerGeometryMetrics,
 } from "./PointerGeometry.ts";
 import { AccessibilityTreeMounter } from "./AccessibilityTree.ts";
 import {
+  type WebHostFocusPresentation,
   type WebHostFrameDiagnosticRecord,
   type WebHostOutputSink,
   type WebHostRuntimeIssue,
@@ -68,6 +70,13 @@ export interface WebHostSceneRuntimeOptions {
    * mode defaults to `"chain"`.
    */
   captureWheelInput?: boolean;
+  /**
+   * Called when the user clicks a hyperlink cell (a click is a pointer-down
+   * and pointer-up over the same link target). When unset, `http(s)` targets
+   * open in a new tab via `window.open(url, "_blank", "noopener,noreferrer")`
+   * and other schemes are ignored. Mirrors the Android host's tap-to-open.
+   */
+  onOpenHyperlink?: (url: string) => void;
 }
 
 export type WheelMode = "capture" | "chain" | "passive";
@@ -117,6 +126,8 @@ export class WebHostSceneRuntime {
   private cellHeight = 18;
   private activePointerButton: PointerButton = "primary";
   private hasCapturedPointer = false;
+  private readonly onOpenHyperlink?: (url: string) => void;
+  private pointerDownLinkTarget?: string;
   private lastSentResize?: {
     columns: number;
     rows: number;
@@ -133,6 +144,7 @@ export class WebHostSceneRuntime {
     this.onFrameDiagnostic = options.onFrameDiagnostic;
     this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
     this.wheelMode = options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
+    this.onOpenHyperlink = options.onOpenHyperlink;
     this.element = document.createElement("section");
     this.element.className = "webhost-scene";
     this.element.dataset.sceneId = options.descriptor.id;
@@ -286,6 +298,53 @@ export class WebHostSceneRuntime {
     this.syncAccessibilityTree();
   }
 
+  /**
+   * The current frame's preferred grid size in cells, when the app published
+   * one — the measured pre-minimum content size, for embedders negotiating
+   * with an outer layout system (the Android host's preferred columns/rows).
+   */
+  get preferredGridSize(): { width: number; height: number } | undefined {
+    const frame = this.currentFrame;
+    if (frame?.preferredGridWidth === undefined || frame.preferredGridHeight === undefined) {
+      return undefined;
+    }
+    return { width: frame.preferredGridWidth, height: frame.preferredGridHeight };
+  }
+
+  /**
+   * The current frame's settled focus presentation, when the app published
+   * one. `prefersTextInput` is what the Android host uses to gate its IME;
+   * embedders can drive virtual-keyboard or focus affordances from it.
+   */
+  get focusPresentation(): WebHostFocusPresentation | undefined {
+    return this.currentFrame?.focusPresentation;
+  }
+
+  private linkTarget(
+    location: CellLocation
+  ): string | undefined {
+    return linkTargetAt(
+      this.currentFrame?.links,
+      this.currentFrame?.linkTargets,
+      location
+    );
+  }
+
+  private openHyperlink(
+    url: string
+  ): void {
+    if (this.onOpenHyperlink) {
+      this.onOpenHyperlink(url);
+      return;
+    }
+    // Defense in depth on top of the app-side OSC-8 destination sanitization:
+    // the default handler only opens web schemes.
+    if (!/^https?:/i.test(url)) {
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   private applyStyle(
     style: WebHostTerminalStyle
   ): void {
@@ -365,6 +424,9 @@ export class WebHostSceneRuntime {
       const button = this.inputEncoder.pointerButton(event.button);
       this.activePointerButton = button;
       this.hasCapturedPointer = true;
+      this.pointerDownLinkTarget = button === "primary"
+        ? this.linkTarget(location)
+        : undefined;
       this.terminalMount.focus?.({ preventScroll: true });
       this.terminalMount.setPointerCapture?.(event.pointerId);
       this.onInput(this.inputEncoder.encodePointerDown(location, button, event));
@@ -377,12 +439,20 @@ export class WebHostSceneRuntime {
         : this.cellLocation(event);
       this.terminalMount.releasePointerCapture?.(event.pointerId);
       this.hasCapturedPointer = false;
+      const downLinkTarget = this.pointerDownLinkTarget;
+      this.pointerDownLinkTarget = undefined;
       if (!location) {
         return;
       }
 
       const button = this.inputEncoder.pointerButton(event.button) ?? this.activePointerButton;
       this.onInput(this.inputEncoder.encodePointerUp(location, button, event));
+      // A click — down and up over the same link target — opens the link,
+      // mirroring the Android host's tap-to-open. The app still receives the
+      // pointer messages above.
+      if (downLinkTarget !== undefined && this.linkTarget(location) === downLinkTarget) {
+        this.openHyperlink(downLinkTarget);
+      }
       event.preventDefault();
     };
 
@@ -394,6 +464,10 @@ export class WebHostSceneRuntime {
         return;
       }
 
+      if (!this.hasCapturedPointer) {
+        this.terminalMount.style.cursor =
+          this.linkTarget(location) !== undefined ? "pointer" : "";
+      }
       this.onInput(this.inputEncoder.encodePointerMove(location, this.activePointerButton, event));
     };
 

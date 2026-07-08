@@ -352,6 +352,109 @@ test("mouse input encoder preserves fractional cell coordinates", () => {
   }))).toBe("\u001Emouse:moved:-0.25:99.5:none:0:0:0\n");
 });
 
+test("decoder parses hyperlink runs, focus presentation, and preferred grid size", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      sequence: 9,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[[0, "a", 1, 0], [1, "b", 1, 0]], []],
+      links: [[0, [[0, 2, 0], [2, 1, 1]]]],
+      linkTargets: ["https://a.example/docs", "https://b.example"],
+      focusPresentation: {
+        focusedIdentity: "root/field",
+        semantics: "edit",
+        prefersTextInput: true,
+        hasFocusedRegion: true,
+      },
+      preferredGridWidth: 9,
+      preferredGridHeight: 8,
+      accessibilityTree: [
+        { id: "root", rect: [0, 0, 4, 2], role: "group" },
+        { id: "root/ghost", parentId: "root", rect: [0, 0, 1, 1], role: "group", hidden: true },
+      ],
+    }) + "\n"
+  ));
+
+  expect(records).toHaveLength(1);
+  const frame = surfaceFrame(records[0]);
+  expect(frame.links).toEqual([[0, [[0, 2, 0], [2, 1, 1]]]]);
+  expect(frame.linkTargets).toEqual(["https://a.example/docs", "https://b.example"]);
+  expect(frame.focusPresentation).toEqual({
+    focusedIdentity: "root/field",
+    semantics: "edit",
+    prefersTextInput: true,
+    hasFocusedRegion: true,
+  });
+  expect(frame.preferredGridWidth).toBe(9);
+  expect(frame.preferredGridHeight).toBe(8);
+  expect(frame.accessibilityTree?.[1]?.hidden).toBe(true);
+});
+
+test("delta frames carry the additive fields onto the materialized frame", () => {
+  const decoder = new WebHostOutputDecoder();
+  decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      sequence: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[[0, "x", 1, 0]]],
+    }) + "\n"
+  ));
+
+  const records = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      sequence: 2,
+      width: 2,
+      height: 1,
+      styles: [null],
+      deltaRows: [[0, [[0, "y", 1, 0]]]],
+      links: [[0, [[0, 1, 0]]]],
+      linkTargets: ["https://a.example"],
+      focusPresentation: {
+        semantics: "activate",
+        prefersTextInput: false,
+        hasFocusedRegion: true,
+        focusedIdentity: "root/button",
+      },
+      preferredGridWidth: 5,
+      preferredGridHeight: 3,
+    }) + "\n"
+  ));
+
+  expect(records).toHaveLength(1);
+  const frame = surfaceFrame(records[0]);
+  expect(frame.rows[0]).toEqual([[0, "y", 1, 0]]);
+  expect(frame.links).toEqual([[0, [[0, 1, 0]]]]);
+  expect(frame.linkTargets).toEqual(["https://a.example"]);
+  expect(frame.focusPresentation?.semantics).toBe("activate");
+  expect(frame.preferredGridWidth).toBe(5);
+  expect(frame.preferredGridHeight).toBe(3);
+});
+
+test("malformed hyperlink runs degrade the record to a text diagnostic", () => {
+  const decoder = new WebHostOutputDecoder();
+  const line = "\u001Esurface:" + JSON.stringify({
+    version: 2,
+    width: 2,
+    height: 1,
+    styles: [null],
+    rows: [[]],
+    links: [[0, [[0, 2]]]],
+    linkTargets: ["https://a.example"],
+  }) + "\n";
+
+  const records = decoder.feed(encoder.encode(line));
+  expect(records).toEqual([{ type: "text", text: line }]);
+});
+
 function surfaceFrame(
   record: WebHostOutputRecord | undefined
 ): WebHostSurfaceFrame {

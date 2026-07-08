@@ -104,6 +104,12 @@ self-describing.
   the library does not provide a built-in mode switcher.
 - `BrowserWASIBridge` sets `TUIGUI_TRANSPORT=surface` and decodes surface
   frames before handing them to the canvas runtime.
+- Hyperlink cells published by the app (`links`/`linkTargets` on the frame)
+  are clickable: a click opens the target in a new tab (`http(s)` only) or
+  through the `onOpenHyperlink` runtime option; the pointer cursor signals
+  linked cells. Accessibility nodes the app marks `hidden` stay out of the
+  ARIA tree, and the runtime exposes the frame's `focusPresentation` and
+  `preferredGridSize` for embedders.
 
 ## Developing this package
 

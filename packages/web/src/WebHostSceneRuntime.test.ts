@@ -1456,6 +1456,224 @@ test("runtime completes captured drags when pointerup lands outside the grid", a
   }
 });
 
+test("clicking a hyperlink cell opens its target through the handler", async () => {
+  const dom = installFakeDOM();
+  try {
+    const opened: string[] = [];
+    const inputs: string[] = [];
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge,
+      onInput: (chunk) => {
+        inputs.push(decoder.decode(chunk));
+      },
+      onOpenHyperlink: (url) => {
+        opened.push(url);
+      },
+    });
+
+    await runtime.mount();
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 2,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[[0, "a", 1, 0], [1, "b", 1, 0], [2, "c", 1, 0]], []],
+      links: [[0, [[0, 2, 0]]]],
+      linkTargets: ["https://a.example/docs"],
+    })));
+
+    // Click (down + up) on the linked run opens its target.
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0, buttons: 1, clientX: 5, clientY: 5, pointerId: 7,
+    }));
+    runtime.terminalMount.dispatch("pointerup", pointerEvent({
+      button: 0, buttons: 0, clientX: 5, clientY: 5, pointerId: 7,
+    }));
+    expect(opened).toEqual(["https://a.example/docs"]);
+
+    // A drag that leaves the link before release does not open it.
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0, buttons: 1, clientX: 5, clientY: 5, pointerId: 7,
+    }));
+    runtime.terminalMount.dispatch("pointerup", pointerEvent({
+      button: 0, buttons: 0, clientX: 25, clientY: 5, pointerId: 7,
+    }));
+    // Neither does a click on an unlinked cell.
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0, buttons: 1, clientX: 25, clientY: 5, pointerId: 7,
+    }));
+    runtime.terminalMount.dispatch("pointerup", pointerEvent({
+      button: 0, buttons: 0, clientX: 25, clientY: 5, pointerId: 7,
+    }));
+    expect(opened).toEqual(["https://a.example/docs"]);
+
+    // The app still received every pointer message.
+    expect(inputs.filter((message) => message.includes("mouse:down"))).toHaveLength(3);
+    expect(inputs.filter((message) => message.includes("mouse:up"))).toHaveLength(3);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("pointer over a hyperlink shows a pointer cursor", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 2,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[[0, "a", 1, 0]], []],
+      links: [[0, [[0, 1, 0]]]],
+      linkTargets: ["https://a.example"],
+    })));
+
+    runtime.terminalMount.dispatch("pointermove", pointerEvent({
+      buttons: 0, clientX: 5, clientY: 5, pointerId: 7,
+    }));
+    expect(runtime.terminalMount.style.cursor).toBe("pointer");
+
+    runtime.terminalMount.dispatch("pointermove", pointerEvent({
+      buttons: 0, clientX: 25, clientY: 5, pointerId: 7,
+    }));
+    expect(runtime.terminalMount.style.cursor).toBe("");
+  } finally {
+    dom.restore();
+  }
+});
+
+test("accessibility nodes marked hidden stay out of the ARIA tree", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 2,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[], []],
+      accessibilityTree: [
+        { id: "root", rect: [0, 0, 4, 2], role: "group", isFocused: false },
+        {
+          id: "root/ghost",
+          parentId: "root",
+          rect: [0, 0, 1, 1],
+          role: "button",
+          label: "Ghost",
+          hidden: true,
+          isFocused: false,
+        },
+        {
+          id: "root/visible",
+          parentId: "root",
+          rect: [1, 0, 1, 1],
+          role: "button",
+          label: "Visible",
+          isFocused: false,
+        },
+      ],
+    })));
+
+    const tree = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-tree");
+    const root = childWithData(tree, "accessibilityId", "root");
+    expect(root.children.some(
+      (child) => child.dataset["accessibilityId"] === "root/visible"
+    )).toBe(true);
+    expect(root.children.some(
+      (child) => child.dataset["accessibilityId"] === "root/ghost"
+    )).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("runtime exposes focus presentation and preferred grid size", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    expect(runtime.focusPresentation).toBeUndefined();
+    expect(runtime.preferredGridSize).toBeUndefined();
+
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 2,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[], []],
+      focusPresentation: {
+        focusedIdentity: "root/field",
+        semantics: "edit",
+        prefersTextInput: true,
+        hasFocusedRegion: true,
+      },
+      preferredGridWidth: 9,
+      preferredGridHeight: 8,
+    })));
+
+    expect(runtime.focusPresentation).toEqual({
+      focusedIdentity: "root/field",
+      semantics: "edit",
+      prefersTextInput: true,
+      hasFocusedRegion: true,
+    });
+    expect(runtime.preferredGridSize).toEqual({ width: 9, height: 8 });
+  } finally {
+    dom.restore();
+  }
+});
+
 function pointerEvent(
   overrides: Record<string, unknown>
 ): Record<string, unknown> {
