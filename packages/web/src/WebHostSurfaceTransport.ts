@@ -244,6 +244,16 @@ export interface WebHostMouseInput {
 const recordPrefix = "\u001E";
 const textEncoder = new TextEncoder();
 
+/**
+ * The newest `surface` record version this runtime understands. Unknown
+ * additive object keys are ignored by design (older runtimes render newer
+ * frames), but a frame declaring a NEWER version than this is surfaced as an
+ * error-severity runtime issue instead of silently degrading to a text
+ * diagnostic — silent version skew is the failure mode this guards against
+ * (F57).
+ */
+export const SUPPORTED_SURFACE_VERSION = 3;
+
 export class WebHostOutputDecoder {
   private readonly textDecoder = new TextDecoder();
   private bufferedText = "";
@@ -331,6 +341,20 @@ export class WebHostOutputDecoder {
 
     try {
       const frame = JSON.parse(line.slice(`${recordPrefix}surface:`.length));
+      if (declaresNewerSurfaceVersion(frame)) {
+        return {
+          type: "runtimeIssue",
+          issue: {
+            severity: "error",
+            code: "surface.unsupportedVersion",
+            message: `SwiftTUI surface version ${frame.version} is newer than the supported ${SUPPORTED_SURFACE_VERSION}`,
+            description: "The app emitted a surface record with version "
+              + `${frame.version}, but this @swifttui/web runtime understands `
+              + `versions up to ${SUPPORTED_SURFACE_VERSION}. Update @swifttui/web `
+              + "to render it.",
+          },
+        };
+      }
       if (isWebHostSurfaceFrame(frame)) {
         this.lastSurfaceFrame = frame;
         return { type: "surface", frame };
@@ -384,6 +408,18 @@ export class WebHostOutputDecoder {
       preferredGridHeight: frame.preferredGridHeight,
     };
   }
+}
+
+function declaresNewerSurfaceVersion(
+  value: unknown
+): value is { version: number } {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const version = (value as { version?: unknown }).version;
+  return typeof version === "number"
+    && Number.isSafeInteger(version)
+    && version > SUPPORTED_SURFACE_VERSION;
 }
 
 function isWebHostClipboardRecord(
