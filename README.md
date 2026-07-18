@@ -18,7 +18,7 @@ packages deliver two of SwiftTUI's five hosts — a **static WASI bundle** and a
 [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui); this repo is the
 deployment story for the browser.
 
-> Status: `0.1.6` beta — source-breaking changes may land before 1.0.
+> Status: `0.1.7` beta — source-breaking changes may land before 1.0.
 
 | Package | Role |
 | --- | --- |
@@ -47,8 +47,8 @@ Each tagged GitHub release also attaches npm-compatible tarballs:
 
 ```bash
 npm install \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.1.6/swifttui-web-0.1.6.tgz \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.1.6/swifttui-build-0.1.6.tgz
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.1.7/swifttui-web-0.1.7.tgz \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.1.7/swifttui-build-0.1.7.tgz
 ```
 
 ## Basic use
