@@ -36,7 +36,11 @@ export const requiredWasmSwiftFlags = [
 export const defaultWasmSwiftSDK = "swift-6.3.1-RELEASE_wasm";
 export const defaultInitialMemory = "536870912";
 export const defaultMaxMemory = "4294967296";
-export const defaultStackSize = "1048576";
+// 16 MiB: the resolve descent's linear-memory (shadow) stack usage scales
+// with view-tree depth, and the non-lean profile's deep scenes measurably
+// overflow a 1 MiB stack (wasm "memory access out of bounds" at steady
+// state). The reservation is virtual against a 512 MiB initial memory.
+export const defaultStackSize = "16777216";
 
 export async function resolveSwiftArtifacts(
   options: ResolveSwiftArtifactsOptions

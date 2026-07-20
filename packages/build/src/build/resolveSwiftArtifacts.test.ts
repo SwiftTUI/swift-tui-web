@@ -45,10 +45,10 @@ test("formats commands for readable CI logs", () => {
       "--package-path",
       "/tmp/My Project",
       "-Xlinker",
-      "stack-size=1048576",
+      "stack-size=16777216",
     ])
   ).toBe(
-    "swiftly run swift build --package-path '/tmp/My Project' -Xlinker stack-size=1048576"
+    "swiftly run swift build --package-path '/tmp/My Project' -Xlinker stack-size=16777216"
   );
 });
 
