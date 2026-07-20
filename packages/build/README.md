@@ -62,7 +62,8 @@ Toolchain defaults match the repo:
   `-Xswiftc -Osize -Xswiftc -Xfrontend -Xswiftc -disable-llvm-merge-functions-pass`
 - Initial memory: `536870912`
 - Max memory: `4294967296`
-- Stack size: `1048576`
+- Stack size: `16777216` (16 MiB — the earlier 1 MiB default overflowed the
+  wasm linear-memory stack in deep scenes)
 
 Callers can override `swiftCommand`, `swiftSDK`, `configuration`,
 `initialMemory`, `maxMemory`, `stackSize`, `extraSwiftcFlags`,

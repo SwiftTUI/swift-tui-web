@@ -8,6 +8,69 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-07-20
+
+### Added
+
+- **Main-thread (JSPI) wasm execution mode.** `MainThreadWasmExecutor` runs
+  the app wasm on the main thread with `poll_oneoff` wrapped in
+  `WebAssembly.Suspending` and `_start` via `promising`, backed by
+  `MainThreadInputQueue` (no SharedArrayBuffer → no COOP/COEP requirement).
+  Opt-in via the `executionMode: "main-thread"` factory option; `"auto"`
+  (the default) selects it only when JSPI is available and SharedArrayBuffer
+  is not — workers remain the auto default on JSPI-capable engines.
+
+### Changed
+
+- **Stack-lean defaults are held ON for every engine** (reverts 0.1.9's V8
+  lean-off default). Under the non-lean profile, framework reuse gates
+  coalesce per-tick frame emission — a worse live regression than lean's
+  resolve cost. The hold's exit condition is framework-side per-tick frame
+  emission under reuse. `stackLeanRecommended` is still reported for
+  visibility; nothing applies it.
+- **`@swifttui/build` default wasm linear-memory stack raised 1 MiB → 16 MiB**
+  (`-z stack-size=16777216`). The 1 MiB default overflowed
+  (`memory access out of bounds`) in deep non-lean scenes on every engine.
+
+## [0.1.9] - 2026-07-20
+
+### Added
+
+- **`WasmEngineCapabilities`**: engine-family classification from Error
+  mechanics (V8 `    at ` stack frames vs JSC/Gecko `fn@url` shapes; Gecko
+  split by the `fileName` instance property, JSC by `sourceURL` with a
+  stack-shape fallback for trunk WebKit) and JSPI capability detection
+  (`supportsJSPI` requires both `WebAssembly.Suspending` and `promising`).
+  `BrowserWASIBridge` injects engine-derived stack-profile environment
+  defaults before caller overrides, and accepts injectable
+  `engineCapabilities`.
+- Engine-differentiated stack-lean default (V8 → non-lean). Reverted in
+  0.1.10 — see above.
+
+## [0.1.8] - 2026-07-20
+
+Lockstep release across the SwiftTUI org; no changes to the web packages. The
+release vehicle for `swift-tui`'s WASI depth-capped chunked resolve (the
+Safari/WebKit worker stack-overflow fix), which ships to browsers through the
+re-vendored bundle.
+
+## [0.0.20 – 0.1.7] - 2026-06-16 – 2026-07-18
+
+Backfilled summary (individual entries were not written at release time):
+
+- **0.1.5** (2026-07-12): consume the F19 additive wire fields (hyperlinks,
+  hidden, focus presentation, preferred grid) and add the version-skew guard
+  with a shared canonical totality fixture (F57/F54).
+- **0.1.0** (2026-06-24): split the `WebHostSceneRuntime` god-class into
+  focused collaborators; keyed diff-and-reuse for the ARIA accessibility
+  tree; code-quality fixes (wasm strip-failure restore, ring-buffer overflow
+  handling).
+- **0.0.23** (2026-06-19): default wheel mode to `"chain"` so embeds let the
+  page scroll.
+- Remaining tags (0.0.20, 0.0.21, 0.0.24–0.0.27, 0.1.1–0.1.4, 0.1.6, 0.1.7)
+  were org lockstep releases with no functional web-package changes beyond
+  packaging/publishing setup (npm provenance, release-tag publishing).
+
 ## [0.0.19] - 2026-06-10
 
 Lockstep release across the SwiftTUI org (the Android host preview lands in
@@ -29,5 +92,9 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.0.18...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.1.10...HEAD
+[0.1.10]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.10
+[0.1.9]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.9
+[0.1.8]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.8
+[0.0.19]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.0.19
 [0.0.18]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.0.18
