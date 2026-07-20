@@ -1,5 +1,10 @@
 import { StdIOPipe } from "./StdIOPipe.ts";
 import {
+  resolveWasmEngineCapabilities,
+  stackProfileEnvironmentDefaults,
+  type WasmEngineCapabilities,
+} from "./WasmEngineCapabilities.ts";
+import {
   encodeWebHostTerminalRenderStyleBase64,
   type WebHostTerminalStyle,
 } from "../WebHostTerminalStyle.ts";
@@ -16,6 +21,13 @@ export interface BrowserWASIBridgeOptions {
   rows: number;
   environment?: Record<string, string>;
   renderStyle?: WebHostTerminalStyle;
+  /**
+   * Detected engine capabilities driving engine-conditional environment
+   * defaults (e.g. disabling the stack-lean resolve profile on V8). Defaults
+   * to probing the current engine; injectable for tests and embedders that
+   * want to force a profile.
+   */
+  engineCapabilities?: WasmEngineCapabilities;
 }
 
 export type BrowserWASIOutputSink = WebHostOutputSink;
@@ -49,6 +61,9 @@ export class BrowserWASIBridge {
       TUIGUI_SCENE: options.sceneId,
       TUIGUI_COLUMNS: String(Math.max(1, options.columns)),
       TUIGUI_ROWS: String(Math.max(1, options.rows)),
+      ...stackProfileEnvironmentDefaults(
+        options.engineCapabilities ?? resolveWasmEngineCapabilities()
+      ),
       ...options.environment,
       ...(options.renderStyle
         ? {

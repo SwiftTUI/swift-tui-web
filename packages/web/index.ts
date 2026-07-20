@@ -5,4 +5,5 @@ export * from "./src/WebHostSurfaceTransport.ts";
 export * from "./src/WebHostSceneRuntime.ts";
 export * from "./src/WebSocketSceneBridge.ts";
 export * from "./src/wasi/BrowserWASIBridge.ts";
+export * from "./src/wasi/WasmEngineCapabilities.ts";
 export * from "./src/wasi/StdIOPipe.ts";
