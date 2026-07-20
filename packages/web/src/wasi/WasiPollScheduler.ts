@@ -21,10 +21,17 @@ interface FdReadSubscription {
 
 type SupportedSubscription = ClockSubscription | FdReadSubscription;
 
-export interface WasiPollReadableSource {
+export interface WasiPollReadableState {
   availableBytes(): number;
   isClosed(): boolean;
+}
+
+export interface WasiPollReadableSource extends WasiPollReadableState {
   waitForReadable(timeoutMilliseconds?: number): SharedInputReadiness;
+}
+
+export interface SuspendingWasiPollReadableSource extends WasiPollReadableState {
+  waitForReadableAsync(timeoutMilliseconds?: number): Promise<SharedInputReadiness>;
 }
 
 export interface WasiPollSchedulerOptions {
@@ -107,6 +114,88 @@ export class WasiPollScheduler {
   }
 }
 
+export interface SuspendingWasiPollSchedulerOptions {
+  memory(): WebAssembly.Memory | undefined;
+  stdin: SuspendingWasiPollReadableSource;
+  fallbackPoll(
+    inPtr: number,
+    outPtr: number,
+    nsubscriptions: number,
+    neventsPtr?: number
+  ): number;
+  nowMilliseconds?(): number;
+}
+
+/**
+ * The JSPI (main-thread) counterpart of `WasiPollScheduler`: identical
+ * subscription semantics, but the blocking waits become awaited promises so
+ * the surrounding `poll_oneoff` import can be wrapped in
+ * `WebAssembly.Suspending` and run without a worker or SharedArrayBuffer.
+ */
+export class SuspendingWasiPollScheduler {
+  private readonly memory: SuspendingWasiPollSchedulerOptions["memory"];
+  private readonly stdin: SuspendingWasiPollReadableSource;
+  private readonly fallbackPoll: SuspendingWasiPollSchedulerOptions["fallbackPoll"];
+  private readonly nowMilliseconds: () => number;
+
+  constructor(options: SuspendingWasiPollSchedulerOptions) {
+    this.memory = options.memory;
+    this.stdin = options.stdin;
+    this.fallbackPoll = options.fallbackPoll;
+    this.nowMilliseconds = options.nowMilliseconds ?? (() => performance.now());
+  }
+
+  async pollOneOff(
+    inPtr: number,
+    outPtr: number,
+    nsubscriptions: number,
+    neventsPtr?: number
+  ): Promise<number> {
+    const memory = this.memory();
+    if (!memory || nsubscriptions <= 0) {
+      return this.fallbackPoll(inPtr, outPtr, nsubscriptions, neventsPtr);
+    }
+
+    const subscriptions = readSubscriptions(
+      new DataView(memory.buffer),
+      inPtr,
+      nsubscriptions,
+      this.nowMilliseconds()
+    );
+    if (subscriptions === undefined) {
+      return this.fallbackPoll(inPtr, outPtr, nsubscriptions, neventsPtr);
+    }
+
+    while (true) {
+      const ready = readySubscriptions(subscriptions, this.stdin, this.nowMilliseconds());
+      if (ready.length > 0) {
+        // Re-derive the view each pass: memory.buffer detaches when the wasm
+        // grows memory while we were suspended.
+        const view = new DataView(memory.buffer);
+        writeEvents(view, outPtr, ready, this.stdin);
+        if (neventsPtr !== undefined) {
+          view.setUint32(neventsPtr, ready.length, true);
+        }
+        return wasi.ERRNO_SUCCESS;
+      }
+
+      const timeoutMilliseconds = shortestClockTimeoutMilliseconds(
+        subscriptions,
+        this.nowMilliseconds()
+      );
+      if (hasFdReadSubscription(subscriptions)) {
+        await this.stdin.waitForReadableAsync(timeoutMilliseconds);
+      } else if (timeoutMilliseconds !== undefined) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(timeoutMilliseconds, maximumAtomicsWaitMilliseconds))
+        );
+      } else {
+        return this.fallbackPoll(inPtr, outPtr, nsubscriptions, neventsPtr);
+      }
+    }
+  }
+}
+
 function readSubscriptions(
   view: DataView,
   inPtr: number,
@@ -173,7 +262,7 @@ function shortestClockTimeoutMilliseconds(
 
 function readySubscriptions(
   subscriptions: readonly SupportedSubscription[],
-  stdin: WasiPollReadableSource,
+  stdin: WasiPollReadableState,
   nowMilliseconds: number
 ): SupportedSubscription[] {
   return subscriptions.filter((subscription) => {

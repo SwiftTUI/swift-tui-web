@@ -81,10 +81,10 @@ test("JSPI requires both Suspending and promising", () => {
   ).toBe(false);
 });
 
-test("environment defaults disable lean only on V8", () => {
+test("environment defaults hold lean everywhere while non-lean emission is unproven", () => {
   expect(
     stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(v8Signals))
-  ).toEqual({ SWIFTTUI_STACK_LEAN_PROFILE: "0" });
+  ).toEqual({});
   expect(
     stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(jscSignals))
   ).toEqual({});
@@ -97,7 +97,7 @@ test("bridge applies engine defaults and lets caller environment win", () => {
     rows: 24,
     engineCapabilities: resolveWasmEngineCapabilities(v8Signals),
   });
-  expect(v8Bridge.environment.SWIFTTUI_STACK_LEAN_PROFILE).toBe("0");
+  expect(v8Bridge.environment.SWIFTTUI_STACK_LEAN_PROFILE).toBeUndefined();
 
   const jscBridge = new BrowserWASIBridge({
     sceneId: "main",

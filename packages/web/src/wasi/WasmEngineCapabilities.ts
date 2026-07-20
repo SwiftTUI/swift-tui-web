@@ -7,18 +7,22 @@
 // (`SWIFTTUI_STACK_LEAN_PROFILE`, depth-capped chunked resolve). That profile
 // costs steady-state pipeline time, and engines with roomy worker stacks
 // don't need it. Detection is deliberately asymmetric: a wrongly applied lean
-// profile only costs speed, while wrongly disabling it on JSC overflows the
-// wasm stack and kills the app — so lean stays recommended unless the engine
-// is confidently V8 (the only family with a measured, comfortable worker
-// budget). Gecko is kept on the lean profile until its worker wasm stack
-// budget is measured.
+// profile only costs speed, while wrongly disabling it on a small-stack
+// engine overflows the wasm stack and kills the app — so lean stays
+// recommended unless the engine is confidently V8, the only family with a
+// measured, comfortable worker budget. Gecko is measured (Firefox, live,
+// 2026-07) to NOT fit the non-lean shape in its worker: it must keep the
+// lean profile in worker mode.
 //
 // Engine classification reads Error mechanics rather than user-agent
 // strings: V8 formats stack frames as `    at fn (url)`, JSC and Gecko as
-// `fn@url`, and the two are split by their engine-specific Error instance
-// properties (Gecko `fileName`, JSC `sourceURL`). Non-browser JSC hosts that
-// emulate V8 stack frames for Node compatibility (e.g. Bun) classify as
-// "v8"; the probe targets browser engines, where the formats don't cross.
+// `fn@url`, and the two are split by engine-specific Error instance
+// properties (Gecko `fileName`, JSC `sourceURL`). Trunk WebKit (STP ≥ 238)
+// no longer exposes `sourceURL` on constructed Errors, so JSC
+// classification there rides the `fn@url` stack-shape fallback. Non-browser
+// JSC hosts that emulate V8 stack frames for Node compatibility (e.g. Bun)
+// classify as "v8"; the probe targets browser engines, where the formats
+// don't cross.
 
 export type WasmEngineFamily = "v8" | "jsc" | "gecko" | "unknown";
 
@@ -34,8 +38,9 @@ export interface WasmEngineCapabilities {
   engine: WasmEngineFamily;
   /**
    * WebAssembly JavaScript Promise Integration (`WebAssembly.Suspending` +
-   * `WebAssembly.promising`). When true, a future main-thread execution path
-   * can suspend on stdin instead of blocking a worker on `Atomics.wait`.
+   * `WebAssembly.promising`). When true, the main-thread execution mode
+   * (`MainThreadWasmExecutor`) can suspend on stdin/timers instead of
+   * blocking a worker on `Atomics.wait`.
    */
   supportsJSPI: boolean;
   /**
@@ -97,8 +102,47 @@ export function resolveWasmEngineCapabilities(
 export function stackProfileEnvironmentDefaults(
   capabilities: WasmEngineCapabilities
 ): Record<string, string> {
-  if (capabilities.stackLeanRecommended) {
-    return {};
+  // HOLD (2026-07-20): no engine currently gets a non-lean default, even
+  // where the stack budget fits (V8 workers, JSC/V8 main threads). The
+  // browser surface transport has only ever shipped lean; under the
+  // non-lean profile the reuse gates suppress per-generation publications
+  // and steady scenes coalesce to ~1 wire frame per several ticks — a
+  // worse regression than lean's resolve cost. Revisit when the framework
+  // emits per-tick deltas under reuse; `stackLeanRecommended` still
+  // reports which engines could flip.
+  void capabilities;
+  return {};
+}
+
+/**
+ * Environment defaults for the main-thread (JSPI) execution mode, where the
+ * wasm runs on the page's thread and gets its far larger stack budget
+ * (measured ~12.7× the worker's on trunk WebKit).
+ */
+export function mainThreadStackProfileEnvironmentDefaults(
+  capabilities: WasmEngineCapabilities
+): Record<string, string> {
+  // Same hold as `stackProfileEnvironmentDefaults`: the main-thread stack
+  // budget fits non-lean on JSC and V8 (measured), but non-lean frame
+  // emission is not production-ready. Callers can still force the profile
+  // via `SWIFTTUI_STACK_LEAN_PROFILE`.
+  void capabilities;
+  return {};
+}
+
+export interface JSPIConstructors {
+  Suspending: new (fn: (...args: never[]) => unknown) => unknown;
+  promising: (fn: unknown) => (...args: unknown[]) => Promise<unknown>;
+}
+
+/** Typed access to the JSPI surface, or undefined where unsupported. */
+export function jspiConstructors(): JSPIConstructors | undefined {
+  const wasm = globalThis.WebAssembly as unknown as Partial<JSPIConstructors> | undefined;
+  if (
+    typeof wasm?.Suspending === "function" &&
+    typeof wasm?.promising === "function"
+  ) {
+    return wasm as JSPIConstructors;
   }
-  return { SWIFTTUI_STACK_LEAN_PROFILE: "0" };
+  return undefined;
 }

@@ -7,7 +7,9 @@ import {
   type SharedInputQueueBuffers,
   createSharedInputQueue,
 } from "./SharedInputQueue.ts";
+import { MainThreadInputQueue } from "./MainThreadInputQueue.ts";
 import {
+  SuspendingWasiPollScheduler,
   WasiPollScheduler,
   type WasiPollReadableSource,
   readPollEventsForTesting,
@@ -174,3 +176,66 @@ function writeInputFromWorker(
     },
   });
 }
+
+test("suspending scheduler completes a relative monotonic clock subscription", async () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const view = new DataView(memory.buffer);
+  writeClockSubscriptionForTesting(view, 0, {
+    userdata: 21n,
+    timeoutNanoseconds: 5_000_000n,
+  });
+
+  const scheduler = new SuspendingWasiPollScheduler({
+    memory: () => memory,
+    stdin: new MainThreadInputQueue(),
+    fallbackPoll: () => wasi.ERRNO_INVAL,
+  });
+
+  expect(await scheduler.pollOneOff(0, 128, 1, 256)).toBe(wasi.ERRNO_SUCCESS);
+  expect(readPollEventsForTesting(view, 128, 1)).toEqual([
+    { userdata: 21n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+  ]);
+  expect(view.getUint32(256, true)).toBe(1);
+});
+
+test("suspending scheduler wakes stdin-only poll on queue write", async () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const view = new DataView(memory.buffer);
+  writeFdReadSubscriptionForTesting(view, 0, { userdata: 22n, fd: 0 });
+
+  const queue = new MainThreadInputQueue();
+  const scheduler = new SuspendingWasiPollScheduler({
+    memory: () => memory,
+    stdin: queue,
+    fallbackPoll: () => wasi.ERRNO_INVAL,
+  });
+
+  const poll = scheduler.pollOneOff(0, 128, 1, 256);
+  setTimeout(() => queue.write(new Uint8Array([120])), 5);
+  expect(await poll).toBe(wasi.ERRNO_SUCCESS);
+  expect(readPollEventsForTesting(view, 128, 1)).toEqual([
+    { userdata: 22n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_FD_READ },
+  ]);
+});
+
+test("suspending scheduler fires the clock leg of a mixed poll without input", async () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const view = new DataView(memory.buffer);
+  writeClockSubscriptionForTesting(view, 0, {
+    userdata: 23n,
+    timeoutNanoseconds: 5_000_000n,
+  });
+  writeFdReadSubscriptionForTesting(view, 48, { userdata: 24n, fd: 0 });
+
+  const scheduler = new SuspendingWasiPollScheduler({
+    memory: () => memory,
+    stdin: new MainThreadInputQueue(),
+    fallbackPoll: () => wasi.ERRNO_INVAL,
+  });
+
+  expect(await scheduler.pollOneOff(0, 128, 2, 256)).toBe(wasi.ERRNO_SUCCESS);
+  expect(readPollEventsForTesting(view, 128, 1)).toEqual([
+    { userdata: 23n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+  ]);
+  expect(view.getUint32(256, true)).toBe(1);
+});
