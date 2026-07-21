@@ -39,6 +39,12 @@ class FakeRuntime {
 
   sendInput(_chunk: Uint8Array): void {}
 
+  documentVisible = true;
+
+  setDocumentVisible(visible: boolean): void {
+    this.documentVisible = visible;
+  }
+
   dispose(): void {
     this.disposed = true;
   }
@@ -220,3 +226,84 @@ class FakeSocket implements WebSocketSceneSocket {
     }
   }
 }
+
+test("app controller forwards document visibility to every scene runtime", async () => {
+  const runtimes = new Map<string, FakeRuntime>();
+  const seenRuntimeOptions = new Map<string, WebHostSceneRuntimeOptions>();
+  const listeners = new Set<() => void>();
+  const visibilityDocument = {
+    hidden: false,
+    addEventListener: (_type: "visibilitychange", listener: () => void) => {
+      listeners.add(listener);
+    },
+    removeEventListener: (_type: "visibilitychange", listener: () => void) => {
+      listeners.delete(listener);
+    },
+  };
+  const mount = makeElement("div");
+
+  const controller = await createWebHostApp({
+    mount: mount as unknown as HTMLElement,
+    manifest: {
+      defaultSceneId: "dashboard",
+      scenes: [
+        { id: "dashboard", title: "Dashboard", isDefault: true },
+        { id: "controls", title: "Controls", isDefault: false },
+      ],
+    },
+    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    sceneRuntimeFactory: (runtimeOptions: WebHostSceneRuntimeOptions) => {
+      const runtime = new FakeRuntime(runtimeOptions.descriptor.id);
+      runtimes.set(runtimeOptions.descriptor.id, runtime);
+      seenRuntimeOptions.set(runtimeOptions.descriptor.id, runtimeOptions);
+      return runtime as unknown as never;
+    },
+    visibilityDocument,
+  });
+
+  expect(listeners.size).toBe(1);
+  expect(runtimes.get("dashboard")?.documentVisible).toBe(true);
+  expect(seenRuntimeOptions.get("dashboard")?.suspendWhenHidden).toBeUndefined();
+
+  visibilityDocument.hidden = true;
+  for (const listener of [...listeners]) {
+    listener();
+  }
+  expect(runtimes.get("dashboard")?.documentVisible).toBe(false);
+
+  // A runtime created while the document is hidden learns that immediately.
+  await controller.switchScene("controls");
+  expect(runtimes.get("controls")?.documentVisible).toBe(false);
+
+  visibilityDocument.hidden = false;
+  for (const listener of [...listeners]) {
+    listener();
+  }
+  expect(runtimes.get("dashboard")?.documentVisible).toBe(true);
+  expect(runtimes.get("controls")?.documentVisible).toBe(true);
+
+  await controller.dispose();
+  expect(listeners.size).toBe(0);
+});
+
+test("app controller forwards suspendHiddenScenes to runtime options", async () => {
+  const seenRuntimeOptions = new Map<string, WebHostSceneRuntimeOptions>();
+  const mount = makeElement("div");
+
+  const controller = await createWebHostApp({
+    mount: mount as unknown as HTMLElement,
+    manifest: {
+      defaultSceneId: "main",
+      scenes: [{ id: "main", title: "Main", isDefault: true }],
+    },
+    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    sceneRuntimeFactory: (runtimeOptions: WebHostSceneRuntimeOptions) => {
+      seenRuntimeOptions.set(runtimeOptions.descriptor.id, runtimeOptions);
+      return new FakeRuntime(runtimeOptions.descriptor.id) as unknown as never;
+    },
+    suspendHiddenScenes: false,
+  });
+
+  expect(seenRuntimeOptions.get("main")?.suspendWhenHidden).toBe(false);
+  await controller.dispose();
+});

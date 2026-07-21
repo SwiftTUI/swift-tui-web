@@ -8,6 +8,29 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- **Hidden scenes suspend their apps** instead of burning CPU. A scene that
+  cannot be seen — switched to the background, or any scene while the
+  document is hidden — now parks its WASI run loop between `poll_oneoff`
+  waits *and freezes its monotonic clock*, so pending timeouts keep their
+  remaining time, animation clocks observe no elapsed time, and resume is
+  burst-free. Both execution modes are covered: the worker path parks on a
+  `SharedArrayBuffer` pause cell (`Atomics.wait`), the JSPI main-thread path
+  awaits a resume promise. Continuously animating demos (e.g. the Game of
+  Life scene, ~25% of a core on Safari) now cost ~0% CPU whenever hidden;
+  hidden-tab burn matters especially on Safari/WebKit, which does not
+  throttle worker `Atomics.wait` timeouts. Opt out per app with
+  `createWebHostApp({ suspendHiddenScenes: false })` or per runtime with
+  `suspendWhenHidden: false`; embedders can also drive
+  `WebHostSceneRuntime.setDocumentVisible(...)` from their own visibility
+  signal (e.g. an `IntersectionObserver` for off-screen iframes). New
+  `./wasi` exports: `PausableMonotonicClock`, `createWasmPauseCell`,
+  `setWasmPauseCellPaused`, `WorkerWasmPauseGate`, `MainThreadWasmPauseGate`,
+  `installPausableClockTimeGet`. The worker start message gains an optional
+  `pauseCell` key; older workers ignore it and keep the old always-running
+  behavior.
+
 ## [0.1.12] - 2026-07-21
 
 ### Changed

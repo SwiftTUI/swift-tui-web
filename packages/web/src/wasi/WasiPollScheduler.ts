@@ -34,6 +34,22 @@ export interface SuspendingWasiPollReadableSource extends WasiPollReadableState 
   waitForReadableAsync(timeoutMilliseconds?: number): Promise<SharedInputReadiness>;
 }
 
+/**
+ * Host-controlled suspension seam for the blocking (worker) scheduler. The
+ * gate is consulted between waits: while the host holds the runtime paused,
+ * `blockWhilePaused` parks the worker thread and — via the shared pausable
+ * clock — excludes the parked time from every clock deadline, so pending
+ * timeouts resume with their remaining time intact.
+ */
+export interface WasiPollPauseGate {
+  blockWhilePaused(): void;
+}
+
+/** The awaited counterpart of {@link WasiPollPauseGate} for the JSPI path. */
+export interface SuspendingWasiPollPauseGate {
+  waitWhilePaused(): Promise<void>;
+}
+
 export interface WasiPollSchedulerOptions {
   memory(): WebAssembly.Memory | undefined;
   stdin: WasiPollReadableSource;
@@ -44,6 +60,7 @@ export interface WasiPollSchedulerOptions {
     neventsPtr?: number
   ): number;
   nowMilliseconds?(): number;
+  pauseGate?: WasiPollPauseGate;
 }
 
 export class WasiPollScheduler {
@@ -51,6 +68,7 @@ export class WasiPollScheduler {
   private readonly stdin: WasiPollReadableSource;
   private readonly fallbackPoll: WasiPollSchedulerOptions["fallbackPoll"];
   private readonly nowMilliseconds: () => number;
+  private readonly pauseGate?: WasiPollPauseGate;
   private readonly waitBuffer = new Int32Array(
     new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)
   );
@@ -60,6 +78,7 @@ export class WasiPollScheduler {
     this.stdin = options.stdin;
     this.fallbackPoll = options.fallbackPoll;
     this.nowMilliseconds = options.nowMilliseconds ?? (() => performance.now());
+    this.pauseGate = options.pauseGate;
   }
 
   pollOneOff(
@@ -85,6 +104,7 @@ export class WasiPollScheduler {
     }
 
     while (true) {
+      this.pauseGate?.blockWhilePaused();
       const ready = readySubscriptions(subscriptions, this.stdin, this.nowMilliseconds());
       if (ready.length > 0) {
         writeEvents(view, outPtr, ready, this.stdin);
@@ -124,6 +144,7 @@ export interface SuspendingWasiPollSchedulerOptions {
     neventsPtr?: number
   ): number;
   nowMilliseconds?(): number;
+  pauseGate?: SuspendingWasiPollPauseGate;
 }
 
 /**
@@ -137,12 +158,14 @@ export class SuspendingWasiPollScheduler {
   private readonly stdin: SuspendingWasiPollReadableSource;
   private readonly fallbackPoll: SuspendingWasiPollSchedulerOptions["fallbackPoll"];
   private readonly nowMilliseconds: () => number;
+  private readonly pauseGate?: SuspendingWasiPollPauseGate;
 
   constructor(options: SuspendingWasiPollSchedulerOptions) {
     this.memory = options.memory;
     this.stdin = options.stdin;
     this.fallbackPoll = options.fallbackPoll;
     this.nowMilliseconds = options.nowMilliseconds ?? (() => performance.now());
+    this.pauseGate = options.pauseGate;
   }
 
   async pollOneOff(
@@ -167,6 +190,7 @@ export class SuspendingWasiPollScheduler {
     }
 
     while (true) {
+      await this.pauseGate?.waitWhilePaused();
       const ready = readySubscriptions(subscriptions, this.stdin, this.nowMilliseconds());
       if (ready.length > 0) {
         // Re-derive the view each pass: memory.buffer detaches when the wasm

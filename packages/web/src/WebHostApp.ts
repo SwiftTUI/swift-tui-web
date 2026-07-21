@@ -37,6 +37,17 @@ export interface WebHostBridgeFactoryOptions {
 
 export type WebHostBridgeFactory = (options: WebHostBridgeFactoryOptions) => WebHostSceneBridge;
 
+/**
+ * The slice of `Document` the app controller needs to track page visibility.
+ * Injectable for tests and non-browser hosts; defaults to the global
+ * `document` when one exists.
+ */
+export interface WebHostVisibilityDocument {
+  readonly hidden: boolean;
+  addEventListener(type: "visibilitychange", listener: () => void): void;
+  removeEventListener(type: "visibilitychange", listener: () => void): void;
+}
+
 export interface WebHostAppOptions {
   mount: HTMLElement;
   manifest?: WebHostSceneManifestSource;
@@ -48,6 +59,15 @@ export interface WebHostAppOptions {
   bridgeFactory?: WebHostBridgeFactory;
   createElement?: (tagName: string) => HTMLElement;
   sceneRuntimeFactory?: (options: WebHostSceneRuntimeOptions) => WebHostSceneRuntime;
+  /**
+   * Whether scenes that cannot be seen — background scenes after a switch,
+   * or every scene while the document is hidden — suspend their apps (run
+   * loop parked, monotonic clock frozen) instead of burning CPU. Forwarded to
+   * each scene runtime as `suspendWhenHidden`. Defaults to `true`.
+   */
+  suspendHiddenScenes?: boolean;
+  /** Visibility source override; defaults to the global `document`. */
+  visibilityDocument?: WebHostVisibilityDocument;
 }
 
 export interface WebHostAppController {
@@ -74,6 +94,8 @@ export async function createWebHostApp(
     initialSceneId: options.initialSceneId,
     createElement: options.createElement,
     sceneRuntimeFactory: options.sceneRuntimeFactory ?? ((runtimeOptions) => new WebHostSceneRuntime(runtimeOptions)),
+    suspendHiddenScenes: options.suspendHiddenScenes,
+    visibilityDocument: options.visibilityDocument ?? defaultVisibilityDocument(),
   });
   await controller.initialize();
   return controller;
@@ -92,6 +114,9 @@ class InternalWebHostAppController implements WebHostAppController {
   private readonly sceneRuntimeFactory: RuntimeFactory;
   private readonly runtimes = new Map<string, WebHostSceneRuntime>();
   private readonly bridges = new Map<string, WebHostSceneBridge>();
+  private readonly suspendHiddenScenes?: boolean;
+  private readonly visibilityDocument?: WebHostVisibilityDocument;
+  private detachVisibilityListener?: () => void;
 
   constructor(options: {
     mount: HTMLElement;
@@ -103,6 +128,8 @@ class InternalWebHostAppController implements WebHostAppController {
     initialSceneId?: string;
     createElement?: (tagName: string) => HTMLElement;
     sceneRuntimeFactory: RuntimeFactory;
+    suspendHiddenScenes?: boolean;
+    visibilityDocument?: WebHostVisibilityDocument;
   }) {
     this.mount = options.mount;
     this.style = normalizeWebHostTerminalStyle(options.style ?? {});
@@ -110,6 +137,8 @@ class InternalWebHostAppController implements WebHostAppController {
     this.embeddedHost = options.embeddedHost;
     this.bridgeFactory = options.bridgeFactory;
     this.sceneRuntimeFactory = options.sceneRuntimeFactory;
+    this.suspendHiddenScenes = options.suspendHiddenScenes;
+    this.visibilityDocument = options.visibilityDocument;
     this.scenes = options.manifest.scenes;
     this.selectedSceneId =
       options.initialSceneId &&
@@ -125,6 +154,7 @@ class InternalWebHostAppController implements WebHostAppController {
   }
 
   async initialize(): Promise<void> {
+    this.installVisibilityListener();
     await this.ensureRuntime(this.selectedSceneId);
     await this.switchScene(this.selectedSceneId);
   }
@@ -159,6 +189,8 @@ class InternalWebHostAppController implements WebHostAppController {
   }
 
   async dispose(): Promise<void> {
+    this.detachVisibilityListener?.();
+    this.detachVisibilityListener = undefined;
     for (const runtime of this.runtimes.values()) {
       runtime.dispose();
     }
@@ -168,6 +200,23 @@ class InternalWebHostAppController implements WebHostAppController {
     this.runtimes.clear();
     this.bridges.clear();
     this.mount.replaceChildren();
+  }
+
+  private installVisibilityListener(): void {
+    const visibilityDocument = this.visibilityDocument;
+    if (!visibilityDocument) {
+      return;
+    }
+    const listener = (): void => {
+      const visible = !visibilityDocument.hidden;
+      for (const runtime of this.runtimes.values()) {
+        runtime.setDocumentVisible(visible);
+      }
+    };
+    visibilityDocument.addEventListener("visibilitychange", listener);
+    this.detachVisibilityListener = () => {
+      visibilityDocument.removeEventListener("visibilitychange", listener);
+    };
   }
 
   private async ensureRuntime(
@@ -190,12 +239,16 @@ class InternalWebHostAppController implements WebHostAppController {
       style: this.style,
       bridge,
       onInput: (chunk) => bridge.sendInput(chunk),
+      suspendWhenHidden: this.suspendHiddenScenes,
     });
 
     this.bridges.set(id, bridge);
     this.runtimes.set(id, runtime);
     await runtime.mount();
     runtime.setVisible(id === this.selectedSceneId);
+    if (this.visibilityDocument) {
+      runtime.setDocumentVisible(!this.visibilityDocument.hidden);
+    }
     return runtime;
   }
 
@@ -236,6 +289,13 @@ class InternalWebHostAppController implements WebHostAppController {
     this.mount.style.display = "block";
     this.mount.style.padding = "1rem";
   }
+}
+
+function defaultVisibilityDocument(): WebHostVisibilityDocument | undefined {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
+  return document;
 }
 
 function defaultCreateElement(

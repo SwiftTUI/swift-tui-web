@@ -4,12 +4,24 @@ import {
   type SharedInputQueueBuffers,
 } from "./SharedInputQueue.ts";
 import { WasiPollScheduler } from "./WasiPollScheduler.ts";
+import {
+  PausableMonotonicClock,
+  WorkerWasmPauseGate,
+  installPausableClockTimeGet,
+} from "./WasmRuntimePause.ts";
 
 export interface StartWasmSceneWorkerMessage {
   type: "start";
   wasmURL: string;
   environment: Record<string, string>;
   inputQueue: SharedInputQueueBuffers;
+  /**
+   * Optional shared pause cell (see `createWasmPauseCell`). When present, the
+   * main thread can suspend this scene: the worker parks between poll waits
+   * and the app's monotonic clock freezes for the paused span. Absent on
+   * messages from older runtimes — the worker then runs unpausable, as before.
+   */
+  pauseCell?: SharedArrayBuffer;
 }
 
 export interface OutputWasmSceneWorkerMessage {
@@ -109,18 +121,31 @@ class BlockingInputFileDescriptor extends Fd {
 
 function installWasiPollScheduler(
   wasiBridge: WASI,
-  stdin: BlockingInputFileDescriptor
+  stdin: BlockingInputFileDescriptor,
+  pauseCell: SharedArrayBuffer | undefined
 ): void {
   const originalPoll = wasiBridge.wasiImport.poll_oneoff;
   if (typeof originalPoll !== "function") {
     return;
   }
 
+  const memory = (): WebAssembly.Memory | undefined =>
+    wasiBridge.inst?.exports.memory as WebAssembly.Memory | undefined;
+
+  const pauseClock = pauseCell ? new PausableMonotonicClock() : undefined;
+  const pauseGate =
+    pauseCell && pauseClock ? new WorkerWasmPauseGate(pauseCell, pauseClock) : undefined;
+  if (pauseClock) {
+    installPausableClockTimeGet(wasiBridge.wasiImport, memory, pauseClock);
+  }
+
   const scheduler = new WasiPollScheduler({
-    memory: () => wasiBridge.inst?.exports.memory as WebAssembly.Memory | undefined,
+    memory,
     stdin,
     fallbackPoll: (inPtr, outPtr, nsubscriptions, neventsPtr) =>
       originalPoll(inPtr, outPtr, nsubscriptions, neventsPtr),
+    nowMilliseconds: pauseClock ? () => pauseClock.nowMilliseconds() : undefined,
+    pauseGate,
   });
   wasiBridge.wasiImport.poll_oneoff = (inPtr, outPtr, nsubscriptions, neventsPtr) =>
     scheduler.pollOneOff(inPtr, outPtr, nsubscriptions, neventsPtr);
@@ -150,7 +175,7 @@ async function startWasmScene(
         }),
       ]
     );
-    installWasiPollScheduler(wasiBridge, stdin);
+    installWasiPollScheduler(wasiBridge, stdin, message.pauseCell);
 
     const response = await fetch(message.wasmURL);
     if (!response.ok) {

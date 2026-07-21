@@ -239,3 +239,92 @@ test("suspending scheduler fires the clock leg of a mixed poll without input", a
   ]);
   expect(view.getUint32(256, true)).toBe(1);
 });
+
+test("scheduler consults the pause gate before evaluating readiness", () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const view = new DataView(memory.buffer);
+  writeClockSubscriptionForTesting(view, 0, {
+    userdata: 31n,
+    timeoutNanoseconds: 100_000_000n,
+  });
+
+  // Simulated pause: the poll enters with 100ms remaining; the gate "parks"
+  // across two loop iterations while the pausable clock (the injected `now`)
+  // advances only 50ms per resume — the deadline must be honored in the
+  // paused-excluded domain, not wall time.
+  let now = 0;
+  let gateCalls = 0;
+  const scheduler = new WasiPollScheduler({
+    memory: () => memory,
+    stdin: closedStdinNeverReadable(),
+    fallbackPoll: () => wasi.ERRNO_INVAL,
+    nowMilliseconds: () => now,
+    pauseGate: {
+      blockWhilePaused: () => {
+        gateCalls += 1;
+        now += 50;
+      },
+    },
+  });
+
+  expect(scheduler.pollOneOff(0, 128, 1, 256)).toBe(wasi.ERRNO_SUCCESS);
+  expect(gateCalls).toBe(2);
+  expect(readPollEventsForTesting(view, 128, 1)).toEqual([
+    { userdata: 31n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+  ]);
+  expect(view.getUint32(256, true)).toBe(1);
+});
+
+test("suspending scheduler stays parked until the pause gate releases", async () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const view = new DataView(memory.buffer);
+  writeClockSubscriptionForTesting(view, 0, {
+    userdata: 32n,
+    timeoutNanoseconds: 5_000_000n,
+  });
+
+  let now = 0;
+  let release: (() => void) | undefined;
+  const parked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let gateCalls = 0;
+  const scheduler = new SuspendingWasiPollScheduler({
+    memory: () => memory,
+    stdin: new MainThreadInputQueue(),
+    fallbackPoll: () => wasi.ERRNO_INVAL,
+    nowMilliseconds: () => now,
+    pauseGate: {
+      waitWhilePaused: async () => {
+        gateCalls += 1;
+        if (gateCalls === 1) {
+          await parked;
+          now = 200;
+        }
+      },
+    },
+  });
+
+  let settled = false;
+  const poll = scheduler.pollOneOff(0, 128, 1, 256).then((result) => {
+    settled = true;
+    return result;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(settled).toBe(false);
+
+  release?.();
+  expect(await poll).toBe(wasi.ERRNO_SUCCESS);
+  expect(readPollEventsForTesting(view, 128, 1)).toEqual([
+    { userdata: 32n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+  ]);
+});
+
+function closedStdinNeverReadable(): WasiPollReadableSource {
+  return {
+    availableBytes: () => 0,
+    isClosed: () => false,
+    waitForReadable: () => "timedOut",
+  };
+}

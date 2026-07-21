@@ -2254,3 +2254,77 @@ class RecordingCanvasContext {
     this.lineDash = [...lineDash];
   }
 }
+
+test("scene and document visibility drive the runtime suspension hook", () => {
+  const dom = installFakeDOM();
+  try {
+    const events: boolean[] = [];
+    class SuspensionProbeRuntime extends WebHostSceneRuntime {
+      protected override onRuntimeSuspensionChange(
+        suspended: boolean
+      ): void {
+        events.push(suspended);
+      }
+    }
+
+    const mount = new FakeElement("div");
+    const runtime = new SuspensionProbeRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "life", title: "Life", isDefault: true },
+      style: {},
+      onInput: () => {},
+    });
+
+    runtime.setVisible(true);
+    expect(events).toEqual([]);
+
+    runtime.setVisible(false);
+    expect(events).toEqual([true]);
+
+    runtime.setVisible(true);
+    expect(events).toEqual([true, false]);
+
+    runtime.setDocumentVisible(false);
+    expect(events).toEqual([true, false, true]);
+
+    // Scene switches while the document stays hidden must not resume.
+    runtime.setVisible(false);
+    runtime.setVisible(true);
+    expect(events).toEqual([true, false, true]);
+
+    runtime.setDocumentVisible(true);
+    expect(events).toEqual([true, false, true, false]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("suspendWhenHidden: false keeps hidden scenes running", () => {
+  const dom = installFakeDOM();
+  try {
+    const events: boolean[] = [];
+    class SuspensionProbeRuntime extends WebHostSceneRuntime {
+      protected override onRuntimeSuspensionChange(
+        suspended: boolean
+      ): void {
+        events.push(suspended);
+      }
+    }
+
+    const mount = new FakeElement("div");
+    const runtime = new SuspensionProbeRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "life", title: "Life", isDefault: true },
+      style: {},
+      onInput: () => {},
+      suspendWhenHidden: false,
+    });
+
+    runtime.setVisible(true);
+    runtime.setVisible(false);
+    runtime.setDocumentVisible(false);
+    expect(events).toEqual([]);
+  } finally {
+    dom.restore();
+  }
+});

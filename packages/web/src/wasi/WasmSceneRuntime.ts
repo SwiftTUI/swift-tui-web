@@ -18,6 +18,7 @@ import {
   resolveWasmEngineCapabilities,
   type WasmEngineCapabilities,
 } from "./WasmEngineCapabilities.ts";
+import { createWasmPauseCell, setWasmPauseCellPaused } from "./WasmRuntimePause.ts";
 
 const workerModuleURL = new URL("./wasm-scene-worker.js", import.meta.url);
 
@@ -26,6 +27,7 @@ interface WorkerStartMessage {
   wasmURL: string;
   environment: Record<string, string>;
   inputQueue: SharedInputQueueBuffers;
+  pauseCell?: SharedArrayBuffer;
 }
 
 interface WorkerOutputMessage {
@@ -120,12 +122,14 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   private readonly inputWriter?: SharedInputQueueWriter;
   private readonly inputRouter: { route(chunk: Uint8Array): void };
   private readonly sharedQueueError?: unknown;
+  private readonly pauseCell?: SharedArrayBuffer;
 
   private detachBridgeInputListener?: () => void;
   private detachResizeListener?: () => void;
   private worker?: Worker;
   private executor?: MainThreadWasmExecutor;
   private didMount = false;
+  private suspended = false;
 
   constructor(
     options: WebHostSceneRuntimeOptions,
@@ -135,10 +139,12 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     let inputQueue: SharedInputQueueBuffers | undefined;
     let inputWriter: SharedInputQueueWriter | undefined;
     let sharedQueueError: unknown;
+    let pauseCell: SharedArrayBuffer | undefined;
 
     try {
       inputQueue = createSharedInputQueue();
       inputWriter = new SharedInputQueueWriter(inputQueue);
+      pauseCell = createWasmPauseCell();
     } catch (error) {
       // Not fatal here: the main-thread (JSPI) mode runs without
       // SharedArrayBuffer. Surfaced at mount if the worker mode needs it.
@@ -169,6 +175,17 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     this.inputWriter = inputWriter;
     this.inputRouter = inputRouter;
     this.sharedQueueError = sharedQueueError;
+    this.pauseCell = pauseCell;
+  }
+
+  protected override onRuntimeSuspensionChange(
+    suspended: boolean
+  ): void {
+    this.suspended = suspended;
+    if (this.pauseCell) {
+      setWasmPauseCellPaused(this.pauseCell, suspended);
+    }
+    this.executor?.setSuspended(suspended);
   }
 
   override async mount(): Promise<void> {
@@ -248,6 +265,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       wasmURL: this.wasmURL.href,
       environment,
       inputQueue: this.inputQueue,
+      pauseCell: this.pauseCell,
     };
     this.worker.postMessage(message);
   }
@@ -285,6 +303,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     });
     this.executor = executor;
     this.inputRouter.route = (chunk) => executor.sendInput(chunk);
+    executor.setSuspended(this.suspended);
     executor.start();
   }
 

@@ -3,6 +3,11 @@ import { ConsoleStdout, Fd, WASI, WASIProcExit, wasi } from "@bjorn3/browser_was
 import { MainThreadInputQueue } from "./MainThreadInputQueue.ts";
 import { SuspendingWasiPollScheduler } from "./WasiPollScheduler.ts";
 import { jspiConstructors } from "./WasmEngineCapabilities.ts";
+import {
+  MainThreadWasmPauseGate,
+  PausableMonotonicClock,
+  installPausableClockTimeGet,
+} from "./WasmRuntimePause.ts";
 
 export interface MainThreadWasmExecutorOptions {
   wasmURL: string | URL;
@@ -26,6 +31,8 @@ export interface MainThreadWasmExecutorOptions {
 export class MainThreadWasmExecutor {
   private readonly options: MainThreadWasmExecutorOptions;
   private readonly stdin = new MainThreadInputQueue();
+  private readonly pauseClock = new PausableMonotonicClock();
+  private readonly pauseGate = new MainThreadWasmPauseGate(this.pauseClock);
   private didStart = false;
 
   constructor(options: MainThreadWasmExecutorOptions) {
@@ -44,8 +51,22 @@ export class MainThreadWasmExecutor {
     this.stdin.write(chunk);
   }
 
+  /**
+   * Suspends or resumes the app: while suspended, the run loop parks between
+   * `poll_oneoff` waits and the app's monotonic clock freezes, so a hidden
+   * scene costs no CPU and resumes without a deadline catch-up burst.
+   */
+  setSuspended(
+    suspended: boolean
+  ): void {
+    this.pauseGate.setPaused(suspended);
+  }
+
   dispose(): void {
     this.stdin.close();
+    // Release a suspended run loop so it can observe the stdin hangup and
+    // exit cooperatively instead of staying parked forever.
+    this.pauseGate.setPaused(false);
   }
 
   private async run(): Promise<void> {
@@ -81,7 +102,16 @@ export class MainThreadWasmExecutor {
         stdin: this.stdin,
         fallbackPoll: (inPtr, outPtr, nsubscriptions, neventsPtr) =>
           originalPoll(inPtr, outPtr, nsubscriptions, neventsPtr),
+        nowMilliseconds: () => this.pauseClock.nowMilliseconds(),
+        pauseGate: this.pauseGate,
       });
+      // Must run before `shim.wasiImport` is spread into the instantiate
+      // imports below, or the wasm captures the unpausable clock.
+      installPausableClockTimeGet(
+        shim.wasiImport,
+        () => instanceExports()?.memory,
+        this.pauseClock
+      );
 
       const response = await fetch(this.options.wasmURL);
       if (!response.ok) {

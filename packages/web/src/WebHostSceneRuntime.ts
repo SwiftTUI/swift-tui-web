@@ -77,6 +77,15 @@ export interface WebHostSceneRuntimeOptions {
    * and other schemes are ignored. Mirrors the Android host's tap-to-open.
    */
   onOpenHyperlink?: (url: string) => void;
+  /**
+   * Whether to suspend the scene's app while it cannot be seen — when the
+   * scene is switched to the background (`setVisible(false)`) or the whole
+   * document is hidden (`setDocumentVisible(false)`). Suspension parks the
+   * app's run loop and freezes its monotonic clock, so a hidden scene costs
+   * no CPU and resumes exactly where it left off. Defaults to `true`; set
+   * `false` to let background scenes keep running (pre-suspension behavior).
+   */
+  suspendWhenHidden?: boolean;
 }
 
 export type WheelMode = "capture" | "chain" | "passive";
@@ -135,6 +144,9 @@ export class WebHostSceneRuntime {
     cellHeight: number;
   };
   private isVisible = false;
+  private documentVisible = true;
+  private runtimeSuspended = false;
+  private readonly suspendWhenHidden: boolean;
 
   constructor(options: WebHostSceneRuntimeOptions) {
     this.descriptor = options.descriptor;
@@ -145,6 +157,7 @@ export class WebHostSceneRuntime {
     this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
     this.wheelMode = options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
     this.onOpenHyperlink = options.onOpenHyperlink;
+    this.suspendWhenHidden = options.suspendWhenHidden ?? true;
     this.element = document.createElement("section");
     this.element.className = "webhost-scene";
     this.element.dataset.sceneId = options.descriptor.id;
@@ -209,7 +222,39 @@ export class WebHostSceneRuntime {
         this.terminalMount.focus?.({ preventScroll: true });
       }
     }
+    this.updateRuntimeSuspension();
   }
+
+  /**
+   * Reports whether the surrounding document can be seen at all (browser tab
+   * visible, iframe on-screen, …). Combined with the scene-level
+   * `setVisible`: the app is suspended while either says hidden, unless
+   * `suspendWhenHidden` is `false`.
+   */
+  setDocumentVisible(
+    visible: boolean
+  ): void {
+    this.documentVisible = visible;
+    this.updateRuntimeSuspension();
+  }
+
+  private updateRuntimeSuspension(): void {
+    const suspended = this.suspendWhenHidden && (!this.isVisible || !this.documentVisible);
+    if (suspended === this.runtimeSuspended) {
+      return;
+    }
+    this.runtimeSuspended = suspended;
+    this.onRuntimeSuspensionChange(suspended);
+  }
+
+  /**
+   * Suspension hook for subclasses that own an app execution vehicle (the
+   * WASI worker / JSPI executor). The base runtime only presents frames, so
+   * it has nothing to suspend.
+   */
+  protected onRuntimeSuspensionChange(
+    _suspended: boolean
+  ): void {}
 
   setStyle(
     style: WebHostTerminalStyle
