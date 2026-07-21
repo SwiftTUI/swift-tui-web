@@ -8,6 +8,25 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-07-21
+
+### Changed
+
+- **Stack-lean profile default is OFF on confirmed V8 workers**
+  (`stackProfileEnvironmentDefaults` → `SWIFTTUI_STACK_LEAN_PROFILE: "0"`
+  iff `engine === "v8"`), exiting the 0.1.10 lean-everywhere hold. The
+  hold's stated exit condition is met: the 0.1.9 coalescing was
+  completed-frame disposal (fixed by 0.1.11's `async-no-cancel` render
+  mode), not lean-vs-non-lean publication behavior, and the live
+  non-lean + `async-no-cancel` combination measures the same
+  distinct-generation coverage as lean at roughly half the per-frame
+  pipeline cost. JSC stays lean (worker stack budget); Gecko stays lean
+  by live measurement (its worker overflows the non-lean shape). The
+  main-thread (JSPI) hold is unchanged pending a JSC main-thread soak
+  and per-release Safari 27 depth-budget re-measurement. Overrides:
+  `SWIFTTUI_STACK_LEAN_PROFILE` in the caller environment or the
+  examples' `?leanProfile=` page seam.
+
 ## [0.1.11] - 2026-07-20
 
 ### Changed

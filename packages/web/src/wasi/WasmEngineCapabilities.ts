@@ -102,15 +102,22 @@ export function resolveWasmEngineCapabilities(
 export function stackProfileEnvironmentDefaults(
   capabilities: WasmEngineCapabilities
 ): Record<string, string> {
-  // HOLD (2026-07-20): no engine currently gets a non-lean default, even
-  // where the stack budget fits (V8 workers, JSC/V8 main threads). The
-  // browser surface transport has only ever shipped lean; under the
-  // non-lean profile the reuse gates suppress per-generation publications
-  // and steady scenes coalesce to ~1 wire frame per several ticks — a
-  // worse regression than lean's resolve cost. Revisit when the framework
-  // emits per-tick deltas under reuse; `stackLeanRecommended` still
-  // reports which engines could flip.
-  void capabilities;
+  // V8 workers run non-lean by default: the measured worker stack budget
+  // fits the full-depth resolve, and per-frame pipeline cost roughly
+  // halves versus the lean profile. The 0.1.9 regression that forced the
+  // lean-everywhere hold was NOT lean-vs-non-lean publication behavior —
+  // it was completed-frame *disposal* under supersession (visual-only
+  // drops + pre-start cancels saturating at the starvation floor), fixed
+  // by the `async-no-cancel` render-mode default in `BrowserWASIBridge`;
+  // live non-lean + async-no-cancel measures the same distinct-generation
+  // coverage as lean at ~2x less per-frame CPU.
+  //
+  // JSC stays lean (Darwin worker threads get ~1/16 of the main-thread
+  // stack). Gecko stays lean by *measurement*, not caution: Firefox live
+  // (2026-07) overflows the non-lean shape in its worker.
+  if (capabilities.engine === "v8") {
+    return { SWIFTTUI_STACK_LEAN_PROFILE: "0" };
+  }
   return {};
 }
 
@@ -122,10 +129,11 @@ export function stackProfileEnvironmentDefaults(
 export function mainThreadStackProfileEnvironmentDefaults(
   capabilities: WasmEngineCapabilities
 ): Record<string, string> {
-  // Same hold as `stackProfileEnvironmentDefaults`: the main-thread stack
-  // budget fits non-lean on JSC and V8 (measured), but non-lean frame
-  // emission is not production-ready. Callers can still force the profile
-  // via `SWIFTTUI_STACK_LEAN_PROFILE`.
+  // HOLD: the main-thread (JSPI) stack budget fits non-lean on JSC and V8
+  // (measured), but the JSC main-thread lane has not been soaked non-lean
+  // in production, and JSPI slices the native stack — Safari 27's depth
+  // budgets must be re-measured per release before this default can flip.
+  // Callers can still force the profile via `SWIFTTUI_STACK_LEAN_PROFILE`.
   void capabilities;
   return {};
 }

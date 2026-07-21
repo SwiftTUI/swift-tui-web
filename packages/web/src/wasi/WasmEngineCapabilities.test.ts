@@ -81,12 +81,21 @@ test("JSPI requires both Suspending and promising", () => {
   ).toBe(false);
 });
 
-test("environment defaults hold lean everywhere while non-lean emission is unproven", () => {
+test("environment defaults disable lean only on confirmed V8", () => {
   expect(
     stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(v8Signals))
-  ).toEqual({});
+  ).toEqual({ SWIFTTUI_STACK_LEAN_PROFILE: "0" });
+  // JSC: worker stack budget does not fit non-lean.
   expect(
     stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(jscSignals))
+  ).toEqual({});
+  // Gecko: measured live (2026-07) to overflow non-lean in its worker.
+  expect(
+    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(geckoSignals))
+  ).toEqual({});
+  // Unknown engines keep the safe default.
+  expect(
+    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(signals({})))
   ).toEqual({});
 });
 
@@ -97,7 +106,7 @@ test("bridge applies engine defaults and lets caller environment win", () => {
     rows: 24,
     engineCapabilities: resolveWasmEngineCapabilities(v8Signals),
   });
-  expect(v8Bridge.environment.SWIFTTUI_STACK_LEAN_PROFILE).toBeUndefined();
+  expect(v8Bridge.environment.SWIFTTUI_STACK_LEAN_PROFILE).toBe("0");
 
   const jscBridge = new BrowserWASIBridge({
     sceneId: "main",
