@@ -8,6 +8,8 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-07-21
+
 ### Added
 
 - **Hidden scenes suspend their apps** instead of burning CPU. A scene that
