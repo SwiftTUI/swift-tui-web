@@ -2328,3 +2328,152 @@ test("suspendWhenHidden: false keeps hidden scenes running", () => {
     dom.restore();
   }
 });
+
+test("dom renderer mounts a DOM surface and renders decoded frames as text elements", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {
+        fontSize: 20,
+        fontFamily: "Test Mono",
+        theme: {
+          foreground: "#eeeeee",
+          background: "#101820",
+        },
+      },
+      bridge,
+      onInput: () => {},
+      renderer: "dom",
+    });
+
+    await runtime.mount();
+
+    const terminalMount = runtime.terminalMount as unknown as FakeElement;
+    const surface = terminalMount.children[0]!;
+    expect(surface.tagName).toBe("DIV");
+    expect(surface.className).toBe("webhost-scene__surface webhost-scene__surface--dom");
+    expect(surface.getAttribute("aria-hidden")).toBe("true");
+
+    bridge.stdout.write(encoder.encode(transportFixture("web-surface-styled")));
+
+    // Frame is 4x2 at cellWidth 10 (measureText fake) and cellHeight 27.
+    expect(surface.style.width).toBe("40px");
+    expect(surface.style.height).toBe("54px");
+    expect(surface.style.lineHeight).toBe("27px");
+
+    const rowsLayer = surface.children[0]!;
+    expect(rowsLayer.className).toBe("webhost-scene__surface-rows");
+    expect(rowsLayer.children).toHaveLength(2);
+    expect(rowsLayer.children[1]!.style.top).toBe("27px");
+
+    // Cell [0,"A",1,1]: em 19 = bold + italic + reverse video, dashed
+    // underline + dotted strikethrough, opacity 0.75.
+    const styled = rowsLayer.children[0]!.children[0]!;
+    expect(styled.textContent).toBe("A");
+    expect(styled.style.color).toBe("#000000FF");
+    expect(styled.style.backgroundColor).toBe("#E05757FF");
+    expect(styled.style.fontWeight).toBe("700");
+    expect(styled.style.fontStyle).toBe("italic");
+    expect(styled.style.textDecorationLine).toBe("underline line-through");
+    expect(styled.style.textDecorationStyle).toBe("dashed");
+    expect(styled.style.textDecorationColor).toBe("#EBB33CFF");
+    expect(styled.style.opacity).toBe("0.75");
+
+    // Cell [1,"界",2,2]: double-width run occupies two cells.
+    const wide = rowsLayer.children[0]!.children[1]!;
+    expect(wide.textContent).toBe("界");
+    expect(wide.style.left).toBe("10px");
+    expect(wide.style.width).toBe("20px");
+
+    // Cell [2,"B",1,0]: null style falls back to the theme foreground; the
+    // trailing blank cell [3," ",1,0] renders nothing.
+    const row1 = rowsLayer.children[1]!;
+    const plain = row1.children[row1.children.length - 1]!;
+    expect(plain.textContent).toBe("B");
+    expect(plain.style.color).toBe("#eeeeee");
+    expect(row1.children.map((child) => child.textContent)).not.toContain(" ");
+  } finally {
+    dom.restore();
+  }
+});
+
+test("dom renderer leaves Alt-drag pointer input to native text selection", async () => {
+  const dom = installFakeDOM();
+  try {
+    const inputs: Uint8Array[] = [];
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      onInput: (chunk) => inputs.push(chunk),
+      renderer: "dom",
+    });
+    await runtime.mount();
+
+    let prevented = 0;
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0,
+      buttons: 1,
+      clientX: 25,
+      clientY: 10,
+      altKey: true,
+      preventDefault: () => {
+        prevented += 1;
+      },
+    }));
+    runtime.terminalMount.dispatch("pointermove", pointerEvent({
+      buttons: 1,
+      clientX: 40,
+      clientY: 10,
+      altKey: true,
+    }));
+    runtime.terminalMount.dispatch("pointerup", pointerEvent({
+      button: 0,
+      clientX: 40,
+      clientY: 10,
+      altKey: true,
+    }));
+    expect(inputs).toHaveLength(0);
+    expect(prevented).toBe(0);
+
+    // Without Alt, pointer input is forwarded to the app as usual.
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0,
+      buttons: 1,
+      clientX: 25,
+      clientY: 10,
+    }));
+    expect(inputs.length).toBeGreaterThan(0);
+
+    // The canvas renderer has no text nodes to select — Alt-drag still
+    // belongs to the app there.
+    const canvasInputs: Uint8Array[] = [];
+    const canvasMount = new FakeElement("div");
+    const canvasRuntime = new WebHostSceneRuntime({
+      mount: canvasMount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      onInput: (chunk) => canvasInputs.push(chunk),
+    });
+    await canvasRuntime.mount();
+    canvasRuntime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0,
+      buttons: 1,
+      clientX: 25,
+      clientY: 10,
+      altKey: true,
+    }));
+    expect(canvasInputs.length).toBeGreaterThan(0);
+  } finally {
+    dom.restore();
+  }
+});

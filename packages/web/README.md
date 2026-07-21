@@ -84,12 +84,41 @@ The page that hosts the WASI runtime must serve
 `Cross-Origin-Embedder-Policy: require-corp` so the `SharedArrayBuffer`-backed
 stdin works.
 
+## Renderers
+
+Two surface presenters ship behind one option; both consume the same frames:
+
+```ts
+await createWebHostApp({
+  mount,
+  manifestUrl,
+  renderer: "dom", // "canvas" is the default
+});
+```
+
+- **`"canvas"`** (default) paints cells onto a 2D `<canvas>`: one DOM node,
+  pixel-exact box-drawing seams and decoration patterns.
+- **`"dom"`** renders cells as absolutely positioned text elements: the
+  browser's own font shaping and fallback (emoji, CJK), crisp text at any
+  page zoom, an inspectable element tree, and — uniquely — native text
+  selection: **hold Alt/Option and drag** to select and copy the app's text
+  (plain drags remain pointer input for the app). Box-drawing characters
+  render as font glyphs, and underline/strikethrough patterns map onto CSS
+  `text-decoration`, so hairline details can differ slightly from the canvas
+  painter. Grid alignment is kept exact by stretching each glyph advance to
+  the cell width via `letter-spacing`.
+
+The option is also available per scene runtime (`WebHostSceneRuntimeOptions.renderer`)
+and both painters are exported (`CanvasSurfacePainter`, `DomSurfacePainter`)
+for hosts that compose their own runtimes.
+
 ## Surface transport
 
 This package uses SwiftTUI's `web-surface` WASI transport. The Swift runner
 emits structured raster-surface records on stdout, and the browser host draws
-rectangles and text into a canvas. It does not load a terminal emulator and does
-not depend on `ghostty-web` or `ghostty-vt.wasm`.
+them with the configured renderer — canvas rects/text or DOM elements. It does
+not load a terminal emulator and does not depend on `ghostty-web` or
+`ghostty-vt.wasm`.
 
 `web-surface` is the default `SwiftTUIWASI` browser transport. WebHost still
 sets `TUIGUI_TRANSPORT=surface` explicitly so generated app environments are

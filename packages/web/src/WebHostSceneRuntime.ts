@@ -10,6 +10,8 @@ import {
   fontForStyle,
   type CanvasSurfaceMetrics,
 } from "./CanvasSurfacePainter.ts";
+import { DomSurfacePainter } from "./DomSurfacePainter.ts";
+import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
 import {
   InputEventEncoder,
   type CellLocation,
@@ -86,6 +88,14 @@ export interface WebHostSceneRuntimeOptions {
    * `false` to let background scenes keep running (pre-suspension behavior).
    */
   suspendWhenHidden?: boolean;
+  /**
+   * Which surface presenter draws the scene's frames. `"canvas"` (default)
+   * paints onto a 2D `<canvas>`; `"dom"` renders cells as absolutely
+   * positioned text elements — native font rendering and, uniquely, real
+   * text selection: hold Alt/Option and drag to select instead of sending
+   * pointer input to the app. See {@link WebHostSurfaceRendererKind}.
+   */
+  renderer?: WebHostSurfaceRendererKind;
 }
 
 export type WheelMode = "capture" | "chain" | "passive";
@@ -120,10 +130,13 @@ export class WebHostSceneRuntime {
   private readonly onFrameDiagnostic?: (diagnostic: WebHostFrameDiagnosticRecord) => void;
   private readonly synchronizeAccessibilityFocus: boolean;
   private readonly wheelMode: WheelMode;
-  private readonly painter = new CanvasSurfacePainter();
+  private readonly rendererKind: WebHostSurfaceRendererKind;
+  private readonly painter: CanvasSurfacePainter | DomSurfacePainter;
   private readonly inputEncoder = new InputEventEncoder();
   private currentStyle: ResolvedWebHostTerminalStyle;
   private canvas?: HTMLCanvasElement;
+  private domSurfaceRoot?: HTMLElement;
+  private lastDomSurfaceSize?: { width: number; height: number };
   private accessibilityTree?: AccessibilityTreeMounter;
   private diagnosticText?: HTMLElement;
   private resizeObserver?: ResizeObserver;
@@ -156,6 +169,10 @@ export class WebHostSceneRuntime {
     this.onFrameDiagnostic = options.onFrameDiagnostic;
     this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
     this.wheelMode = options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
+    this.rendererKind = options.renderer ?? "canvas";
+    this.painter = this.rendererKind === "dom"
+      ? new DomSurfacePainter()
+      : new CanvasSurfacePainter();
     this.onOpenHyperlink = options.onOpenHyperlink;
     this.suspendWhenHidden = options.suspendWhenHidden ?? true;
     this.element = document.createElement("section");
@@ -177,18 +194,26 @@ export class WebHostSceneRuntime {
   }
 
   async mount(): Promise<void> {
-    if (this.canvas) {
+    if (this.surfaceElement) {
       return;
     }
 
-    const canvas = document.createElement("canvas");
-    canvas.className = "webhost-scene__surface";
-    canvas.setAttribute("aria-hidden", "true");
-    this.canvas = canvas;
-    this.painter.attach(canvas, () => this.draw());
+    if (this.painter instanceof DomSurfacePainter) {
+      const surfaceRoot = document.createElement("div");
+      surfaceRoot.className = "webhost-scene__surface webhost-scene__surface--dom";
+      surfaceRoot.setAttribute("aria-hidden", "true");
+      this.domSurfaceRoot = surfaceRoot;
+      this.painter.attach(surfaceRoot);
+    } else {
+      const canvas = document.createElement("canvas");
+      canvas.className = "webhost-scene__surface";
+      canvas.setAttribute("aria-hidden", "true");
+      this.canvas = canvas;
+      this.painter.attach(canvas, () => this.draw());
+    }
     this.accessibilityTree = new AccessibilityTreeMounter();
     this.terminalMount.replaceChildren(
-      canvas,
+      this.surfaceElement as HTMLElement,
       this.accessibilityTree.element,
       this.accessibilityTree.announcerElement
     );
@@ -274,7 +299,7 @@ export class WebHostSceneRuntime {
   ): void {
     this.columns = Math.max(1, Math.round(columns));
     this.rows = Math.max(1, Math.round(rows));
-    this.resizeCanvas();
+    this.resizeSurface();
     this.draw();
     this.syncAccessibilityTree();
   }
@@ -338,7 +363,7 @@ export class WebHostSceneRuntime {
     this.currentFrame = frame;
     this.columns = Math.max(1, Math.round(frame.width));
     this.rows = Math.max(1, Math.round(frame.height));
-    const resized = this.resizeCanvas();
+    const resized = this.resizeSurface();
     this.draw(previousFrame && !resized ? frame.damage : undefined);
     this.syncAccessibilityTree();
   }
@@ -415,6 +440,15 @@ export class WebHostSceneRuntime {
       this.canvas.style.width = "100%";
       this.canvas.style.height = "100%";
     }
+    if (this.domSurfaceRoot) {
+      this.domSurfaceRoot.style.display = "block";
+      this.domSurfaceRoot.style.position = "relative";
+    }
+  }
+
+  /** The element the active painter presents frames into. */
+  private get surfaceElement(): HTMLElement | undefined {
+    return this.canvas ?? this.domSurfaceRoot;
   }
 
   private applyVisibility(): void {
@@ -461,6 +495,11 @@ export class WebHostSceneRuntime {
     };
 
     const handlePointerDown = (event: PointerEvent) => {
+      if (this.allowsNativeTextSelection(event)) {
+        // DOM renderer + Alt/Option: leave the event to the browser so the
+        // drag becomes a native text selection instead of app pointer input.
+        return;
+      }
       const location = this.cellLocation(event);
       if (!location) {
         return;
@@ -479,6 +518,9 @@ export class WebHostSceneRuntime {
     };
 
     const handlePointerUp = (event: PointerEvent) => {
+      if (!this.hasCapturedPointer && this.allowsNativeTextSelection(event)) {
+        return;
+      }
       const location = this.hasCapturedPointer
         ? this.rawCellLocation(event)
         : this.cellLocation(event);
@@ -502,6 +544,9 @@ export class WebHostSceneRuntime {
     };
 
     const handlePointerMove = (event: PointerEvent) => {
+      if (!this.hasCapturedPointer && this.allowsNativeTextSelection(event)) {
+        return;
+      }
       const location = event.buttons && this.hasCapturedPointer
         ? this.rawCellLocation(event)
         : this.cellLocation(event);
@@ -569,7 +614,7 @@ export class WebHostSceneRuntime {
     this.columns = nextColumns;
     this.rows = nextRows;
     this.sendResizeIfNeeded();
-    this.resizeCanvas();
+    this.resizeSurface();
   }
 
   private sendResizeIfNeeded(): void {
@@ -592,13 +637,25 @@ export class WebHostSceneRuntime {
     this.bridge?.resize(current.columns, current.rows, current.cellWidth, current.cellHeight);
   }
 
-  private resizeCanvas(): boolean {
+  private resizeSurface(): boolean {
+    const cssWidth = Math.max(1, this.columns * this.cellWidth);
+    const cssHeight = Math.max(1, this.rows * this.cellHeight);
+
+    if (this.domSurfaceRoot) {
+      const last = this.lastDomSurfaceSize;
+      if (last && last.width === cssWidth && last.height === cssHeight) {
+        return false;
+      }
+      this.lastDomSurfaceSize = { width: cssWidth, height: cssHeight };
+      this.domSurfaceRoot.style.width = `${cssWidth}px`;
+      this.domSurfaceRoot.style.height = `${cssHeight}px`;
+      return true;
+    }
+
     if (!this.canvas) {
       return false;
     }
 
-    const cssWidth = Math.max(1, this.columns * this.cellWidth);
-    const cssHeight = Math.max(1, this.rows * this.cellHeight);
     const scale = globalThis.window?.devicePixelRatio || 1;
     const width = Math.ceil(cssWidth * scale);
     const height = Math.ceil(cssHeight * scale);
@@ -665,12 +722,24 @@ export class WebHostSceneRuntime {
 
   private pointerMetrics(): PointerGeometryMetrics {
     return {
-      rect: this.canvas?.getBoundingClientRect?.() ?? this.terminalMount.getBoundingClientRect?.(),
+      rect: this.surfaceElement?.getBoundingClientRect?.() ?? this.terminalMount.getBoundingClientRect?.(),
       cellWidth: this.cellWidth,
       cellHeight: this.cellHeight,
       columns: this.columns,
       rows: this.rows,
     };
+  }
+
+  /**
+   * Whether this pointer event should be left to the browser for native text
+   * selection instead of being forwarded to the app. Only the DOM renderer
+   * has real text nodes to select, and only while Alt/Option is held — plain
+   * pointer input still belongs to the app.
+   */
+  private allowsNativeTextSelection(
+    event: MouseEvent
+  ): boolean {
+    return this.rendererKind === "dom" && event.altKey;
   }
 
   private cellLocation(

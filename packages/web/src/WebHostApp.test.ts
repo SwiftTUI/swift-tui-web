@@ -307,3 +307,29 @@ test("app controller forwards suspendHiddenScenes to runtime options", async () 
   expect(seenRuntimeOptions.get("main")?.suspendWhenHidden).toBe(false);
   await controller.dispose();
 });
+
+test("app controller forwards the renderer choice to every scene runtime", async () => {
+  const seenRuntimeOptions: WebHostSceneRuntimeOptions[] = [];
+  const mount = makeElement("div");
+  const controller = await createWebHostApp({
+    mount: mount as unknown as HTMLElement,
+    manifest: {
+      defaultSceneId: "main",
+      scenes: [
+        { id: "main", title: "Main", isDefault: true },
+        { id: "second", title: "Second", isDefault: false },
+      ],
+    },
+    renderer: "dom",
+    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    sceneRuntimeFactory: (runtimeOptions: WebHostSceneRuntimeOptions) => {
+      seenRuntimeOptions.push(runtimeOptions);
+      return new FakeRuntime(runtimeOptions.descriptor.id) as unknown as never;
+    },
+  });
+
+  await controller.switchScene("second");
+  expect(seenRuntimeOptions).toHaveLength(2);
+  expect(seenRuntimeOptions.every((options) => options.renderer === "dom")).toBe(true);
+  await controller.dispose();
+});

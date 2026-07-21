@@ -8,6 +8,28 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-07-21
+
+### Added
+
+- **DOM surface renderer.** `createWebHostApp({ renderer: "dom" })` (and
+  `WebHostSceneRuntimeOptions.renderer`) presents surface frames as an
+  absolutely positioned DOM element tree instead of a `<canvas>`: one row
+  container per grid row, one `<span>` per styled cell run, `<img>` elements
+  for surface images. Native font shaping and fallback (emoji, CJK), crisp
+  text at any page zoom, an inspectable element tree, and native text
+  selection — hold Alt/Option and drag to select and copy the app's text
+  while plain drags remain pointer input for the app. Damage-scoped frames
+  rebuild only the touched rows; grid alignment stays exact by stretching
+  each glyph advance to the cell width via `letter-spacing`. Box-drawing
+  characters render as font glyphs and underline/strikethrough patterns map
+  to CSS `text-decoration`, so hairline details may differ from the canvas
+  painter. The canvas renderer remains the default and is unchanged. New
+  exports: `DomSurfacePainter`, `WebHostSurfacePainter`,
+  `WebHostSurfaceRendererKind`, `SurfaceMetrics`,
+  `resolvedSurfaceForeground`, `resolvedSurfaceBackground`; the demo
+  bootstrap honors a `?renderer=dom|canvas` query parameter.
+
 ## [0.1.13] - 2026-07-21
 
 ### Added

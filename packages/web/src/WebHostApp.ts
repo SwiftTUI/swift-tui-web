@@ -21,6 +21,7 @@ import {
   type WebHostSceneBridge,
   type WebHostSceneRuntimeOptions,
 } from "./WebHostSceneRuntime.ts";
+import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
 
 export interface WebHostEmbeddedHostConfig {
   token: string;
@@ -68,6 +69,13 @@ export interface WebHostAppOptions {
   suspendHiddenScenes?: boolean;
   /** Visibility source override; defaults to the global `document`. */
   visibilityDocument?: WebHostVisibilityDocument;
+  /**
+   * Which surface presenter every scene runtime uses: `"canvas"` (default)
+   * paints frames onto a 2D `<canvas>`; `"dom"` renders them as absolutely
+   * positioned text elements. Forwarded to each scene runtime as `renderer`.
+   * See {@link WebHostSurfaceRendererKind}.
+   */
+  renderer?: WebHostSurfaceRendererKind;
 }
 
 export interface WebHostAppController {
@@ -96,6 +104,7 @@ export async function createWebHostApp(
     sceneRuntimeFactory: options.sceneRuntimeFactory ?? ((runtimeOptions) => new WebHostSceneRuntime(runtimeOptions)),
     suspendHiddenScenes: options.suspendHiddenScenes,
     visibilityDocument: options.visibilityDocument ?? defaultVisibilityDocument(),
+    renderer: options.renderer,
   });
   await controller.initialize();
   return controller;
@@ -115,6 +124,7 @@ class InternalWebHostAppController implements WebHostAppController {
   private readonly runtimes = new Map<string, WebHostSceneRuntime>();
   private readonly bridges = new Map<string, WebHostSceneBridge>();
   private readonly suspendHiddenScenes?: boolean;
+  private readonly renderer?: WebHostSurfaceRendererKind;
   private readonly visibilityDocument?: WebHostVisibilityDocument;
   private detachVisibilityListener?: () => void;
 
@@ -130,6 +140,7 @@ class InternalWebHostAppController implements WebHostAppController {
     sceneRuntimeFactory: RuntimeFactory;
     suspendHiddenScenes?: boolean;
     visibilityDocument?: WebHostVisibilityDocument;
+    renderer?: WebHostSurfaceRendererKind;
   }) {
     this.mount = options.mount;
     this.style = normalizeWebHostTerminalStyle(options.style ?? {});
@@ -138,6 +149,7 @@ class InternalWebHostAppController implements WebHostAppController {
     this.bridgeFactory = options.bridgeFactory;
     this.sceneRuntimeFactory = options.sceneRuntimeFactory;
     this.suspendHiddenScenes = options.suspendHiddenScenes;
+    this.renderer = options.renderer;
     this.visibilityDocument = options.visibilityDocument;
     this.scenes = options.manifest.scenes;
     this.selectedSceneId =
@@ -240,6 +252,7 @@ class InternalWebHostAppController implements WebHostAppController {
       bridge,
       onInput: (chunk) => bridge.sendInput(chunk),
       suspendWhenHidden: this.suspendHiddenScenes,
+      renderer: this.renderer,
     });
 
     this.bridges.set(id, bridge);

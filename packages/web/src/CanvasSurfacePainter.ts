@@ -3,6 +3,12 @@ import {
   drawBoxDrawing,
 } from "./BoxDrawingRenderer.ts";
 import {
+  resolvedSurfaceBackground,
+  resolvedSurfaceForeground,
+  type SurfaceMetrics,
+  type WebHostSurfacePainter,
+} from "./SurfaceRenderer.ts";
+import {
   type ResolvedWebHostTerminalStyle,
   webTUITerminalBackgroundColor,
 } from "./WebHostTerminalStyle.ts";
@@ -16,17 +22,10 @@ import type {
 
 /**
  * A read-only snapshot of the cell grid geometry and active style the painter
- * needs for a single paint pass. The runtime owns this state and mutates it as
- * the surface resizes or restyles; passing a fresh snapshot per `paint` keeps
- * the painter stateless about geometry and avoids stale reads.
+ * needs for a single paint pass — see {@link SurfaceMetrics}, shared with the
+ * DOM painter. The alias keeps this painter's original public name stable.
  */
-export interface CanvasSurfaceMetrics {
-  columns: number;
-  rows: number;
-  cellWidth: number;
-  cellHeight: number;
-  style: ResolvedWebHostTerminalStyle;
-}
+export type CanvasSurfaceMetrics = SurfaceMetrics;
 
 interface CachedWebHostImage {
   image?: CanvasImageSource;
@@ -62,7 +61,7 @@ interface DirtyRegion {
  * the painter holds only the canvas handle, the image cache, and the redraw
  * callback as durable state.
  */
-export class CanvasSurfacePainter {
+export class CanvasSurfacePainter implements WebHostSurfacePainter {
   private readonly imageCache = new Map<string, CachedWebHostImage>();
   private canvas?: HTMLCanvasElement;
   private requestRedraw: () => void = () => {};
@@ -249,8 +248,8 @@ export class CanvasSurfacePainter {
     const rectX = x * metrics.cellWidth;
     const rectY = y * metrics.cellHeight;
     const width = Math.max(1, span) * metrics.cellWidth;
-    const background = resolvedBackground(style, metrics.style);
-    const foreground = resolvedForeground(style, metrics.style);
+    const background = resolvedSurfaceBackground(style, metrics.style);
+    const foreground = resolvedSurfaceForeground(style, metrics.style);
     const opacity = style?.opacity ?? 1;
 
     if (background) {
@@ -485,22 +484,3 @@ function dirtyRegionIntersectsCellRect(
   return false;
 }
 
-function resolvedForeground(
-  style: WebHostSurfaceStyle | null | undefined,
-  terminalStyle: ResolvedWebHostTerminalStyle
-): string {
-  if ((style?.em ?? 0) & 16) {
-    return style?.bg ?? terminalStyle.theme.background;
-  }
-  return style?.fg ?? terminalStyle.theme.foreground;
-}
-
-function resolvedBackground(
-  style: WebHostSurfaceStyle | null | undefined,
-  terminalStyle: ResolvedWebHostTerminalStyle
-): string | undefined {
-  if ((style?.em ?? 0) & 16) {
-    return style?.fg ?? terminalStyle.theme.foreground;
-  }
-  return style?.bg;
-}

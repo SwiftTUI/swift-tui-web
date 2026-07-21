@@ -1,4 +1,6 @@
 export * from "./src/WebHostApp.ts";
+export * from "./src/SurfaceRenderer.ts";
+export * from "./src/DomSurfacePainter.ts";
 export * from "./src/WebHostSceneManifest.ts";
 export * from "./src/WebHostTerminalStyle.ts";
 export * from "./src/WebHostSurfaceTransport.ts";

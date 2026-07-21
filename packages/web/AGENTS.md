@@ -6,7 +6,7 @@ concise; [`README.md`](README.md) is the full reference.
 ## What this package is
 
 The **browser runtime** for SwiftTUI apps. It owns the browser-safe runtime
-APIs: scene-manifest loading, canvas rendering, ARIA mounting, WebSocket scene
+APIs: scene-manifest loading, canvas + DOM surface rendering, ARIA mounting, WebSocket scene
 bridges, and WASI scene bridges. Build/packaging tooling lives in the sibling
 [`@swifttui/build`](../build) workspace package — keep that split.
 

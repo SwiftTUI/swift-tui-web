@@ -10,7 +10,7 @@ A Bun workspace with two packages intended for public release:
 
 | Package | Path | Role |
 | --- | --- | --- |
-| [`@swifttui/web`](packages/web) | `packages/web` | Browser **runtime**: scene-manifest loading, canvas rendering, ARIA mount, WebSocket + WASI scene bridges |
+| [`@swifttui/web`](packages/web) | `packages/web` | Browser **runtime**: scene-manifest loading, canvas + DOM rendering, ARIA mount, WebSocket + WASI scene bridges |
 | [`@swifttui/build`](packages/build) | `packages/build` | Build/packaging **tooling**: manifest capture + wasm packaging (`swifttui-web` CLI) |
 
 Keep the runtime/tooling split: browser-safe APIs in `web`, build steps in

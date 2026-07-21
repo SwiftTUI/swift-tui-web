@@ -1,4 +1,5 @@
 import { createWebHostApp, type WebHostTerminalStyle } from "./WebHostApp.ts";
+import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
 
 declare global {
   interface Window {
@@ -6,6 +7,7 @@ declare global {
       manifestUrl?: string;
       initialSceneId?: string;
       style?: WebHostTerminalStyle;
+      renderer?: WebHostSurfaceRendererKind;
       embeddedHost?: {
         token?: string;
         webSocketBaseURL?: string;
@@ -33,6 +35,7 @@ async function bootstrap(): Promise<void> {
     manifestUrl,
     initialSceneId: config.initialSceneId,
     style: config.style,
+    renderer: config.renderer ?? rendererFromQuery(pageURL),
     embeddedHost: embeddedToken
       ? {
           token: embeddedToken,
@@ -45,6 +48,14 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap();
+
+// Allowlisted so a page URL can only choose a shipped presenter.
+function rendererFromQuery(
+  pageURL: URL
+): WebHostSurfaceRendererKind | undefined {
+  const renderer = pageURL.searchParams.get("renderer");
+  return renderer === "dom" || renderer === "canvas" ? renderer : undefined;
+}
 
 function tokenizedURL(
   value: string | URL,
