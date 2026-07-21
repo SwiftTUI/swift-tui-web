@@ -61,6 +61,19 @@ export class BrowserWASIBridge {
       TUIGUI_SCENE: options.sceneId,
       TUIGUI_COLUMNS: String(Math.max(1, options.columns)),
       TUIGUI_ROWS: String(Math.max(1, options.rows)),
+      // Browser default (2026-07, engine-blind): the single-threaded WASI
+      // drive surfaces tick invalidations exactly where the async driver's
+      // supersession predicate samples, so the default `async` disposal
+      // (completed-frame visual-only drops + pre-start cancels) coalesces
+      // steady scenes to ~1 wire frame per 3+ generations — the 0.1.9 live
+      // regression. `async-no-cancel` keeps scheduler intent-merging but
+      // commits every completed frame; measured 0.22 → 0.86 distinct-
+      // generation coverage on the deployed Life scene, both execution
+      // modes, with per-frame cost unchanged. Live lean sessions measure
+      // zero drops/cancels, so the default is safe engine-blind. Callers
+      // (and the `?renderMode=` page seam) override via
+      // `options.environment`; rollback is this one line.
+      TERMUI_RENDER_MODE: "async-no-cancel",
       ...stackProfileEnvironmentDefaults(
         options.engineCapabilities ?? resolveWasmEngineCapabilities()
       ),

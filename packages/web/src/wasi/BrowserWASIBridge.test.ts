@@ -54,6 +54,27 @@ test("bridge seeds initial render style and emits runtime style updates", async 
   );
 });
 
+test("bridge defaults the render mode to async-no-cancel with caller override", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+
+  expect(bridge.environment.TERMUI_RENDER_MODE).toBe("async-no-cancel");
+
+  const overridden = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+    environment: {
+      TERMUI_RENDER_MODE: "async",
+    },
+  });
+
+  expect(overridden.environment.TERMUI_RENDER_MODE).toBe("async");
+});
+
 test("bridge allows callers to disable surface delta support", () => {
   const bridge = new BrowserWASIBridge({
     sceneId: "main",

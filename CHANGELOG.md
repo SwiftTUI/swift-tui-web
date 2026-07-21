@@ -8,6 +8,25 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-07-20
+
+### Changed
+
+- **`BrowserWASIBridge` now defaults `TERMUI_RENDER_MODE` to
+  `async-no-cancel`** (engine-blind, both worker and main-thread execution
+  modes). The 0.1.9 live coalescing was completed-frame *disposal* under
+  supersession — visual-only drops (`dropped_completed`) plus pre-start
+  cancels (`cancelled_before_start`) saturating at the starvation floor —
+  not transport publication: on the single-threaded WASI drive, tick
+  invalidations surface exactly where the async driver's supersession
+  predicate samples. `async-no-cancel` keeps scheduler intent-merging as
+  the backpressure valve but commits every completed frame; measured on
+  the deployed Life scene it lifts distinct-generation coverage 0.22 →
+  0.86 (worker) / 0.88 (main-thread) with per-frame cost unchanged, and
+  live lean sessions measure zero drops/cancels, so the default is safe
+  engine-blind. Callers and the examples' `?renderMode=` page seam
+  override via `environment`; rollback is the one-line default.
+
 ## [0.1.10] - 2026-07-20
 
 ### Added
