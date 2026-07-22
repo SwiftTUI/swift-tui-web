@@ -1,5 +1,6 @@
 import {
   WebHostOutputDecoder,
+  encodeCapabilitiesControlMessage,
   encodeRenderStyleControlMessage,
   encodeResizeControlMessage,
   type WebHostOutputRecord,
@@ -70,6 +71,10 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     this.socket.addEventListener("message", this.handleMessage);
     this.socket.addEventListener("close", this.handleClose);
     this.socket.addEventListener("error", this.handleError);
+    // Declare wire capabilities first: queued input flushes in order on
+    // open, so the declaration reaches the server ahead of any
+    // resize/style/input record.
+    this.sendInput(encodeCapabilitiesControlMessage());
   }
 
   bindOutput(

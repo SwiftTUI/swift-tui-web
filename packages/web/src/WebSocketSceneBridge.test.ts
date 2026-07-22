@@ -120,7 +120,12 @@ test("bridge decodes websocket output and sends queued input when the socket ope
   expect(socket.sent).toHaveLength(0);
 
   socket.open();
-  expect(decoder.decode(socket.sent[0])).toBe("\u001Eresize:100:32:9:18\n");
+  // The capability declaration always flushes first (queued at
+  // construction), ahead of any caller-queued record.
+  expect(decoder.decode(socket.sent[0])).toBe(
+    '\u001Ecaps:{"maxWebSurfaceVersion":3,"acceptsDeltaFrames":true}\n'
+  );
+  expect(decoder.decode(socket.sent[1])).toBe("\u001Eresize:100:32:9:18\n");
 
   socket.message(encoder.encode(
     '\u001Esurface:{"version":2,"width":2,"height":1,"styles":[null],"rows":[[]],'

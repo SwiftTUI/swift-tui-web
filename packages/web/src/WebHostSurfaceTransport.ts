@@ -481,6 +481,20 @@ export function encodeRenderStyleControlMessage(
   return textEncoder.encode(`${recordPrefix}style:${encoded}\n`);
 }
 
+export function encodeCapabilitiesControlMessage(): Uint8Array {
+  // The client's wire-capability declaration, sent once after the socket
+  // opens. The declaration is truthful today: this decoder materializes v3
+  // delta frames (`materializeDeltaFrame`). Byte shape and key order are
+  // pinned by the cross-repo fixture Fixtures/Transport/web-caps-record.txt
+  // — swift-tui's input parser consumes the identical bytes, and the
+  // coordination root's transport_fixture_sync gate keeps the copies in
+  // lockstep. Servers that predate the record drop it silently, so the
+  // session degrades to today's full-frame defaults.
+  return textEncoder.encode(
+    `${recordPrefix}caps:{"maxWebSurfaceVersion":3,"acceptsDeltaFrames":true}\n`
+  );
+}
+
 export function encodeKeyInputMessage(
   input: WebHostKeyInput
 ): Uint8Array {

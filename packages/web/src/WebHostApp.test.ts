@@ -154,7 +154,11 @@ test("app controller uses the embedded WebSocket bridge when configured", async 
 
   socket.open();
   runtimeOptions?.onInput(new TextEncoder().encode("input-record"));
-  expect(new TextDecoder().decode(socket.sent[0])).toBe("input-record");
+  // The bridge's capability declaration always flushes first on open.
+  expect(new TextDecoder().decode(socket.sent[0])).toBe(
+    '\u001Ecaps:{"maxWebSurfaceVersion":3,"acceptsDeltaFrames":true}\n'
+  );
+  expect(new TextDecoder().decode(socket.sent[1])).toBe("input-record");
 
   await controller.dispose();
   expect(socket.closed).toBe(true);

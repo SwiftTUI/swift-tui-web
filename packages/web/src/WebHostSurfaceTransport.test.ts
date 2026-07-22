@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   SUPPORTED_SURFACE_VERSION,
   WebHostOutputDecoder,
+  encodeCapabilitiesControlMessage,
   encodeMouseInputMessage,
   type WebHostOutputRecord,
   type WebHostSurfaceFrame,
@@ -486,6 +487,17 @@ test("decoder parses the canonical composited-image fixture from swift-tui's enc
   expect(image?.scalingMode).toBe("fit");
   expect(image?.pixelSize).toEqual([2, 2]);
   expect(image?.bounds).toEqual([0, 0, 1, 1]);
+});
+
+test("the capability declaration matches the canonical cross-repo record fixture", () => {
+  // web-caps-record.txt is the cross-repo canonical caps record: swift-tui's
+  // WebSurfaceInputParser parses a byte-identical copy in its own suite, and
+  // the coordination root's transport_fixture_sync gate keeps the copies in
+  // lockstep — so the client cannot change its declaration bytes without the
+  // Swift parse side re-proving them.
+  const decoderText = new TextDecoder();
+  expect(decoderText.decode(encodeCapabilitiesControlMessage()))
+    .toBe(transportFixture("web-caps-record"));
 });
 
 test("surface records declaring a newer version surface an error-severity issue", () => {
