@@ -8,6 +8,20 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-07-22
+
+### Changed
+
+- **Stack-lean engines default `SWIFTTUI_LEAN_RETAINED_REUSE=1`.** Engines
+  that keep the stack-lean resolve profile (JSC, Gecko, unknown) now opt
+  the SwiftTUI WASI runtime into retained reuse under that profile. A
+  reuse hit short-circuits the resolve descent — the stack-safety
+  direction — and cuts the steady WebKit worker pipeline from 27.6 to
+  10.8 ms/frame (measured 2026-07-22 against the granular-observation
+  WebExample). Caller-provided environment still wins, and wasm builds
+  predating swift-tui 0.1.15 simply never read the variable. V8 remains
+  non-lean, where the flag is inert.
+
 ## [0.1.14] - 2026-07-21
 
 ### Added
