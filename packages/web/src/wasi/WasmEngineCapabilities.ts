@@ -115,10 +115,20 @@ export function stackProfileEnvironmentDefaults(
   // JSC stays lean (Darwin worker threads get ~1/16 of the main-thread
   // stack). Gecko stays lean by *measurement*, not caution: Firefox live
   // (2026-07) overflows the non-lean shape in its worker.
+  //
+  // Lean engines additionally opt into retained reuse under the lean
+  // profile (`SWIFTTUI_LEAN_RETAINED_REUSE`, swift-tui's bounded-depth
+  // reuse program): a reuse hit short-circuits the resolve descent, so it
+  // only ever *shallows* the frame relative to the lean baseline — the
+  // stack-safety direction — while cutting the steady worker pipeline
+  // measured 27.6 → 10.8 ms/frame on WebKit (2026-07-22 split A/B against
+  // the granular-observation WebExample). Builds predating the flag simply
+  // never read the variable. Caller-provided environment still wins (these
+  // defaults are spread first).
   if (capabilities.engine === "v8") {
     return { SWIFTTUI_STACK_LEAN_PROFILE: "0" };
   }
-  return {};
+  return { SWIFTTUI_LEAN_RETAINED_REUSE: "1" };
 }
 
 /**
