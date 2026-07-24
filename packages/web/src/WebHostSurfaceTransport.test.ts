@@ -275,6 +275,40 @@ test("decoder materializes delta surface frames from a full baseline", () => {
   });
 });
 
+test("decoder rebaselines a full frame received after a delta", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    '\u001Esurface:{"version":2,"width":2,"height":1,'
+      + '"styles":[null,{"fg":"#FF0000FF"},{"fg":"#0000FFFF"}],'
+      + '"rows":[[[0,"A",1,1],[1,"B",1,2]]],"images":[]}\n'
+      + '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,'
+      + '"sequence":2,"styles":[null,{"fg":"#FF0000FF"},{"fg":"#0000FFFF"}],'
+      + '"deltaRows":[[0,[[0,"C",1,2],[1,"D",1,1]]]],"images":[]}\n'
+      + '\u001Esurface:{"version":2,"width":2,"height":1,"sequence":3,'
+      + '"styles":[null,{"fg":"#0000FFFF"},{"fg":"#FF0000FF"}],'
+      + '"rows":[[[0,"E",1,1],[1,"F",1,2]]],"images":[]}\n'
+      + '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,'
+      + '"sequence":4,"styles":[null,{"fg":"#0000FFFF"},{"fg":"#FF0000FF"}],'
+      + '"deltaRows":[[0,[[0,"G",1,2],[1,"H",1,1]]]],"images":[]}\n'
+  ));
+
+  expect(records.map((record) => record.type)).toEqual([
+    "surface",
+    "surface",
+    "surface",
+    "surface",
+  ]);
+  expect(surfaceFrame(records[3])).toMatchObject({
+    sequence: 4,
+    styles: [
+      null,
+      { fg: "#0000FFFF" },
+      { fg: "#FF0000FF" },
+    ],
+    rows: [[[0, "G", 1, 2], [1, "H", 1, 1]]],
+  });
+});
+
 test("decoder keeps delta surface output before any full baseline visible as text", () => {
   const decoder = new WebHostOutputDecoder();
   const line = '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":2,'
