@@ -16,7 +16,7 @@ APIs live in `@swifttui/web`.** This package depends on `@swifttui/web`.
 ## Toolchains
 
 - **Bun** for the CLI, bundling, and tests.
-- **`swiftly`** Swift 6.3.1 for the wasm build it invokes
+- **`swiftly`** Swift 6.3.3 for the wasm build it invokes
   (`swiftly run swift ...`), not bare `swift`.
 
 ## Commands

@@ -19,7 +19,7 @@ Keep the runtime/tooling split: browser-safe APIs in `web`, build steps in
 ## Toolchains
 
 - **Bun** for dev, bundling, and tests.
-- **`swiftly`** Swift 6.3.1 for any Swift the build path triggers
+- **`swiftly`** Swift 6.3.3 for any Swift the build path triggers
   (`swiftly run swift --version`). Not bare `swift`/`xcrun swift`.
 
 Run `bun install` from this root; one root `bun.lock` covers both packages.

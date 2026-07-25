@@ -146,7 +146,7 @@ self-describing.
 > package from an app needs only `npm install` (above) — not Bun or the Swift
 > toolchain.
 
-Use Bun for repo-local development, and the repo-default `swiftly` Swift 6.3.1
+Use Bun for repo-local development, and the repo-default `swiftly` Swift 6.3.3
 toolchain for any Swift command the build pipeline triggers
 (`swiftly run swift --version`). Run `bun install` from the repo root or any
 workspace package directory; Bun maintains one root `bun.lock`.

@@ -17,7 +17,7 @@ maintained.
 ## Toolchains
 
 - **Bun** for dev, bundling, and the test runner.
-- **`swiftly`** Swift 6.3.1 for any Swift the build path triggers
+- **`swiftly`** Swift 6.3.3 for any Swift the build path triggers
   (`swiftly run swift --version`). Do not use bare `swift`/`xcrun swift`.
 
 ## Commands
