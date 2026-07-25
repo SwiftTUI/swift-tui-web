@@ -490,8 +490,15 @@ export function encodeCapabilitiesControlMessage(): Uint8Array {
   // coordination root's transport_fixture_sync gate keeps the copies in
   // lockstep. Servers that predate the record drop it silently, so the
   // session degrades to today's full-frame defaults.
+  //
+  // Capabilities are named feature bits. The retired `maxWebSurfaceVersion`
+  // key declared a decoder version ceiling, which was only ever read as
+  // "accepts delta or not" and duplicated — more weakly — the version check
+  // this decoder already performs on every record (SUPPORTED_SURFACE_VERSION).
+  // Servers still expecting it skip unknown keys, so dropping it is safe in
+  // both directions.
   return textEncoder.encode(
-    `${recordPrefix}caps:{"maxWebSurfaceVersion":3,"acceptsDeltaFrames":true}\n`
+    `${recordPrefix}caps:{"acceptsDeltaFrames":true}\n`
   );
 }
 
