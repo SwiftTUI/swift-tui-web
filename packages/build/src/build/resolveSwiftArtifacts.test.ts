@@ -1,10 +1,25 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
+  defaultWasmSwiftSDK,
   formatCommandForLogs,
   hasRequiredWasmFlags,
   requiredWasmSwiftFlags,
   wasmBuildConfigurationLogLines,
 } from "./resolveSwiftArtifacts.ts";
+
+test("the default wasm SDK tracks the pinned toolchain", () => {
+  // CI runners install only the wasm SDK matching `.swift-version`, so a stale
+  // default resolves fine on a developer machine that still has the previous
+  // SDK installed and then fails on a clean runner. Pin them together.
+  const pinnedToolchain = readFileSync(
+    resolve(import.meta.dir, "../../../../.swift-version"),
+    "utf8"
+  ).trim();
+
+  expect(defaultWasmSwiftSDK).toBe(`swift-${pinnedToolchain}-RELEASE_wasm`);
+});
 
 test("detects the required wasm Swift flag sequence", () => {
   expect(
