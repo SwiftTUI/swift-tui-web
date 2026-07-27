@@ -38,14 +38,14 @@ test("bridge seeds initial render style and emits runtime style updates", async 
   });
 
   expect(
-    decodeWebHostTerminalRenderStyleBase64(bridge.environment.TUIGUI_RENDER_STYLE ?? "")
+    decodeWebHostTerminalRenderStyleBase64(bridge.environment.SWIFTTUI_RENDER_STYLE ?? "")
       ?.appearance.backgroundColor
   ).toBe("#111111");
   expect(
-    bridge.environment.TUIGUI_RENDER_STYLE
+    bridge.environment.SWIFTTUI_RENDER_STYLE
   ).toBe(encodeWebHostTerminalRenderStyleBase64(style));
-  expect(bridge.environment.TUIGUI_TRANSPORT).toBe("surface");
-  expect(bridge.environment.TUIGUI_SURFACE_DELTA).toBe("1");
+  expect(bridge.environment.SWIFTTUI_TRANSPORT).toBe("surface");
+  expect(bridge.environment.SWIFTTUI_SURFACE_DELTA).toBe("1");
 
   bridge.updateRenderStyle(style);
   const input = await bridge.stdin.read();
@@ -61,18 +61,18 @@ test("bridge defaults the render mode to async-no-cancel with caller override", 
     rows: 24,
   });
 
-  expect(bridge.environment.TERMUI_RENDER_MODE).toBe("async-no-cancel");
+  expect(bridge.environment.SWIFTTUI_RENDER_MODE).toBe("async-no-cancel");
 
   const overridden = new BrowserWASIBridge({
     sceneId: "main",
     columns: 80,
     rows: 24,
     environment: {
-      TERMUI_RENDER_MODE: "async",
+      SWIFTTUI_RENDER_MODE: "async",
     },
   });
 
-  expect(overridden.environment.TERMUI_RENDER_MODE).toBe("async");
+  expect(overridden.environment.SWIFTTUI_RENDER_MODE).toBe("async");
 });
 
 test("bridge allows callers to disable surface delta support", () => {
@@ -81,11 +81,11 @@ test("bridge allows callers to disable surface delta support", () => {
     columns: 80,
     rows: 24,
     environment: {
-      TUIGUI_SURFACE_DELTA: "0",
+      SWIFTTUI_SURFACE_DELTA: "0",
     },
   });
 
-  expect(bridge.environment.TUIGUI_SURFACE_DELTA).toBe("0");
+  expect(bridge.environment.SWIFTTUI_SURFACE_DELTA).toBe("0");
 });
 
 test("bridge resize updates environment, emits control input, and notifies listeners", async () => {
@@ -103,8 +103,8 @@ test("bridge resize updates environment, emits control input, and notifies liste
 
   bridge.resize(132, 41, 9, 18);
 
-  expect(bridge.environment.TUIGUI_COLUMNS).toBe("132");
-  expect(bridge.environment.TUIGUI_ROWS).toBe("41");
+  expect(bridge.environment.SWIFTTUI_COLUMNS).toBe("132");
+  expect(bridge.environment.SWIFTTUI_ROWS).toBe("41");
   expect(seen).toEqual([
     [80, 24, undefined, undefined],
     [132, 41, 9, 18],

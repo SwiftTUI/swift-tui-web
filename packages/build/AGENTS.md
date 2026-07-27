@@ -24,7 +24,7 @@ APIs live in `@swifttui/web`.** This package depends on `@swifttui/web`.
 ```bash
 bun test                                # package tests
 bun run build                           # compile the publishable package to dist/ (tsdown: ESM .js + .d.ts + bin)
-bun run build:manifest -- --app <Exe>   # capture TUIGUI_MODE=manifest output
+bun run build:manifest -- --app <Exe>   # capture SWIFTTUI_MODE=manifest output
 bun run build:wasm     -- --app <Exe>   # copy + validate the app's wasm
 bun run cli.ts build   -- --app <Exe>   # full app pipeline (manifest + wasm) via the CLI
 ```

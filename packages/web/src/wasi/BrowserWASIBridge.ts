@@ -55,12 +55,12 @@ export class BrowserWASIBridge {
 
   constructor(options: BrowserWASIBridgeOptions) {
     this.environment = {
-      TUIGUI_MODE: "browser",
-      TUIGUI_TRANSPORT: "surface",
-      TUIGUI_SURFACE_DELTA: "1",
-      TUIGUI_SCENE: options.sceneId,
-      TUIGUI_COLUMNS: String(Math.max(1, options.columns)),
-      TUIGUI_ROWS: String(Math.max(1, options.rows)),
+      SWIFTTUI_MODE: "browser",
+      SWIFTTUI_TRANSPORT: "surface",
+      SWIFTTUI_SURFACE_DELTA: "1",
+      SWIFTTUI_SCENE: options.sceneId,
+      SWIFTTUI_COLUMNS: String(Math.max(1, options.columns)),
+      SWIFTTUI_ROWS: String(Math.max(1, options.rows)),
       // Browser default (2026-07, engine-blind): the single-threaded WASI
       // drive surfaces tick invalidations exactly where the async driver's
       // supersession predicate samples, so the default `async` disposal
@@ -73,14 +73,14 @@ export class BrowserWASIBridge {
       // zero drops/cancels, so the default is safe engine-blind. Callers
       // (and the `?renderMode=` page seam) override via
       // `options.environment`; rollback is this one line.
-      TERMUI_RENDER_MODE: "async-no-cancel",
+      SWIFTTUI_RENDER_MODE: "async-no-cancel",
       ...stackProfileEnvironmentDefaults(
         options.engineCapabilities ?? resolveWasmEngineCapabilities()
       ),
       ...options.environment,
       ...(options.renderStyle
         ? {
-            TUIGUI_RENDER_STYLE: encodeWebHostTerminalRenderStyleBase64(
+            SWIFTTUI_RENDER_STYLE: encodeWebHostTerminalRenderStyleBase64(
               options.renderStyle
             ),
           }
@@ -132,8 +132,8 @@ export class BrowserWASIBridge {
   ): void {
     const normalizedColumns = Math.max(1, columns);
     const normalizedRows = Math.max(1, rows);
-    this.environment.TUIGUI_COLUMNS = String(normalizedColumns);
-    this.environment.TUIGUI_ROWS = String(normalizedRows);
+    this.environment.SWIFTTUI_COLUMNS = String(normalizedColumns);
+    this.environment.SWIFTTUI_ROWS = String(normalizedRows);
     this.latestResize = {
       columns: normalizedColumns,
       rows: normalizedRows,
@@ -149,7 +149,7 @@ export class BrowserWASIBridge {
   updateRenderStyle(
     style: WebHostTerminalStyle
   ): void {
-    this.environment.TUIGUI_RENDER_STYLE = encodeWebHostTerminalRenderStyleBase64(style);
+    this.environment.SWIFTTUI_RENDER_STYLE = encodeWebHostTerminalRenderStyleBase64(style);
     this.stdin.write(encodeRenderStyleControlMessage(style));
   }
 

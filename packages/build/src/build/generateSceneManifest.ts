@@ -39,7 +39,7 @@ async function runManifestCommand(
     {
       env: {
         ...process.env,
-        TUIGUI_MODE: "manifest",
+        SWIFTTUI_MODE: "manifest",
       },
     }
   );

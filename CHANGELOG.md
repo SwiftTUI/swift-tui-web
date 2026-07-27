@@ -8,6 +8,12 @@ releases may include source-breaking changes.
 
 ## [Unreleased]
 
+### Changed
+
+- **Browser/WASI environment variables now use `SWIFTTUI_*` exclusively.**
+  Manifest capture, host-wire negotiation, render mode, scene selection,
+  sizing, diagnostics, and render-style keys no longer use legacy prefixes.
+
 ## [0.1.15] - 2026-07-22
 
 ### Changed
@@ -92,7 +98,7 @@ releases may include source-breaking changes.
 
 ### Changed
 
-- **`BrowserWASIBridge` now defaults `TERMUI_RENDER_MODE` to
+- **`BrowserWASIBridge` now defaults `SWIFTTUI_RENDER_MODE` to
   `async-no-cancel`** (engine-blind, both worker and main-thread execution
   modes). The 0.1.9 live coalescing was completed-frame *disposal* under
   supersession — visual-only drops (`dropped_completed`) plus pre-start

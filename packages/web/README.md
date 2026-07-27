@@ -121,7 +121,7 @@ not load a terminal emulator and does not depend on `ghostty-web` or
 `ghostty-vt.wasm`.
 
 `web-surface` is the default `SwiftTUIWASI` browser transport. WebHost still
-sets `TUIGUI_TRANSPORT=surface` explicitly so generated app environments are
+sets `SWIFTTUI_TRANSPORT=surface` explicitly so generated app environments are
 self-describing.
 
 ## Notes
@@ -131,7 +131,7 @@ self-describing.
   one active palette/theme pair plus the runtime payload sent into SwiftTUI.
 - Hosts that want multiple themes swap entire `WebHostTerminalStyle` objects;
   the library does not provide a built-in mode switcher.
-- `BrowserWASIBridge` sets `TUIGUI_TRANSPORT=surface` and decodes surface
+- `BrowserWASIBridge` sets `SWIFTTUI_TRANSPORT=surface` and decodes surface
   frames before handing them to the canvas runtime.
 - Hyperlink cells published by the app (`links`/`linkTargets` on the frame)
   are clickable: a click opens the target in a new tab (`http(s)` only) or
@@ -169,7 +169,7 @@ published `dist/` library output.
 
 The demo/app build flow is intentionally small:
 
-1. `build:manifest` captures `TUIGUI_MODE=manifest` output from the Swift app by invoking `swiftly run swift`.
+1. `build:manifest` captures `SWIFTTUI_MODE=manifest` output from the Swift app by invoking `swiftly run swift`.
 2. `build:wasm` copies the app's wasm artifact into `dist-demo/assets/app.wasm`,
    validates it with the browser `WebAssembly` API, then keeps the stripped
    artifact only if stripping still produces browser-parseable wasm.

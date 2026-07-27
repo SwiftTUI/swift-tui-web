@@ -42,7 +42,7 @@ run from the `swift-tui-web` root.
 - Transport is SwiftTUI's **`web-surface` WASI transport**: the Swift runner
   emits raster-surface records on stdout and the host draws rects/text to a
   canvas. **No terminal emulator** — does not use `ghostty-web`/`ghostty-vt.wasm`.
-  `BrowserWASIBridge` sets `TUIGUI_TRANSPORT=surface`.
+  `BrowserWASIBridge` sets `SWIFTTUI_TRANSPORT=surface`.
 - Entry points: `createWebHostApp` (`.`), `createWasmSceneRuntimeFactory`
   (`./wasi`), `startWasmSceneWorker` (`./wasi-worker`). Subpath exports are
   declared in `package.json` — keep `exports` in sync when adding modules.

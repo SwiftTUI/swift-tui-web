@@ -208,8 +208,8 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       });
     });
 
-    const initialColumns = Number(this.bridge?.environment.TUIGUI_COLUMNS ?? "0") || 0;
-    const initialRows = Number(this.bridge?.environment.TUIGUI_ROWS ?? "0") || 0;
+    const initialColumns = Number(this.bridge?.environment.SWIFTTUI_COLUMNS ?? "0") || 0;
+    const initialRows = Number(this.bridge?.environment.SWIFTTUI_ROWS ?? "0") || 0;
     if (!this.bridge && initialColumns > 0 && initialRows > 0) {
       this.onSceneResize?.({
         sceneId: this.descriptor.id,
