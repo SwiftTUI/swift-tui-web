@@ -5,6 +5,7 @@ import {
   WebHostOutputDecoder,
   encodeCapabilitiesControlMessage,
   encodeMouseInputMessage,
+  encodeResyncControlMessage,
   type WebHostOutputRecord,
   type WebHostSurfaceFrame,
 } from "./WebHostSurfaceTransport.ts";
@@ -325,6 +326,122 @@ test("decoder rebaselines a full frame received after a delta", () => {
   });
 });
 
+test("decoder drops a stale stamped delta, requests resync, and recovers on a keyframe", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 17,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[[0, "A", 1, 0]]],
+    }) + "\n"
+      + "\u001Esurface:" + JSON.stringify({
+        version: 3,
+        encoding: "delta",
+        epoch: 17,
+        gen: 3,
+        baselineGen: 2,
+        width: 2,
+        height: 1,
+        styles: [null],
+        deltaRows: [[0, [[0, "stale", 1, 0]]]],
+      }) + "\n"
+  ));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "surfaceDropped"]);
+  expect(records[1]).toEqual({
+    type: "surfaceDropped",
+    reason: "staleBaseline",
+  });
+  expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+
+  const recovery = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 17,
+      gen: 4,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[[0, "B", 1, 0]]],
+    }) + "\n"
+      + "\u001Esurface:" + JSON.stringify({
+        version: 3,
+        encoding: "delta",
+        epoch: 17,
+        gen: 5,
+        baselineGen: 4,
+        width: 2,
+        height: 1,
+        styles: [null],
+        deltaRows: [[0, [[0, "C", 1, 0]]]],
+      }) + "\n"
+  ));
+
+  expect(recovery.map((record) => record.type)).toEqual(["surface", "surface"]);
+  expect(surfaceFrame(recovery[0])).toMatchObject({
+    epoch: 17,
+    gen: 4,
+    rows: [[[0, "B", 1, 0]]],
+  });
+  expect(surfaceFrame(recovery[1])).toMatchObject({
+    epoch: 17,
+    gen: 5,
+    rows: [[[0, "C", 1, 0]]],
+  });
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+});
+
+test("decoder refuses a partial delivery stamp tuple and requests resync", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 23,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[[0, "A", 1, 0]]],
+    }) + "\n"
+      + "\u001Esurface:" + JSON.stringify({
+        version: 3,
+        encoding: "delta",
+        epoch: 23,
+        baselineGen: 1,
+        width: 2,
+        height: 1,
+        styles: [null],
+        deltaRows: [[0, [[0, "B", 1, 0]]]],
+      }) + "\n"
+  ));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "surfaceDropped"]);
+  expect(records[1]).toEqual({
+    type: "surfaceDropped",
+    reason: "staleBaseline",
+  });
+  expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
+});
+
+test("decoder preserves legacy unstamped delta behavior", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    '\u001Esurface:{"version":2,"width":2,"height":1,"styles":[null],'
+      + '"rows":[[[0,"A",1,0]]]}\n'
+      + '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,'
+      + '"styles":[null],"deltaRows":[[0,[[0,"B",1,0]]]]}\n'
+  ));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "surface"]);
+  expect(surfaceFrame(records[1]).rows).toEqual([[[0, "B", 1, 0]]]);
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+});
+
 test("decoder drops a delta received before any full baseline", () => {
   const decoder = new WebHostOutputDecoder();
   const line = '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":2,'
@@ -336,6 +453,30 @@ test("decoder drops a delta received before any full baseline", () => {
       reason: "noBaseline",
     },
   ]);
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+});
+
+test("decoder requests a keyframe for a stamped delta received without a baseline", () => {
+  const decoder = new WebHostOutputDecoder();
+  const line = "\u001Esurface:" + JSON.stringify({
+    version: 3,
+    encoding: "delta",
+    epoch: 9,
+    gen: 2,
+    baselineGen: 1,
+    width: 2,
+    height: 1,
+    styles: [null],
+    deltaRows: [[0, [[0, "B", 1, 0]]]],
+  }) + "\n";
+
+  expect(decoder.feed(encoder.encode(line))).toEqual([
+    {
+      type: "surfaceDropped",
+      reason: "noBaseline",
+    },
+  ]);
+  expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
 });
 
 test("decoder drops a delta whose dimensions have no compatible baseline", () => {
@@ -363,6 +504,40 @@ test("decoder drops a delta whose dimensions have no compatible baseline", () =>
       reason: "noBaseline",
     },
   ]);
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+});
+
+test("decoder requests a keyframe when a stamped delta has incompatible dimensions", () => {
+  const decoder = new WebHostOutputDecoder();
+  const baseline = "\u001Esurface:" + JSON.stringify({
+    version: 2,
+    epoch: 11,
+    gen: 1,
+    width: 2,
+    height: 1,
+    styles: [null],
+    rows: [[[0, "A", 1, 0]]],
+  }) + "\n";
+  const delta = "\u001Esurface:" + JSON.stringify({
+    version: 3,
+    encoding: "delta",
+    epoch: 11,
+    gen: 2,
+    baselineGen: 1,
+    width: 3,
+    height: 1,
+    styles: [null],
+    deltaRows: [[0, [[0, "B", 1, 0]]]],
+  }) + "\n";
+
+  const records = decoder.feed(encoder.encode(baseline + delta));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "surfaceDropped"]);
+  expect(records[1]).toEqual({
+    type: "surfaceDropped",
+    reason: "noBaseline",
+  });
+  expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
 });
 
 test("decoder keeps delta surface output with out-of-range row indexes visible as text", () => {
@@ -562,6 +737,34 @@ test("the capability declaration matches the canonical cross-repo record fixture
   const decoderText = new TextDecoder();
   expect(decoderText.decode(encodeCapabilitiesControlMessage()))
     .toBe(transportFixture("web-caps-record"));
+});
+
+test("resync control messages have deterministic keyframe and image shapes", () => {
+  expect(decoder.decode(encodeResyncControlMessage({ scope: "keyframe" })))
+    .toBe('\u001Eresync:{"scope":"keyframe"}\n');
+  expect(decoder.decode(encodeResyncControlMessage({
+    scope: "images",
+    ids: ["png:a", "png:b"],
+  }))).toBe('\u001Eresync:{"scope":"images","ids":["png:a","png:b"]}\n');
+  expect(decoder.decode(encodeResyncControlMessage({ scope: "images" })))
+    .toBe('\u001Eresync:{"scope":"images"}\n');
+});
+
+test("unsafe generation stamps make a surface record visible as text", () => {
+  const outputDecoder = new WebHostOutputDecoder();
+  const line = "\u001Esurface:" + JSON.stringify({
+    version: 2,
+    epoch: Number.MAX_SAFE_INTEGER + 1,
+    gen: 1,
+    width: 2,
+    height: 1,
+    styles: [null],
+    rows: [[]],
+  }) + "\n";
+
+  expect(outputDecoder.feed(encoder.encode(line))).toEqual([
+    { type: "text", text: line },
+  ]);
 });
 
 test("surface records declaring a newer version surface an error-severity issue", () => {

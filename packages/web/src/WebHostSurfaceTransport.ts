@@ -145,6 +145,8 @@ export interface WebHostScrollRegion {
 
 export interface WebHostSurfaceFrame {
   version: 1 | 2;
+  epoch?: number;
+  gen?: number;
   sequence?: number;
   width: number;
   height: number;
@@ -170,6 +172,9 @@ export type WebHostSurfaceDeltaRow = [
 export interface WebHostSurfaceDeltaFrame {
   version: 3;
   encoding: "delta";
+  epoch?: number;
+  gen?: number;
+  baselineGen?: number;
   sequence?: number;
   width: number;
   height: number;
@@ -207,8 +212,12 @@ export type WebHostOutputRecord =
   | { type: "clipboard"; text: string }
   | { type: "runtimeIssue"; issue: WebHostRuntimeIssue }
   | { type: "frameDiagnostic"; diagnostic: WebHostFrameDiagnosticRecord }
-  | { type: "surfaceDropped"; reason: "noBaseline" }
+  | { type: "surfaceDropped"; reason: "noBaseline" | "staleBaseline" }
   | { type: "text"; text: string };
+
+export type WebHostResyncRequest =
+  | { scope: "keyframe" }
+  | { scope: "images"; ids?: string[] };
 
 export interface WebHostOutputSink {
   presentSurface(frame: WebHostSurfaceFrame): void;
@@ -264,6 +273,9 @@ export class WebHostOutputDecoder {
   private readonly textDecoder = new TextDecoder();
   private bufferedText = "";
   private lastSurfaceFrame?: WebHostSurfaceFrame;
+  private lastEpoch?: number;
+  private lastGen?: number;
+  private pendingResyncRequest?: WebHostResyncRequest;
 
   feed(
     chunk: Uint8Array
@@ -297,6 +309,12 @@ export class WebHostOutputDecoder {
     const text = this.bufferedText;
     this.bufferedText = "";
     return [this.decodeLine(text)];
+  }
+
+  takeResyncRequest(): WebHostResyncRequest | undefined {
+    const request = this.pendingResyncRequest;
+    this.pendingResyncRequest = undefined;
+    return request;
   }
 
   private decodeLine(
@@ -363,19 +381,43 @@ export class WebHostOutputDecoder {
       }
       if (isWebHostSurfaceFrame(frame)) {
         this.lastSurfaceFrame = frame;
+        this.lastEpoch = frame.epoch;
+        this.lastGen = frame.gen;
+        this.pendingResyncRequest = undefined;
         return { type: "surface", frame };
       }
       if (isWebHostSurfaceDeltaFrame(frame)) {
+        const carriesDeliveryStamps = frame.epoch !== undefined
+          || frame.gen !== undefined
+          || frame.baselineGen !== undefined;
         if (
           !this.lastSurfaceFrame
           || this.lastSurfaceFrame.width !== frame.width
           || this.lastSurfaceFrame.height !== frame.height
         ) {
+          if (carriesDeliveryStamps) {
+            this.pendingResyncRequest = { scope: "keyframe" };
+          }
           return { type: "surfaceDropped", reason: "noBaseline" };
+        }
+        if (
+          carriesDeliveryStamps
+          && (
+            frame.epoch === undefined
+            || frame.gen === undefined
+            || frame.baselineGen === undefined
+            || frame.epoch !== this.lastEpoch
+            || frame.baselineGen !== this.lastGen
+          )
+        ) {
+          this.pendingResyncRequest = { scope: "keyframe" };
+          return { type: "surfaceDropped", reason: "staleBaseline" };
         }
         const materialized = this.materializeDeltaFrame(frame);
         if (materialized) {
           this.lastSurfaceFrame = materialized;
+          this.lastEpoch = frame.epoch;
+          this.lastGen = frame.gen;
           return { type: "surface", frame: materialized };
         }
       }
@@ -404,6 +446,8 @@ export class WebHostOutputDecoder {
 
     return {
       version: baseline.version,
+      epoch: frame.epoch,
+      gen: frame.gen,
       sequence: frame.sequence,
       width: frame.width,
       height: frame.height,
@@ -515,6 +559,20 @@ export function encodeCapabilitiesControlMessage(): Uint8Array {
   );
 }
 
+export function encodeResyncControlMessage(
+  request: WebHostResyncRequest
+): Uint8Array {
+  const payload = request.scope === "keyframe"
+    ? { scope: "keyframe" }
+    : {
+        scope: "images",
+        ...(request.ids === undefined ? {} : { ids: request.ids }),
+      };
+  return textEncoder.encode(
+    `${recordPrefix}resync:${JSON.stringify(payload)}\n`
+  );
+}
+
 export function encodeKeyInputMessage(
   input: WebHostKeyInput
 ): Uint8Array {
@@ -605,6 +663,7 @@ function isWebHostSurfaceDeltaFrame(
     && Array.isArray(frame.styles)
     && Array.isArray(frame.deltaRows)
     && frame.deltaRows.every(isWebHostSurfaceDeltaRow)
+    && isOptionalSafeInteger(frame.baselineGen)
     && (frame.images === undefined || isWebHostSurfaceImages(frame.images))
     && (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage))
     && (
@@ -626,7 +685,9 @@ function isWebHostSurfaceDeltaFrame(
 function hasValidAdditiveFrameFields(
   frame: Partial<WebHostSurfaceFrame> | Partial<WebHostSurfaceDeltaFrame>
 ): boolean {
-  return (frame.links === undefined || isWebHostSurfaceLinks(frame.links))
+  return isOptionalSafeInteger(frame.epoch)
+    && isOptionalSafeInteger(frame.gen)
+    && (frame.links === undefined || isWebHostSurfaceLinks(frame.links))
     && (frame.linkTargets === undefined || isWebHostSurfaceLinkTargets(frame.linkTargets))
     && (
       frame.focusPresentation === undefined
@@ -640,6 +701,12 @@ function hasValidAdditiveFrameFields(
       frame.preferredGridHeight === undefined
         || (Number.isSafeInteger(frame.preferredGridHeight) && frame.preferredGridHeight >= 0)
     );
+}
+
+function isOptionalSafeInteger(
+  value: unknown
+): boolean {
+  return value === undefined || Number.isSafeInteger(value);
 }
 
 function isWebHostSurfaceLinks(

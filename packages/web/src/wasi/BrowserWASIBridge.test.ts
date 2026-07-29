@@ -168,6 +168,75 @@ test("bridge consumes a delta without a baseline as a silent no-op", () => {
   expect(text).toEqual([]);
 });
 
+test("bridge writes a keyframe resync for a stamped dimension mismatch and recovers", async () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  const frames: unknown[] = [];
+  bridge.bindOutput({
+    presentSurface: (frame) => frames.push(frame),
+  });
+
+  bridge.stdout.write(new TextEncoder().encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 41,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[[0, "A", 1, 0]]],
+    }) + "\n"
+      + "\u001Esurface:" + JSON.stringify({
+        version: 3,
+        encoding: "delta",
+        epoch: 41,
+        gen: 2,
+        baselineGen: 1,
+        width: 3,
+        height: 1,
+        styles: [null],
+        deltaRows: [[0, [[0, "wrong-size", 1, 0]]]],
+      }) + "\n"
+  ));
+
+  expect(frames).toHaveLength(1);
+  expect(new TextDecoder().decode(await bridge.stdin.read()))
+    .toBe('\u001Eresync:{"scope":"keyframe"}\n');
+
+  bridge.stdout.write(new TextEncoder().encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 41,
+      gen: 3,
+      width: 3,
+      height: 1,
+      styles: [null],
+      rows: [[[0, "B", 1, 0]]],
+    }) + "\n"
+      + "\u001Esurface:" + JSON.stringify({
+        version: 3,
+        encoding: "delta",
+        epoch: 41,
+        gen: 4,
+        baselineGen: 3,
+        width: 3,
+        height: 1,
+        styles: [null],
+        deltaRows: [[0, [[0, "C", 1, 0]]]],
+      }) + "\n"
+  ));
+
+  expect(frames).toHaveLength(3);
+  expect(frames.at(-1)).toMatchObject({
+    epoch: 41,
+    gen: 4,
+    rows: [[[0, "C", 1, 0]]],
+  });
+});
+
 test("bridge delivers typed runtime issues and frame diagnostics to sinks", () => {
   const bridge = new BrowserWASIBridge({
     sceneId: "main",

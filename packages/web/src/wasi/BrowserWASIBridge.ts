@@ -10,6 +10,7 @@ import {
 } from "../WebHostTerminalStyle.ts";
 import {
   WebHostOutputDecoder,
+  encodeResyncControlMessage,
   encodeRenderStyleControlMessage,
   encodeResizeControlMessage,
   type WebHostOutputSink,
@@ -119,6 +120,10 @@ export class BrowserWASIBridge {
           sink.writeOutput?.(record.text);
           break;
         }
+      }
+      const request = decoder.takeResyncRequest();
+      if (request) {
+        this.stdin.write(encodeResyncControlMessage(request));
       }
     });
     this.detachStderr = this.stderr.subscribe((chunk) => {

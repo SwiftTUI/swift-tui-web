@@ -1,6 +1,7 @@
 import {
   WebHostOutputDecoder,
   encodeCapabilitiesControlMessage,
+  encodeResyncControlMessage,
   encodeRenderStyleControlMessage,
   encodeResizeControlMessage,
   type WebHostOutputRecord,
@@ -145,6 +146,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     for (const record of this.decoder.feed(bytes)) {
       this.deliver(record);
     }
+    this.sendPendingResyncRequest();
   }
 
   private deliver(
@@ -183,6 +185,13 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     }
     while (this.queuedInput.length > 0) {
       this.socket.send(this.queuedInput.shift()!);
+    }
+  }
+
+  private sendPendingResyncRequest(): void {
+    const request = this.decoder.takeResyncRequest();
+    if (request) {
+      this.sendInput(encodeResyncControlMessage(request));
     }
   }
 }
