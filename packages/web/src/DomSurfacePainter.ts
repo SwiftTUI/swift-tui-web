@@ -19,6 +19,9 @@ import {
   type WebHostSurfaceLineStyle,
   type WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
+import {
+  registerDomSurfacePainterConformanceControl,
+} from "./SurfacePainterConformanceControl.ts";
 
 interface RenderedImage {
   container: HTMLElement;
@@ -70,6 +73,16 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
 
   constructor(options: DomSurfacePainterOptions = {}) {
     this.onImagePayloadMiss = options.onImagePayloadMiss ?? (() => {});
+    registerDomSurfacePainterConformanceControl(this, {
+      evictImages: (ids) => {
+        for (const id of ids) {
+          this.renderedImages.get(id)?.container.remove();
+          this.renderedImages.delete(id);
+          this.reportedMissingImageIds.delete(id);
+        }
+      },
+      visibleImageIDs: () => [...this.renderedImages.keys()].sort(),
+    });
   }
 
   /**

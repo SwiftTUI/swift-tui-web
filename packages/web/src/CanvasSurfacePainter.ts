@@ -24,6 +24,9 @@ import {
   type WebHostSurfaceImage,
   type WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
+import {
+  registerCanvasSurfacePainterConformanceControl,
+} from "./SurfacePainterConformanceControl.ts";
 
 /**
  * A read-only snapshot of the cell grid geometry and active style the painter
@@ -49,7 +52,8 @@ export interface CanvasSurfacePainterOptions {
   /** Injectable decode seam for browser hosts and deterministic failure tests. */
   decodeImage?: (
     dataBase64: string,
-    format: NormalizedSurfaceImageFormat
+    format: NormalizedSurfaceImageFormat,
+    imageID: string
   ) => Promise<CanvasImageSource>;
   /**
    * Reports supported, positive-area images whose payload cannot be resolved
@@ -103,6 +107,21 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   constructor(options: CanvasSurfacePainterOptions = {}) {
     this.imageDecoder = options.decodeImage ?? decodeImage;
     this.onImagePayloadMiss = options.onImagePayloadMiss ?? (() => {});
+    registerCanvasSurfacePainterConformanceControl(this, {
+      evictImages: (ids) => {
+        for (const id of ids) {
+          this.removeUnresolvedImage(id);
+          this.imageCache.delete(id);
+          this.pendingImagePayloadMissIds.delete(id);
+        }
+      },
+      visibleImageIDs: (images) => [...new Set(
+        images
+          .filter(isPaintableSurfaceImage)
+          .filter((image) => this.imageCache.get(image.id)?.image !== undefined)
+          .map((image) => image.id)
+      )].sort(),
+    });
   }
 
   /**
@@ -224,7 +243,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   ): void {
     const missingPayloadIds = new Set<string>();
     for (const image of images) {
-      if (!isSupportedImageFormat(image.format)) {
+      if (!isPaintableSurfaceImage(image)) {
         continue;
       }
       this.drawImage(
@@ -245,12 +264,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   ): void {
     const missingPayloadIds = new Set<string>();
     for (const image of images) {
-      if (!isSupportedImageFormat(image.format)) {
-        continue;
-      }
-      const [, , boundsWidth, boundsHeight] = image.bounds;
-      const [, , clipWidth, clipHeight] = image.visibleBounds;
-      if (boundsWidth <= 0 || boundsHeight <= 0 || clipWidth <= 0 || clipHeight <= 0) {
+      if (!isPaintableSurfaceImage(image)) {
         continue;
       }
       this.cachedImage(image, missingPayloadIds, recoveredPayloadIds);
@@ -362,7 +376,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
 
     if (!cached.promise) {
       const nextAttempts = attempts + 1;
-      const promise = this.imageDecoder(cached.payload, image.format);
+      const promise = this.imageDecoder(cached.payload, image.format, image.id);
       cached.promise = promise;
       cached.retries = nextAttempts;
       void promise.then((decodedImage) => {
@@ -446,15 +460,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       if (!this.unresolvedImageIds.has(image.id)) {
         continue;
       }
-      const [, , boundsWidth, boundsHeight] = image.bounds;
-      const [, , clipWidth, clipHeight] = image.visibleBounds;
-      if (
-        isSupportedImageFormat(image.format)
-        && boundsWidth > 0
-        && boundsHeight > 0
-        && clipWidth > 0
-        && clipHeight > 0
-      ) {
+      if (isPaintableSurfaceImage(image)) {
         presentedIds.add(image.id);
       }
     }
@@ -635,6 +641,18 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     context.stroke();
     context.setLineDash([]);
   }
+}
+
+function isPaintableSurfaceImage(
+  image: WebHostSurfaceImage
+): boolean {
+  const [, , boundsWidth, boundsHeight] = image.bounds;
+  const [, , clipWidth, clipHeight] = image.visibleBounds;
+  return isSupportedImageFormat(image.format)
+    && boundsWidth > 0
+    && boundsHeight > 0
+    && clipWidth > 0
+    && clipHeight > 0;
 }
 
 /**

@@ -104,6 +104,14 @@ with `bun run pack:web` / `bun run pack:build` — `bun pm pack` rewrites the
 internal `workspace:*` dependency to the concrete version, so the published
 `@swifttui/build` depends on a real `@swifttui/web` release.
 
+The host-wire corpus under `Fixtures/Transport/conformance-*` is a full,
+byte-identical mirror of the canonical `swift-tui` corpus. `bun test` validates
+its manifest and body hashes, rejects missing or extra bodies, and runs every
+active scenario named for both the Canvas and DOM consumers through the real
+decoder and painter paths. Keep the mirror complete even when a fixture names
+only another host; the org-root fixture-sync gate owns cross-repository byte
+equality.
+
 ## Documentation and support
 
 - **Read the DocC** — project site + live API reference: <https://swifttui.sh/docs/documentation/>

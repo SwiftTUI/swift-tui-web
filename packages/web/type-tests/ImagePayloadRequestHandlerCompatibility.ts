@@ -19,6 +19,14 @@ const canvasOptions: CanvasSurfacePainterOptions = {
   onImagePayloadMiss: (ids) => requests.push([...ids]),
 };
 
+const legacyCanvasDecodeOptions: CanvasSurfacePainterOptions = {
+  decodeImage: async (_payload, _format) => ({} as CanvasImageSource),
+};
+
+const IDAwareCanvasDecodeOptions: CanvasSurfacePainterOptions = {
+  decodeImage: async (_payload, _format, _imageID) => ({} as CanvasImageSource),
+};
+
 const domOptions: DomSurfacePainterOptions = {
   onImagePayloadMiss: (ids) => requests.push([...ids]),
 };
@@ -57,6 +65,8 @@ void [
   legacyHandler,
   admissionAwareHandler,
   canvasOptions,
+  legacyCanvasDecodeOptions,
+  IDAwareCanvasDecodeOptions,
   domOptions,
   bridgeHandler,
   requestImagePayloads,
