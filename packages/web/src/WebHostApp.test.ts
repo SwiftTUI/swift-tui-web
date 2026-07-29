@@ -123,6 +123,35 @@ test("app controller switches scenes and propagates active styles", async () => 
   expect(controlsRuntime?.disposed).toBe(true);
 });
 
+test("app accepts existing custom bridges without the optional image recovery seam", async () => {
+  const mount = makeElement("div");
+  let runtimeOptions: WebHostSceneRuntimeOptions | undefined;
+  const bridge = {
+    bindOutput: () => {},
+    resize: () => {},
+    updateRenderStyle: () => {},
+    sendInput: () => {},
+    dispose: () => {},
+  };
+  const controller = await createWebHostApp({
+    mount: mount as unknown as HTMLElement,
+    manifest: {
+      defaultSceneId: "main",
+      scenes: [{ id: "main", title: "Main", isDefault: true }],
+    },
+    bridgeFactory: () => bridge,
+    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    sceneRuntimeFactory: (options) => {
+      runtimeOptions = options;
+      return new FakeRuntime(options.descriptor.id) as unknown as never;
+    },
+  });
+
+  expect(runtimeOptions?.bridge).toBe(bridge);
+  expect(runtimeOptions?.bridge?.requestImagePayloads).toBeUndefined();
+  await controller.dispose();
+});
+
 test("app controller uses the embedded WebSocket bridge when configured", async () => {
   const socket = new FakeSocket();
   let socketURL = "";

@@ -68,6 +68,7 @@ jobs:
           bun install --frozen-lockfile
           bun run test
           bun run build:packages
+          bun run --cwd packages/web typecheck:image-recovery
           bun run build:web
 
       - name: Pack release tarballs

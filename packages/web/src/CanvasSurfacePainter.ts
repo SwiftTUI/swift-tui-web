@@ -10,18 +10,19 @@ import {
 } from "./SurfaceRenderer.ts";
 import {
   isSupportedImageFormat,
-  normalizeScalingMode,
   type NormalizedSurfaceImageFormat,
 } from "./normalizeWireTokens.ts";
 import {
   type ResolvedWebHostTerminalStyle,
   webTUITerminalBackgroundColor,
 } from "./WebHostTerminalStyle.ts";
-import type {
-  WebHostSurfaceDamage,
-  WebHostSurfaceFrame,
-  WebHostSurfaceImage,
-  WebHostSurfaceStyle,
+import {
+  isWebHostImageRecoveryId,
+  type WebHostImagePayloadRequestHandler,
+  type WebHostSurfaceDamage,
+  type WebHostSurfaceFrame,
+  type WebHostSurfaceImage,
+  type WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
 
 /**
@@ -34,6 +35,28 @@ export type CanvasSurfaceMetrics = SurfaceMetrics;
 interface CachedWebHostImage {
   image?: CanvasImageSource;
   promise?: Promise<CanvasImageSource>;
+  payload?: string;
+  /** Total decode attempts already started; bounded by MAX_IMAGE_DECODE_ATTEMPTS. */
+  retries?: number;
+  missReported?: boolean;
+}
+
+export const MAX_IMAGE_DECODE_ATTEMPTS = 3;
+export const MAX_UNRESOLVED_IMAGE_CACHE_ENTRIES = 256;
+export const MAX_UNRESOLVED_IMAGE_PAYLOAD_CHARACTERS = 64 * 1024 * 1024;
+
+export interface CanvasSurfacePainterOptions {
+  /** Injectable decode seam for browser hosts and deterministic failure tests. */
+  decodeImage?: (
+    dataBase64: string,
+    format: NormalizedSurfaceImageFormat
+  ) => Promise<CanvasImageSource>;
+  /**
+   * Reports supported, positive-area images whose payload cannot be resolved
+   * locally. Returning the admitted subset keeps rejected IDs eligible for a
+   * later paint; `void` preserves legacy all-accepted behavior.
+   */
+  onImagePayloadMiss?: WebHostImagePayloadRequestHandler;
 }
 
 interface DirtyRect {
@@ -67,8 +90,20 @@ interface DirtyRegion {
  */
 export class CanvasSurfacePainter implements WebHostSurfacePainter {
   private readonly imageCache = new Map<string, CachedWebHostImage>();
+  private readonly unresolvedImageIds = new Set<string>();
+  private unresolvedImagePayloadCharacters = 0;
+  private readonly imageDecoder: NonNullable<CanvasSurfacePainterOptions["decodeImage"]>;
+  private readonly onImagePayloadMiss: WebHostImagePayloadRequestHandler;
   private canvas?: HTMLCanvasElement;
   private requestRedraw: () => void = () => {};
+  private lastEpoch?: number;
+  private readonly pendingImagePayloadMissIds = new Set<string>();
+  private imagePayloadMissScheduled = false;
+
+  constructor(options: CanvasSurfacePainterOptions = {}) {
+    this.imageDecoder = options.decodeImage ?? decodeImage;
+    this.onImagePayloadMiss = options.onImagePayloadMiss ?? (() => {});
+  }
 
   /**
    * Binds the canvas the painter draws into and the callback used to request a
@@ -85,7 +120,8 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   paint(
     metrics: CanvasSurfaceMetrics,
     frame: WebHostSurfaceFrame | undefined,
-    damage?: WebHostSurfaceDamage
+    damage?: WebHostSurfaceDamage,
+    recoveredImagePayloadIds: readonly string[] = []
   ): void {
     const canvas = this.canvas;
     const context = canvas?.getContext("2d");
@@ -93,10 +129,22 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       return;
     }
 
+    if (frame?.epoch !== undefined && frame.epoch !== this.lastEpoch) {
+      this.lastEpoch = frame.epoch;
+      for (const cached of this.imageCache.values()) {
+        if (!cached.image) {
+          cached.missReported = false;
+        }
+      }
+    }
+    this.sweepUnresolvedImages(frame?.images);
+
     const dirtyRegion = frame
       ? this.dirtyRegionForDamage(damage, frame, metrics)
       : undefined;
+    const recoveredPayloadIds = new Set(recoveredImagePayloadIds);
     if (dirtyRegion?.rects.length === 0) {
+      this.prepareImages(frame?.images ?? [], recoveredPayloadIds);
       return;
     }
 
@@ -120,7 +168,13 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     }
 
     this.drawRows(context, frame, metrics, dirtyRegion);
-    this.drawImages(context, frame.images ?? [], metrics, dirtyRegion);
+    this.drawImages(
+      context,
+      frame.images ?? [],
+      metrics,
+      dirtyRegion,
+      recoveredPayloadIds
+    );
   }
 
   private drawRows(
@@ -165,40 +219,68 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     context: CanvasRenderingContext2D,
     images: WebHostSurfaceImage[],
     metrics: CanvasSurfaceMetrics,
-    dirtyRegion?: DirtyRegion
+    dirtyRegion: DirtyRegion | undefined,
+    recoveredPayloadIds: Set<string>
   ): void {
+    const missingPayloadIds = new Set<string>();
     for (const image of images) {
       if (!isSupportedImageFormat(image.format)) {
         continue;
       }
       this.drawImage(
         context,
-        {
-          ...image,
-          scalingMode: normalizeScalingMode(image.scalingMode),
-        },
+        image,
         metrics,
-        dirtyRegion
+        dirtyRegion,
+        missingPayloadIds,
+        recoveredPayloadIds
       );
     }
+    this.reportImagePayloadMisses(missingPayloadIds);
+  }
+
+  private prepareImages(
+    images: WebHostSurfaceImage[],
+    recoveredPayloadIds: Set<string>
+  ): void {
+    const missingPayloadIds = new Set<string>();
+    for (const image of images) {
+      if (!isSupportedImageFormat(image.format)) {
+        continue;
+      }
+      const [, , boundsWidth, boundsHeight] = image.bounds;
+      const [, , clipWidth, clipHeight] = image.visibleBounds;
+      if (boundsWidth <= 0 || boundsHeight <= 0 || clipWidth <= 0 || clipHeight <= 0) {
+        continue;
+      }
+      this.cachedImage(image, missingPayloadIds, recoveredPayloadIds);
+    }
+    this.reportImagePayloadMisses(missingPayloadIds);
   }
 
   private drawImage(
     context: CanvasRenderingContext2D,
     image: WebHostSurfaceImage,
     metrics: CanvasSurfaceMetrics,
-    dirtyRegion?: DirtyRegion
+    dirtyRegion: DirtyRegion | undefined,
+    missingPayloadIds: Set<string>,
+    recoveredPayloadIds: Set<string>
   ): void {
-    const decodedImage = this.cachedImage(image);
-    if (!decodedImage) {
-      return;
-    }
-
     const [boundsX, boundsY, boundsWidth, boundsHeight] = image.bounds;
     const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
     if (boundsWidth <= 0 || boundsHeight <= 0 || clipWidth <= 0 || clipHeight <= 0) {
       return;
     }
+
+    const decodedImage = this.cachedImage(
+      image,
+      missingPayloadIds,
+      recoveredPayloadIds
+    );
+    if (!decodedImage) {
+      return;
+    }
+
     if (
       dirtyRegion
       && !dirtyRegionIntersectsCellRect(dirtyRegion, clipX, clipY, clipWidth, clipHeight)
@@ -226,29 +308,214 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   }
 
   private cachedImage(
-    image: WebHostSurfaceImage
+    image: WebHostSurfaceImage,
+    missingPayloadIds: Set<string>,
+    recoveredPayloadIds: Set<string>
   ): CanvasImageSource | undefined {
-    const cached = this.imageCache.get(image.id);
+    let cached = this.imageCache.get(image.id);
     if (cached?.image) {
       return cached.image;
     }
 
-    if (!cached?.promise && image.dataBase64) {
-      const promise = decodeImage(image.dataBase64, image.format);
-      this.imageCache.set(image.id, { promise });
+    const beginsRecoveredGeneration = image.dataBase64 !== undefined
+      && recoveredPayloadIds.delete(image.id);
+    if (
+      image.dataBase64 !== undefined
+      && (cached?.payload === undefined || beginsRecoveredGeneration)
+    ) {
+      if (!this.canTrackUnresolvedImage(image.id, image.dataBase64)) {
+        return undefined;
+      }
+      cached = {
+        payload: image.dataBase64,
+        retries: 0,
+      };
+      this.setUnresolvedImage(image.id, cached);
+    } else if (!cached) {
+      if (!isWebHostImageRecoveryId(image.id)) {
+        return undefined;
+      }
+      if (!this.canTrackUnresolvedImage(image.id)) {
+        return undefined;
+      }
+      cached = { missReported: false };
+      this.setUnresolvedImage(image.id, cached);
+      missingPayloadIds.add(image.id);
+      return undefined;
+    }
+
+    const attempts = cached.retries ?? 0;
+    if (cached.payload === undefined) {
+      if (!cached.missReported) {
+        cached.missReported = true;
+        missingPayloadIds.add(image.id);
+      }
+      return undefined;
+    }
+    if (attempts >= MAX_IMAGE_DECODE_ATTEMPTS) {
+      if (!cached.missReported) {
+        cached.missReported = true;
+        missingPayloadIds.add(image.id);
+      }
+      return undefined;
+    }
+
+    if (!cached.promise) {
+      const nextAttempts = attempts + 1;
+      const promise = this.imageDecoder(cached.payload, image.format);
+      cached.promise = promise;
+      cached.retries = nextAttempts;
       void promise.then((decodedImage) => {
         const latest = this.imageCache.get(image.id);
         if (latest?.promise !== promise) {
           return;
         }
+        this.removeUnresolvedImage(image.id);
         this.imageCache.set(image.id, { image: decodedImage });
         this.requestRedraw();
       }).catch(() => {
-        this.imageCache.delete(image.id);
+        const latest = this.imageCache.get(image.id);
+        if (latest?.promise !== promise) {
+          return;
+        }
+        latest.promise = undefined;
+        if (
+          (latest.retries ?? 0) >= MAX_IMAGE_DECODE_ATTEMPTS
+          && !latest.missReported
+        ) {
+          latest.missReported = true;
+          if (isWebHostImageRecoveryId(image.id)) {
+            this.scheduleImagePayloadMiss(image.id);
+          }
+        }
+        this.requestRedraw();
       });
     }
 
     return undefined;
+  }
+
+  private canTrackUnresolvedImage(
+    id: string,
+    payload?: string
+  ): boolean {
+    const existing = this.imageCache.get(id);
+    const existingPayloadCharacters = existing?.image
+      ? 0
+      : existing?.payload?.length ?? 0;
+    const nextPayloadCharacters = this.unresolvedImagePayloadCharacters
+      - existingPayloadCharacters
+      + (payload?.length ?? 0);
+    return (
+      (this.unresolvedImageIds.has(id)
+        || this.unresolvedImageIds.size < MAX_UNRESOLVED_IMAGE_CACHE_ENTRIES)
+      && nextPayloadCharacters <= MAX_UNRESOLVED_IMAGE_PAYLOAD_CHARACTERS
+    );
+  }
+
+  private setUnresolvedImage(
+    id: string,
+    cached: CachedWebHostImage
+  ): void {
+    const existing = this.imageCache.get(id);
+    if (this.unresolvedImageIds.has(id)) {
+      this.unresolvedImagePayloadCharacters -= existing?.payload?.length ?? 0;
+    }
+    this.imageCache.set(id, cached);
+    this.unresolvedImageIds.add(id);
+    this.unresolvedImagePayloadCharacters += cached.payload?.length ?? 0;
+    this.pendingImagePayloadMissIds.delete(id);
+  }
+
+  private removeUnresolvedImage(
+    id: string
+  ): void {
+    if (!this.unresolvedImageIds.delete(id)) {
+      return;
+    }
+    this.unresolvedImagePayloadCharacters -=
+      this.imageCache.get(id)?.payload?.length ?? 0;
+    this.pendingImagePayloadMissIds.delete(id);
+  }
+
+  private sweepUnresolvedImages(
+    images: WebHostSurfaceImage[] | undefined
+  ): void {
+    const presentedIds = new Set<string>();
+    for (const image of images ?? []) {
+      if (!this.unresolvedImageIds.has(image.id)) {
+        continue;
+      }
+      const [, , boundsWidth, boundsHeight] = image.bounds;
+      const [, , clipWidth, clipHeight] = image.visibleBounds;
+      if (
+        isSupportedImageFormat(image.format)
+        && boundsWidth > 0
+        && boundsHeight > 0
+        && clipWidth > 0
+        && clipHeight > 0
+      ) {
+        presentedIds.add(image.id);
+      }
+    }
+    for (const id of this.unresolvedImageIds) {
+      if (presentedIds.has(id)) {
+        continue;
+      }
+      this.removeUnresolvedImage(id);
+      this.imageCache.delete(id);
+    }
+  }
+
+  private reportImagePayloadMisses(
+    ids: Set<string>
+  ): void {
+    if (ids.size === 0) {
+      return;
+    }
+    const candidateIds = [...ids].sort();
+    this.applyImagePayloadMissAdmission(
+      candidateIds,
+      this.onImagePayloadMiss(candidateIds)
+    );
+  }
+
+  private scheduleImagePayloadMiss(
+    id: string
+  ): void {
+    this.pendingImagePayloadMissIds.add(id);
+    if (this.imagePayloadMissScheduled) {
+      return;
+    }
+    this.imagePayloadMissScheduled = true;
+    queueMicrotask(() => {
+      this.imagePayloadMissScheduled = false;
+      const ids = [...this.pendingImagePayloadMissIds].sort();
+      this.pendingImagePayloadMissIds.clear();
+      if (ids.length > 0) {
+        this.applyImagePayloadMissAdmission(
+          ids,
+          this.onImagePayloadMiss(ids)
+        );
+      }
+    });
+  }
+
+  private applyImagePayloadMissAdmission(
+    candidateIds: readonly string[],
+    admittedIds: readonly string[] | void
+  ): void {
+    // Callbacks authored against the former void contract commonly use a
+    // concise `array.push(...)` body, whose runtime result is a number.
+    const acceptedIds = new Set(
+      Array.isArray(admittedIds) ? admittedIds : candidateIds
+    );
+    for (const id of candidateIds) {
+      const cached = this.imageCache.get(id);
+      if (cached && !cached.image) {
+        cached.missReported = acceptedIds.has(id);
+      }
+    }
   }
 
   private drawCell(

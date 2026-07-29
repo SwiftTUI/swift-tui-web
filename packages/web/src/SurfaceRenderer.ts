@@ -36,13 +36,15 @@ export interface SurfaceMetrics {
 /**
  * The paint seam shared by the canvas and DOM painters. The runtime calls
  * `paint` with the latest metrics snapshot, the current frame (or `undefined`
- * before the first frame), and optional damage scoping the repaint.
+ * before the first frame), optional damage scoping the repaint, and the image
+ * payload IDs that answered an outstanding recovery request in this frame.
  */
 export interface WebHostSurfacePainter {
   paint(
     metrics: SurfaceMetrics,
     frame: WebHostSurfaceFrame | undefined,
-    damage?: WebHostSurfaceDamage
+    damage?: WebHostSurfaceDamage,
+    recoveredImagePayloadIds?: readonly string[]
   ): void;
 }
 

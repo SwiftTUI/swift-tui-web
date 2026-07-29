@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  MAX_OUTSTANDING_IMAGE_RECOVERY_IDS,
   SUPPORTED_SURFACE_VERSION,
   WebHostOutputDecoder,
   encodeCapabilitiesControlMessage,
@@ -430,6 +431,224 @@ test("decoder dedupes stale-baseline resync until a keyframe recovers", () => {
     { type: "surfaceDropped", reason: "staleBaseline" },
   ]);
   expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
+});
+
+test("decoder coalesces deterministic per-epoch image resync without request storms", () => {
+  const decoder = new WebHostOutputDecoder();
+  decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 31,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+    }) + "\n"
+  ));
+
+  decoder.requestImagePayloads(["png:z", "png:a", "png:z", ""]);
+  decoder.requestImagePayloads(["png:a", "png:m"]);
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:a", "png:m", "png:z"],
+  });
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+
+  decoder.requestImagePayloads(["png:a", "png:z"]);
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+});
+
+test("decoder keeps keyframe and image recovery independently pending", () => {
+  const decoder = new WebHostOutputDecoder();
+  decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 32,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+    }) + "\n"
+      + "\u001Esurface:" + JSON.stringify({
+        version: 3,
+        encoding: "delta",
+        epoch: 32,
+        gen: 3,
+        baselineGen: 2,
+        width: 2,
+        height: 1,
+        styles: [null],
+        deltaRows: [],
+      }) + "\n"
+  ));
+  decoder.requestImagePayloads(["png:b", "png:a"]);
+
+  expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:a", "png:b"],
+  });
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+});
+
+test("decoder clears only payload-arrived image ids and resets outstanding ids on epoch change", () => {
+  const decoder = new WebHostOutputDecoder();
+  const initial = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 40,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+    }) + "\n"
+  ));
+  expect(decoder.prepareToPresentSurface(surfaceFrame(initial[0]))).toEqual([]);
+  decoder.requestImagePayloads(["png:a", "png:b"]);
+  expect(decoder.takeResyncRequest()).toMatchObject({ scope: "images" });
+
+  const payloadArrival = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 40,
+      gen: 2,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+      images: [
+        {
+          id: "png:a",
+          format: "png",
+          bounds: [0, 0, 1, 1],
+          visibleBounds: [0, 0, 1, 1],
+          scalingMode: "stretch",
+          dataBase64: "QUJD",
+        },
+        {
+          id: "png:b",
+          format: "png",
+          bounds: [1, 0, 1, 1],
+          visibleBounds: [1, 0, 1, 1],
+          scalingMode: "stretch",
+        },
+      ],
+    }) + "\n"
+  ));
+  expect(
+    decoder.prepareToPresentSurface(surfaceFrame(payloadArrival[0]))
+  ).toEqual(["png:a"]);
+  decoder.requestImagePayloads(["png:a", "png:b"]);
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:a"],
+  });
+
+  const nextEpoch = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 41,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+    }) + "\n"
+  ));
+  expect(decoder.prepareToPresentSurface(surfaceFrame(nextEpoch[0]))).toEqual([]);
+  decoder.requestImagePayloads(["png:b"]);
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:b"],
+  });
+});
+
+test("decoder bounds outstanding image recovery and sweeps disappeared ids", () => {
+  const decoder = new WebHostOutputDecoder();
+  const visible = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 45,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+      images: [{
+        id: "png:gone",
+        format: "png",
+        bounds: [0, 0, 1, 1],
+        visibleBounds: [0, 0, 1, 1],
+        scalingMode: "stretch",
+      }],
+    }) + "\n"
+  ));
+  decoder.prepareToPresentSurface(surfaceFrame(visible[0]));
+
+  const ids = Array.from(
+    { length: MAX_OUTSTANDING_IMAGE_RECOVERY_IDS + 2 },
+    (_, index) => `png:${String(index).padStart(4, "0")}`
+  );
+  decoder.requestImagePayloads(["png:gone", ...ids]);
+  const bounded = decoder.takeResyncRequest();
+  expect(bounded?.scope).toBe("images");
+  expect(bounded?.scope === "images" ? bounded.ids : []).toHaveLength(
+    MAX_OUTSTANDING_IMAGE_RECOVERY_IDS
+  );
+
+  const disappeared = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 2,
+      epoch: 45,
+      gen: 2,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+      images: [],
+    }) + "\n"
+  ));
+  decoder.prepareToPresentSurface(surfaceFrame(disappeared[0]));
+  decoder.requestImagePayloads(["png:gone"]);
+
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:gone"],
+  });
+});
+
+test("decoder requeues failed keyframe and image resync deliveries independently", () => {
+  const decoder = new WebHostOutputDecoder();
+  decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      epoch: 51,
+      gen: 2,
+      baselineGen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      deltaRows: [],
+    }) + "\n"
+  ));
+  decoder.requestImagePayloads(["png:missing"]);
+
+  const keyframe = decoder.takeResyncRequest();
+  const images = decoder.takeResyncRequest();
+  expect(keyframe).toEqual({ scope: "keyframe" });
+  expect(images).toEqual({ scope: "images", ids: ["png:missing"] });
+  decoder.resyncRequestDeliveryFailed(keyframe!);
+  decoder.resyncRequestDeliveryFailed(images!);
+
+  expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:missing"],
+  });
 });
 
 test("decoder refuses a partial delivery stamp tuple and requests resync", () => {

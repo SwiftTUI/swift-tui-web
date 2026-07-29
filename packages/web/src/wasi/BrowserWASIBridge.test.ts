@@ -9,6 +9,11 @@ import {
   decodeWebHostTerminalRenderStyleBase64,
   encodeWebHostTerminalRenderStyleBase64,
 } from "../WebHostTerminalStyle.ts";
+import {
+  MAX_IMAGE_RECOVERY_ID_BYTES,
+  MAX_OUTSTANDING_IMAGE_RECOVERY_IDS,
+} from "../WebHostSurfaceTransport.ts";
+import { sharedInputQueueDefaultCapacity } from "./SharedInputQueue.ts";
 
 test("bridge seeds initial render style and emits runtime style updates", async () => {
   const style = {
@@ -298,6 +303,103 @@ test("bridge dedupes keyframe resync while a stamped dimension repair is outstan
     '\u001Eresync:{"scope":"keyframe"}\n',
   ]);
   expect(deliveryAttempts).toBe(3);
+  unsubscribe();
+});
+
+test("WASI image resync delivery failure requeues once without request storms", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  let acceptsInput = false;
+  let deliveryAttempts = 0;
+  const input: string[] = [];
+  const unsubscribe = bridge.stdin.subscribe((chunk) => {
+    deliveryAttempts += 1;
+    if (!acceptsInput) {
+      return false;
+    }
+    input.push(new TextDecoder().decode(chunk));
+    return true;
+  });
+  bridge.bindOutput({ presentSurface: () => {} });
+
+  bridge.requestImagePayloads(["png:b", "png:a"]);
+  expect(deliveryAttempts).toBe(1);
+  expect(input).toEqual([]);
+
+  acceptsInput = true;
+  bridge.requestImagePayloads(["png:a"]);
+  expect(deliveryAttempts).toBe(2);
+  expect(input).toEqual([
+    '\u001Eresync:{"scope":"images","ids":["png:a","png:b"]}\n',
+  ]);
+
+  bridge.requestImagePayloads(["png:a", "png:b"]);
+  expect(deliveryAttempts).toBe(2);
+  unsubscribe();
+});
+
+test("WASI splits deterministic image recovery below shared queue capacity", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  bridge.bindOutput({ presentSurface: () => {} });
+  const chunks: Uint8Array[] = [];
+  const unsubscribe = bridge.stdin.subscribe((chunk) => {
+    chunks.push(chunk);
+    return true;
+  });
+  const ids = Array.from(
+    { length: MAX_OUTSTANDING_IMAGE_RECOVERY_IDS },
+    (_, index) =>
+      `png:${String(index).padStart(4, "0")}:${"x".repeat(72)}`
+  );
+
+  bridge.requestImagePayloads(ids);
+
+  expect(chunks.length).toBeGreaterThan(1);
+  expect(chunks.every(
+    (chunk) => chunk.byteLength < sharedInputQueueDefaultCapacity
+  )).toBe(true);
+  const deliveredIds = chunks.flatMap((chunk) => {
+    const message = new TextDecoder().decode(chunk);
+    const payload = JSON.parse(
+      message.slice("\u001Eresync:".length, -1)
+    ) as { scope: string; ids: string[] };
+    expect(payload.scope).toBe("images");
+    return payload.ids;
+  });
+  expect(deliveredIds).toEqual(ids);
+  unsubscribe();
+});
+
+test("WASI rejects one oversized image ID without blocking the following valid ID", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  bridge.bindOutput({ presentSurface: () => {} });
+  const chunks: Uint8Array[] = [];
+  const unsubscribe = bridge.stdin.subscribe((chunk) => {
+    chunks.push(chunk);
+    return true;
+  });
+
+  bridge.requestImagePayloads([
+    `png:${"x".repeat(MAX_IMAGE_RECOVERY_ID_BYTES + 1)}`,
+    "png:valid",
+  ]);
+
+  expect(chunks).toHaveLength(1);
+  expect(chunks[0]!.byteLength).toBeLessThan(sharedInputQueueDefaultCapacity);
+  expect(new TextDecoder().decode(chunks[0])).toBe(
+    '\u001Eresync:{"scope":"images","ids":["png:valid"]}\n'
+  );
   unsubscribe();
 });
 

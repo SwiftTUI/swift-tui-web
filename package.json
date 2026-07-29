@@ -12,7 +12,7 @@
     "build": "bun run build:packages",
     "build:packages": "bun run --cwd packages/web build && bun run --cwd packages/build build",
     "build:web": "bun run --cwd packages/web build:web",
-    "ci": "bun install --frozen-lockfile && bun run test && bun run build:packages && bun run build:web",
+    "ci": "bun install --frozen-lockfile && bun run test && bun run build:packages && bun run --cwd packages/web typecheck:image-recovery && bun run build:web",
     "pack:web": "cd packages/web && bun pm pack",
     "pack:build": "cd packages/build && bun pm pack"
   },

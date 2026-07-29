@@ -10,18 +10,30 @@ import {
   isSupportedImageFormat,
   normalizeScalingMode,
 } from "./normalizeWireTokens.ts";
-import type {
-  WebHostSurfaceDamage,
-  WebHostSurfaceFrame,
-  WebHostSurfaceImage,
-  WebHostSurfaceLineStyle,
-  WebHostSurfaceStyle,
+import {
+  isWebHostImageRecoveryId,
+  type WebHostImagePayloadRequestHandler,
+  type WebHostSurfaceDamage,
+  type WebHostSurfaceFrame,
+  type WebHostSurfaceImage,
+  type WebHostSurfaceLineStyle,
+  type WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
 
 interface RenderedImage {
   container: HTMLElement;
   image: HTMLElement;
   source: string;
+}
+
+export interface DomSurfacePainterOptions {
+  /**
+   * Reports supported, positive-area image IDs absent from the retained DOM
+   * cache. Returning the admitted subset lets bounded transports keep overflow
+   * IDs eligible on the next presentation frame; `void` preserves legacy
+   * all-accepted behavior for custom hosts.
+   */
+  onImagePayloadMiss?: WebHostImagePayloadRequestHandler;
 }
 
 /**
@@ -42,6 +54,7 @@ interface RenderedImage {
  * `letter-spacing`, measured once per font/size pair.
  */
 export class DomSurfacePainter implements WebHostSurfacePainter {
+  private readonly onImagePayloadMiss: WebHostImagePayloadRequestHandler;
   private root?: HTMLElement;
   private rowsLayer?: HTMLElement;
   private imagesLayer?: HTMLElement;
@@ -51,6 +64,13 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   private renderedGridKey?: string;
   private hasRenderedFrame = false;
   private letterSpacing?: { key: string; value: string };
+  private reportedMissingImageIds = new Set<string>();
+  private lastImageRecoveryFrame?: WebHostSurfaceFrame;
+  private lastEpoch?: number;
+
+  constructor(options: DomSurfacePainterOptions = {}) {
+    this.onImagePayloadMiss = options.onImagePayloadMiss ?? (() => {});
+  }
 
   /**
    * Binds the container the painter renders into. The runtime owns the
@@ -78,17 +98,26 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     this.appliedMetricsKey = undefined;
     this.renderedGridKey = undefined;
     this.hasRenderedFrame = false;
+    this.reportedMissingImageIds.clear();
+    this.lastImageRecoveryFrame = undefined;
+    this.lastEpoch = undefined;
   }
 
   paint(
     metrics: SurfaceMetrics,
     frame: WebHostSurfaceFrame | undefined,
-    damage?: WebHostSurfaceDamage
+    damage?: WebHostSurfaceDamage,
+    _recoveredImagePayloadIds?: readonly string[]
   ): void {
     const root = this.root;
     const rowsLayer = this.rowsLayer;
     if (!root || !rowsLayer) {
       return;
+    }
+
+    if (frame?.epoch !== undefined && frame.epoch !== this.lastEpoch) {
+      this.lastEpoch = frame.epoch;
+      this.reportedMissingImageIds.clear();
     }
 
     const metricsKey = metricsKeyFor(metrics);
@@ -101,7 +130,8 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     if (!frame) {
       this.rowElements = [];
       rowsLayer.replaceChildren();
-      this.reconcileImages([], metrics);
+      this.lastImageRecoveryFrame = undefined;
+      this.reconcileImages([], metrics, false);
       this.renderedGridKey = undefined;
       this.hasRenderedFrame = false;
       return;
@@ -133,7 +163,9 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       }
     }
 
-    this.reconcileImages(frame.images ?? [], metrics);
+    const allowRecoveryRequests = frame !== this.lastImageRecoveryFrame;
+    this.lastImageRecoveryFrame = frame;
+    this.reconcileImages(frame.images ?? [], metrics, allowRecoveryRequests);
     this.hasRenderedFrame = true;
   }
 
@@ -230,7 +262,8 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
 
   private reconcileImages(
     images: WebHostSurfaceImage[],
-    metrics: SurfaceMetrics
+    metrics: SurfaceMetrics,
+    allowRecoveryRequests: boolean
   ): void {
     const layer = this.imagesLayer;
     if (!layer) {
@@ -238,6 +271,8 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     }
 
     const next = new Map<string, RenderedImage>();
+    const currentMissingImageIds = new Set<string>();
+    const newlyMissingImageIds = new Set<string>();
     for (const rawImage of images) {
       if (!isSupportedImageFormat(rawImage.format)) {
         continue;
@@ -250,12 +285,21 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
       const existing = this.renderedImages.get(image.id);
       if (
-        (!existing && !image.dataBase64)
-        || boundsWidth <= 0
+        boundsWidth <= 0
         || boundsHeight <= 0
         || clipWidth <= 0
         || clipHeight <= 0
       ) {
+        continue;
+      }
+      if (!existing && image.dataBase64 === undefined) {
+        if (!isWebHostImageRecoveryId(image.id)) {
+          continue;
+        }
+        currentMissingImageIds.add(image.id);
+        if (!this.reportedMissingImageIds.has(image.id)) {
+          newlyMissingImageIds.add(image.id);
+        }
         continue;
       }
 
@@ -288,6 +332,24 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       }
     }
     this.renderedImages = next;
+    for (const id of this.reportedMissingImageIds) {
+      if (!currentMissingImageIds.has(id)) {
+        this.reportedMissingImageIds.delete(id);
+      }
+    }
+    if (allowRecoveryRequests && newlyMissingImageIds.size > 0) {
+      const candidateIds = [...newlyMissingImageIds].sort();
+      const admittedIds = this.onImagePayloadMiss(candidateIds);
+      const acceptedIds = Array.isArray(admittedIds)
+        ? admittedIds
+        : candidateIds;
+      const candidates = new Set(candidateIds);
+      for (const id of acceptedIds) {
+        if (candidates.has(id)) {
+          this.reportedMissingImageIds.add(id);
+        }
+      }
+    }
   }
 }
 

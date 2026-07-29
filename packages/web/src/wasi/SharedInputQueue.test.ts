@@ -41,6 +41,21 @@ test("shared input queue preserves write order across partial reads", () => {
   expect(reader.readAvailable(4)).toBeUndefined();
 });
 
+test("shared input queue retains the legacy three-word control-buffer ABI", () => {
+  const queue = {
+    controlBuffer: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 3),
+    dataBuffer: new SharedArrayBuffer(8),
+  };
+  const writer = new SharedInputQueueWriter(queue);
+  const reader = new SharedInputQueueReader(queue);
+
+  expect(createSharedInputQueue(8).controlBuffer.byteLength).toBe(
+    Int32Array.BYTES_PER_ELEMENT * 3
+  );
+  writer.write("legacy");
+  expect(decode(reader.readAvailable(8))).toBe("legacy");
+});
+
 test("shared input queue wraps around the ring buffer", () => {
   const queue = createSharedInputQueue(8);
   const writer = new SharedInputQueueWriter(queue);
@@ -79,6 +94,76 @@ test("shared input queue reports readable bytes without consuming them", () => {
   expect(reader.availableBytes()).toBe(3);
   expect(decode(reader.readAvailable(2))).toBe("ab");
   expect(reader.availableBytes()).toBe(1);
+});
+
+test("writer capacity wait resolves when the reader drains enough bytes", async () => {
+  const queue = createSharedInputQueue(8);
+  const writer = new SharedInputQueueWriter(queue);
+  const reader = new SharedInputQueueReader(queue);
+  writer.write(new Uint8Array(8));
+
+  const capacity = writer.waitForCapacity(4);
+  reader.readAvailable(4);
+
+  expect(await capacity).toBe(true);
+  expect(writer.availableCapacity()).toBe(4);
+});
+
+test("writer capacity wait cannot lose a drain between snapshot and recheck", async () => {
+  const queue = createSharedInputQueue(8);
+  const writer = new SharedInputQueueWriter(queue);
+  const reader = new SharedInputQueueReader(queue);
+  writer.write(new Uint8Array(8));
+
+  const availableCapacity = writer.availableCapacity.bind(writer);
+  let injectedDrain = false;
+  writer.availableCapacity = (): number => {
+    if (!injectedDrain) {
+      injectedDrain = true;
+      reader.readAvailable(4);
+      // Model the stale capacity result that raced with the drain. The
+      // pre-recheck read-index snapshot makes waitAsync return not-equal.
+      return 0;
+    }
+    return availableCapacity();
+  };
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    writer.waitForCapacity(4),
+    new Promise<"timedOut">((resolve) => {
+      timeout = setTimeout(() => resolve("timedOut"), 250);
+    }),
+  ]);
+  clearTimeout(timeout);
+  expect(injectedDrain).toBe(true);
+  expect(result).toBe(true);
+});
+
+test("writer capacity wait cannot lose close during condition recheck", async () => {
+  const queue = createSharedInputQueue(8);
+  const writer = new SharedInputQueueWriter(queue);
+  writer.write(new Uint8Array(8));
+
+  let injectedClose = false;
+  writer.availableCapacity = (): number => {
+    if (!injectedClose) {
+      injectedClose = true;
+      writer.close();
+    }
+    return 0;
+  };
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    writer.waitForCapacity(4),
+    new Promise<"timedOut">((resolve) => {
+      timeout = setTimeout(() => resolve("timedOut"), 250);
+    }),
+  ]);
+  clearTimeout(timeout);
+  expect(injectedClose).toBe(true);
+  expect(result).toBe(false);
 });
 
 test("shared input queue timed readiness wait wakes on write", async () => {

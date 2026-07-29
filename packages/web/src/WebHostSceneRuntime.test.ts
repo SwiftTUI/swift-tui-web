@@ -14,6 +14,7 @@ import { WebHostSceneRuntime, type WheelMode } from "./WebHostSceneRuntime.ts";
 import {
   encodePasteInputMessage,
   encodeResyncControlMessage,
+  type WebHostOutputSink,
 } from "./WebHostSurfaceTransport.ts";
 import { transportFixture } from "./WebHostTestFixtures.ts";
 
@@ -655,13 +656,34 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
     );
 
     reader.readAvailable(reader.availableBytes());
-    bridge.stdout.write(encoder.encode(missingBaselineDelta));
+    await waitForAvailableInput(reader);
 
     expect(Array.from(
       reader.readAvailable(reader.availableBytes()) ?? []
     )).toEqual(Array.from(resync));
 
     bridge.stdout.write(encoder.encode(missingBaselineDelta));
+    expect(reader.availableBytes()).toBe(0);
+
+    const imageResync = encodeResyncControlMessage({
+      scope: "images",
+      ids: ["png:capacity-retry"],
+    });
+    const imageFiller = new Uint8Array(
+      sharedInputQueueDefaultCapacity - imageResync.byteLength + 1
+    );
+    bridge.sendInput(imageFiller);
+    bridge.requestImagePayloads(["png:capacity-retry"]);
+    expect(reader.availableBytes()).toBe(imageFiller.byteLength);
+    expect(consoleErrors).toHaveLength(2);
+
+    reader.readAvailable(reader.availableBytes());
+    await waitForAvailableInput(reader);
+    expect(Array.from(
+      reader.readAvailable(reader.availableBytes()) ?? []
+    )).toEqual(Array.from(imageResync));
+
+    bridge.requestImagePayloads(["png:capacity-retry"]);
     expect(reader.availableBytes()).toBe(0);
 
     runtime.dispose();
@@ -1111,6 +1133,118 @@ test("runtime decodes surface images once and reuses the cached image", async ()
         height: 27,
       },
     ]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("Canvas decode failure requests WASI image recovery and repaints the same scene", async () => {
+  let decodeAttempts = 0;
+  const recoveredImage = { imageId: "recovered-image" };
+  const dom = installFakeDOM({
+    createImageBitmap: async () => {
+      decodeAttempts += 1;
+      if (decodeAttempts <= 3) {
+        throw new Error("decode failed before recovery");
+      }
+      return recoveredImage;
+    },
+  });
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {
+        fontSize: 20,
+        fontFamily: "Test Mono",
+      },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    const controlMessages: string[] = [];
+    const unsubscribe = bridge.stdin.subscribe((chunk) => {
+      controlMessages.push(decoder.decode(chunk));
+      return true;
+    });
+
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 2,
+      epoch: 21,
+      gen: 1,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[], []],
+      images: [{
+        id: "png:recover-e2e",
+        format: "png",
+        bounds: [1, 0, 2, 2],
+        visibleBounds: [1, 0, 2, 2],
+        scalingMode: "stretch",
+        dataBase64: "QUJD",
+      }],
+    })));
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await flushPromises();
+    }
+
+    expect(decodeAttempts).toBe(3);
+    expect(controlMessages.filter(
+      (message) => message.startsWith("\u001Eresync:")
+    )).toEqual([
+      '\u001Eresync:{"scope":"images","ids":["png:recover-e2e"]}\n',
+    ]);
+    expect(drawImageOperations(dom.canvases[0]!.context)).toEqual([]);
+
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 2,
+      epoch: 21,
+      gen: 2,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[], []],
+      images: [{
+        id: "png:recover-e2e",
+        format: "png",
+        bounds: [1, 0, 2, 2],
+        visibleBounds: [1, 0, 2, 2],
+        scalingMode: "stretch",
+        dataBase64: "QUJD",
+      }],
+      damage: {
+        textRows: [],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    })));
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await flushPromises();
+    }
+
+    expect(decodeAttempts).toBe(4);
+    expect(drawImageOperations(dom.canvases[0]!.context)).toContainEqual({
+      type: "drawImage",
+      imageId: recoveredImage.imageId,
+      x: 10,
+      y: 0,
+      width: 20,
+      height: 54,
+    });
+    expect(controlMessages.filter(
+      (message) => message.startsWith("\u001Eresync:")
+    )).toHaveLength(1);
+
+    unsubscribe();
+    runtime.dispose();
   } finally {
     dom.restore();
   }
@@ -2112,6 +2246,20 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
 }
 
+async function waitForAvailableInput(
+  reader: SharedInputQueueReader
+): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (reader.availableBytes() > 0) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 1);
+    });
+  }
+  throw new Error("timed out waiting for WASI input capacity retry");
+}
+
 // Drives a single wheel event over a 4x2 surface (cellWidth 10, cellHeight 27
 // under the fake DOM) with the given wheel mode and published scroll regions,
 // and reports whether the wheel was forwarded to the app and/or preventDefault'd.
@@ -2693,6 +2841,58 @@ test("dom renderer mounts a DOM surface and renders decoded frames as text eleme
     expect(plain.textContent).toBe("B");
     expect(plain.style.color).toBe("#eeeeee");
     expect(row1.children.map((child) => child.textContent)).not.toContain(" ");
+  } finally {
+    dom.restore();
+  }
+});
+
+test("runtime forwards observable DOM image misses through the optional bridge seam", async () => {
+  const dom = installFakeDOM();
+  try {
+    const misses: string[][] = [];
+    let sink: WebHostOutputSink | undefined;
+    const bridge = {
+      bindOutput: (next: WebHostOutputSink) => {
+        sink = next;
+      },
+      resize: () => {},
+      updateRenderStyle: () => {},
+      sendInput: () => {},
+      requestImagePayloads: (ids: readonly string[]) => {
+        misses.push([...ids]);
+      },
+      dispose: () => {},
+    };
+    const runtime = new WebHostSceneRuntime({
+      mount: new FakeElement("div") as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      bridge,
+      onInput: () => {},
+      renderer: "dom",
+    });
+    await runtime.mount();
+
+    sink?.presentSurface({
+      version: 2,
+      epoch: 90,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+      images: [
+        {
+          id: "png:missing",
+          format: "png",
+          bounds: [0, 0, 1, 1],
+          visibleBounds: [0, 0, 1, 1],
+          scalingMode: "stretch",
+        },
+      ],
+    });
+
+    expect(misses).toEqual([["png:missing"]]);
   } finally {
     dom.restore();
   }

@@ -110,11 +110,21 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     }
 
     const copy = new Uint8Array(chunk);
+    this.queuedInput.push(copy);
     if (this.socket.readyState === socketOpenState) {
-      this.socket.send(copy);
-    } else {
-      this.queuedInput.push(copy);
+      this.flushQueuedInput();
     }
+  }
+
+  requestImagePayloads(
+    ids: readonly string[]
+  ): readonly string[] {
+    if (this.disposed) {
+      return [];
+    }
+    const acceptedIds = this.decoder.requestImagePayloads(ids);
+    this.sendPendingResyncRequests();
+    return acceptedIds;
   }
 
   dispose(): void {
@@ -146,7 +156,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     for (const record of this.decoder.feed(bytes)) {
       this.deliver(record);
     }
-    this.sendPendingResyncRequest();
+    this.sendPendingResyncRequests();
   }
 
   private deliver(
@@ -160,7 +170,10 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
 
     switch (record.type) {
     case "surface":
-      sink.presentSurface(record.frame);
+      sink.presentSurface(
+        record.frame,
+        this.decoder.prepareToPresentSurface(record.frame)
+      );
       break;
     case "clipboard":
       void sink.writeClipboard?.(record.text);
@@ -184,17 +197,26 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
       return;
     }
     while (this.queuedInput.length > 0) {
-      this.socket.send(this.queuedInput.shift()!);
+      try {
+        this.socket.send(this.queuedInput[0]!);
+        this.queuedInput.shift();
+      } catch {
+        return;
+      }
     }
   }
 
-  private sendPendingResyncRequest(): void {
-    const request = this.decoder.takeResyncRequest();
-    if (request) {
+  private sendPendingResyncRequests(): void {
+    while (true) {
+      const request = this.decoder.takeResyncRequest();
+      if (!request) {
+        return;
+      }
       try {
         this.sendInput(encodeResyncControlMessage(request));
       } catch {
         this.decoder.resyncRequestDeliveryFailed(request);
+        return;
       }
     }
   }

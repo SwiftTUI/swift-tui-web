@@ -121,6 +121,10 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   private readonly inputQueue?: SharedInputQueueBuffers;
   private readonly inputWriter?: SharedInputQueueWriter;
   private readonly inputRouter: { route(chunk: Uint8Array): boolean };
+  private readonly inputCapacityNotifier: {
+    disposed: boolean;
+    pending: boolean;
+  };
   private readonly sharedQueueError?: unknown;
   private readonly pauseCell?: SharedArrayBuffer;
 
@@ -140,6 +144,10 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     let inputWriter: SharedInputQueueWriter | undefined;
     let sharedQueueError: unknown;
     let pauseCell: SharedArrayBuffer | undefined;
+    const inputCapacityNotifier = {
+      disposed: false,
+      pending: false,
+    };
 
     try {
       inputQueue = createSharedInputQueue();
@@ -161,6 +169,16 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
           return true;
         } catch (error) {
           console.error("[SwiftTUIWeb] failed to enqueue terminal input", error);
+          if (!inputCapacityNotifier.pending) {
+            inputCapacityNotifier.pending = true;
+            void inputWriter.waitForCapacity(chunk.byteLength).then((available) => {
+              inputCapacityNotifier.pending = false;
+              if (available && !inputCapacityNotifier.disposed) {
+                (options.bridge as BrowserWASIBridge | undefined)
+                  ?.notifyInputCapacityAvailable();
+              }
+            });
+          }
           return false;
         }
       },
@@ -179,6 +197,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     this.inputQueue = inputQueue;
     this.inputWriter = inputWriter;
     this.inputRouter = inputRouter;
+    this.inputCapacityNotifier = inputCapacityNotifier;
     this.sharedQueueError = sharedQueueError;
     this.pauseCell = pauseCell;
   }
@@ -276,6 +295,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   }
 
   override dispose(): void {
+    this.inputCapacityNotifier.disposed = true;
     this.detachBridgeInputListener?.();
     this.detachResizeListener?.();
     this.inputWriter?.close();

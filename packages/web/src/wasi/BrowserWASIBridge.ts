@@ -15,6 +15,9 @@ import {
   encodeResizeControlMessage,
   type WebHostOutputSink,
 } from "../WebHostSurfaceTransport.ts";
+import { sharedInputQueueDefaultCapacity } from "./SharedInputQueue.ts";
+
+const maximumWASIResyncControlBytes = sharedInputQueueDefaultCapacity - 1;
 
 export interface BrowserWASIBridgeOptions {
   sceneId: string;
@@ -41,6 +44,7 @@ export class BrowserWASIBridge {
 
   private detachStdout?: () => void;
   private detachStderr?: () => void;
+  private decoder = new WebHostOutputDecoder();
   private readonly resizeListeners = new Set<(
     columns: number,
     rows: number,
@@ -98,12 +102,15 @@ export class BrowserWASIBridge {
   ): void {
     this.detachStdout?.();
     this.detachStderr?.();
-    const decoder = new WebHostOutputDecoder();
+    this.decoder = new WebHostOutputDecoder();
     this.detachStdout = this.stdout.subscribe((chunk) => {
-      for (const record of decoder.feed(chunk)) {
+      for (const record of this.decoder.feed(chunk)) {
         switch (record.type) {
         case "surface":
-          sink.presentSurface(record.frame);
+          sink.presentSurface(
+            record.frame,
+            this.decoder.prepareToPresentSurface(record.frame)
+          );
           break;
         case "clipboard":
           void sink.writeClipboard?.(record.text);
@@ -121,13 +128,7 @@ export class BrowserWASIBridge {
           break;
         }
       }
-      const request = decoder.takeResyncRequest();
-      if (request) {
-        const accepted = this.stdin.write(encodeResyncControlMessage(request));
-        if (!accepted) {
-          decoder.resyncRequestDeliveryFailed(request);
-        }
-      }
+      this.sendPendingResyncRequests();
     });
     this.detachStderr = this.stderr.subscribe((chunk) => {
       sink.writeError?.(new TextDecoder().decode(chunk));
@@ -169,6 +170,22 @@ export class BrowserWASIBridge {
     this.stdin.write(chunk);
   }
 
+  requestImagePayloads(
+    ids: readonly string[]
+  ): readonly string[] {
+    const acceptedIds = this.decoder.requestImagePayloads(ids);
+    this.sendPendingResyncRequests();
+    return acceptedIds;
+  }
+
+  /**
+   * Called by the WASI runtime when its shared stdin queue has enough capacity
+   * for the delivery that previously failed.
+   */
+  notifyInputCapacityAvailable(): void {
+    this.sendPendingResyncRequests();
+  }
+
   subscribeResize(
     listener: (
       columns: number,
@@ -187,6 +204,22 @@ export class BrowserWASIBridge {
     return () => {
       this.resizeListeners.delete(listener);
     };
+  }
+
+  private sendPendingResyncRequests(): void {
+    while (true) {
+      const request = this.decoder.takeResyncRequest(
+        maximumWASIResyncControlBytes
+      );
+      if (!request) {
+        return;
+      }
+      const accepted = this.stdin.write(encodeResyncControlMessage(request));
+      if (!accepted) {
+        this.decoder.resyncRequestDeliveryFailed(request);
+        return;
+      }
+    }
   }
 
   dispose(): void {

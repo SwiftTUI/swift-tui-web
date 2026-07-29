@@ -55,6 +55,7 @@
     "build:app": "bun run cli.ts build --dist dist-demo",
     "dev": "bun run cli.ts dev --dist dist-demo",
     "test": "bun test",
+    "typecheck:image-recovery": "tsc -p tsconfig.image-payload-recovery.json",
     "prepublishOnly": "tsdown"
   },
   "publishConfig": {

@@ -29,6 +29,7 @@ import { normalizeSemantics } from "./normalizeWireTokens.ts";
 import {
   type WebHostFocusPresentation,
   type WebHostFrameDiagnosticRecord,
+  type WebHostImagePayloadRequestHandler,
   type WebHostOutputSink,
   type WebHostRuntimeIssue,
   type WebHostSurfaceDamage,
@@ -41,6 +42,8 @@ export interface WebHostSceneBridge {
   resize(columns: number, rows: number, cellWidth?: number, cellHeight?: number): void;
   updateRenderStyle(style: WebHostTerminalStyle): void;
   sendInput(chunk: Uint8Array): void;
+  /** Optional for compatibility with custom bridges predating image recovery. */
+  requestImagePayloads?: WebHostImagePayloadRequestHandler;
   dispose(): void;
 }
 
@@ -171,9 +174,14 @@ export class WebHostSceneRuntime {
     this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
     this.wheelMode = options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
     this.rendererKind = options.renderer ?? "canvas";
+    const onImagePayloadMiss = (
+      ids: readonly string[]
+    ): readonly string[] | void => {
+      return this.bridge?.requestImagePayloads?.(ids);
+    };
     this.painter = this.rendererKind === "dom"
-      ? new DomSurfacePainter()
-      : new CanvasSurfacePainter();
+      ? new DomSurfacePainter({ onImagePayloadMiss })
+      : new CanvasSurfacePainter({ onImagePayloadMiss });
     this.onOpenHyperlink = options.onOpenHyperlink;
     this.suspendWhenHidden = options.suspendWhenHidden ?? true;
     this.element = document.createElement("section");
@@ -222,7 +230,8 @@ export class WebHostSceneRuntime {
     this.installResizeObserver();
 
     this.bridge?.bindOutput({
-      presentSurface: (frame) => this.presentSurface(frame),
+      presentSurface: (frame, recoveredImagePayloadIds) =>
+        this.presentSurface(frame, recoveredImagePayloadIds),
       writeClipboard: (text) => this.writeClipboard(text),
       notifyRuntimeIssue: (issue) => this.notifyRuntimeIssue(issue),
       recordFrameDiagnostic: (diagnostic) => this.recordFrameDiagnostic(diagnostic),
@@ -358,14 +367,18 @@ export class WebHostSceneRuntime {
   }
 
   private presentSurface(
-    frame: WebHostSurfaceFrame
+    frame: WebHostSurfaceFrame,
+    recoveredImagePayloadIds?: readonly string[]
   ): void {
     const previousFrame = this.currentFrame;
     this.currentFrame = frame;
     this.columns = Math.max(1, Math.round(frame.width));
     this.rows = Math.max(1, Math.round(frame.height));
     const resized = this.resizeSurface();
-    this.draw(previousFrame && !resized ? frame.damage : undefined);
+    this.draw(
+      previousFrame && !resized ? frame.damage : undefined,
+      recoveredImagePayloadIds
+    );
     this.syncAccessibilityTree();
   }
 
@@ -699,9 +712,15 @@ export class WebHostSceneRuntime {
   }
 
   private draw(
-    damage?: WebHostSurfaceDamage
+    damage?: WebHostSurfaceDamage,
+    recoveredImagePayloadIds?: readonly string[]
   ): void {
-    this.painter.paint(this.surfaceMetrics(), this.currentFrame, damage);
+    this.painter.paint(
+      this.surfaceMetrics(),
+      this.currentFrame,
+      damage,
+      recoveredImagePayloadIds
+    );
   }
 
   private syncAccessibilityTree(): void {

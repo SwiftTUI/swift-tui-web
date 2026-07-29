@@ -98,6 +98,16 @@ export interface WebHostAccessibilityAnnouncement {
 
 export type WebHostSurfaceImageFormat = string;
 
+/**
+ * Reports locally unresolved image IDs to a recovery-capable host. The first
+ * branch lets bounded hosts return the admitted subset; the explicit legacy
+ * void branch preserves contextual typing for concise callbacks that return
+ * incidental values such as `array.push(...)`.
+ */
+export type WebHostImagePayloadRequestHandler =
+  | ((ids: readonly string[]) => readonly string[])
+  | ((ids: readonly string[]) => void);
+
 export interface WebHostSurfaceImage {
   id: string;
   format: WebHostSurfaceImageFormat;
@@ -220,7 +230,10 @@ export type WebHostResyncRequest =
   | { scope: "images"; ids?: string[] };
 
 export interface WebHostOutputSink {
-  presentSurface(frame: WebHostSurfaceFrame): void;
+  presentSurface(
+    frame: WebHostSurfaceFrame,
+    recoveredImagePayloadIds?: readonly string[]
+  ): void;
   writeClipboard?(text: string): void | Promise<void>;
   notifyRuntimeIssue?(issue: WebHostRuntimeIssue): void;
   recordFrameDiagnostic?(diagnostic: WebHostFrameDiagnosticRecord): void;
@@ -259,6 +272,18 @@ export interface WebHostMouseInput {
 const recordPrefix = "\u001E";
 const textEncoder = new TextEncoder();
 
+/** Limits wire-derived recovery state and keeps every single-ID WASI request bounded. */
+export const MAX_IMAGE_RECOVERY_ID_BYTES = 1_024;
+export const MAX_OUTSTANDING_IMAGE_RECOVERY_IDS = 1_024;
+
+export function isWebHostImageRecoveryId(
+  id: string
+): boolean {
+  return id.length > 0
+    && id.length <= MAX_IMAGE_RECOVERY_ID_BYTES
+    && textEncoder.encode(id).byteLength <= MAX_IMAGE_RECOVERY_ID_BYTES;
+}
+
 /**
  * The newest `surface` record version this runtime understands. Unknown
  * additive object keys are ignored by design (older runtimes render newer
@@ -275,8 +300,11 @@ export class WebHostOutputDecoder {
   private lastSurfaceFrame?: WebHostSurfaceFrame;
   private lastEpoch?: number;
   private lastGen?: number;
-  private pendingResyncRequest?: WebHostResyncRequest;
+  private lastPresentedEpoch?: number;
   private keyframeResyncOutstanding = false;
+  private keyframeResyncPending = false;
+  private readonly imageResyncOutstandingIds = new Set<string>();
+  private readonly imageResyncPendingIds = new Set<string>();
 
   feed(
     chunk: Uint8Array
@@ -312,21 +340,102 @@ export class WebHostOutputDecoder {
     return [this.decodeLine(text)];
   }
 
-  takeResyncRequest(): WebHostResyncRequest | undefined {
-    const request = this.pendingResyncRequest;
-    this.pendingResyncRequest = undefined;
-    return request;
+  takeResyncRequest(
+    maximumEncodedBytes?: number
+  ): WebHostResyncRequest | undefined {
+    if (this.keyframeResyncPending) {
+      this.keyframeResyncPending = false;
+      return { scope: "keyframe" };
+    }
+    if (this.imageResyncPendingIds.size === 0) {
+      return undefined;
+    }
+
+    const sortedIds = [...this.imageResyncPendingIds].sort();
+    const { ids, rejectedIds } = boundedImageResyncIds(
+      sortedIds,
+      maximumEncodedBytes
+    );
+    for (const id of rejectedIds) {
+      this.imageResyncPendingIds.delete(id);
+      this.imageResyncOutstandingIds.delete(id);
+    }
+    for (const id of ids) {
+      this.imageResyncPendingIds.delete(id);
+    }
+    if (ids.length === 0) {
+      return undefined;
+    }
+    return { scope: "images", ids };
+  }
+
+  /**
+   * Adds locally unresolved image IDs to this epoch's recovery set. IDs remain
+   * outstanding after delivery, so repeat painter misses cannot create storms;
+   * a payload-bearing record or epoch re-anchor releases them. Returns the IDs
+   * now tracked (new or already outstanding); callers should suppress repeats
+   * only for this admitted subset.
+   */
+  requestImagePayloads(
+    ids: Iterable<string>
+  ): readonly string[] {
+    const acceptedIds = new Set<string>();
+    for (const id of ids) {
+      if (!isWebHostImageRecoveryId(id)) {
+        continue;
+      }
+      if (this.imageResyncOutstandingIds.has(id)) {
+        acceptedIds.add(id);
+        continue;
+      }
+      if (
+        this.imageResyncOutstandingIds.size
+        >= MAX_OUTSTANDING_IMAGE_RECOVERY_IDS
+      ) {
+        continue;
+      }
+      this.imageResyncOutstandingIds.add(id);
+      this.imageResyncPendingIds.add(id);
+      acceptedIds.add(id);
+    }
+    return [...acceptedIds];
+  }
+
+  /**
+   * Advances image recovery immediately before one decoded surface reaches its
+   * presenter. Payload arrival and epoch reset therefore follow delivery order
+   * rather than `feed`'s parse-ahead order across a multi-record chunk. The
+   * return value identifies payloads that answer an outstanding image request,
+   * so presenters can open exactly one fresh local decode generation even when
+   * content-addressed retransmission uses identical bytes.
+   */
+  prepareToPresentSurface(
+    frame: WebHostSurfaceFrame
+  ): readonly string[] {
+    const recoveredImagePayloadIds = this.recoveredImagePayloadIds(frame.images);
+    this.resetImageResyncForEpoch(frame.epoch);
+    this.sweepImageResyncForPresentedImages(frame.images);
+    this.clearArrivedImagePayloads(frame.images);
+    if (frame.epoch !== undefined) {
+      this.lastPresentedEpoch = frame.epoch;
+    }
+    return recoveredImagePayloadIds;
   }
 
   resyncRequestDeliveryFailed(
     request: WebHostResyncRequest
   ): void {
-    if (
-      request.scope === "keyframe"
-      && this.keyframeResyncOutstanding
-      && this.pendingResyncRequest === undefined
-    ) {
-      this.pendingResyncRequest = request;
+    if (request.scope === "keyframe") {
+      if (this.keyframeResyncOutstanding) {
+        this.keyframeResyncPending = true;
+      }
+      return;
+    }
+
+    for (const id of request.ids ?? []) {
+      if (this.imageResyncOutstandingIds.has(id)) {
+        this.imageResyncPendingIds.add(id);
+      }
     }
   }
 
@@ -396,8 +505,8 @@ export class WebHostOutputDecoder {
         this.lastSurfaceFrame = frame;
         this.lastEpoch = frame.epoch;
         this.lastGen = frame.gen;
-        this.pendingResyncRequest = undefined;
         this.keyframeResyncOutstanding = false;
+        this.keyframeResyncPending = false;
         return { type: "surface", frame };
       }
       if (isWebHostSurfaceDeltaFrame(frame)) {
@@ -447,7 +556,62 @@ export class WebHostOutputDecoder {
       return;
     }
     this.keyframeResyncOutstanding = true;
-    this.pendingResyncRequest = { scope: "keyframe" };
+    this.keyframeResyncPending = true;
+  }
+
+  private resetImageResyncForEpoch(
+    epoch: number | undefined
+  ): void {
+    if (epoch === undefined || epoch === this.lastPresentedEpoch) {
+      return;
+    }
+    this.imageResyncOutstandingIds.clear();
+    this.imageResyncPendingIds.clear();
+  }
+
+  private clearArrivedImagePayloads(
+    images: WebHostSurfaceImage[] | undefined
+  ): void {
+    for (const image of images ?? []) {
+      if (image.dataBase64 === undefined) {
+        continue;
+      }
+      this.imageResyncOutstandingIds.delete(image.id);
+      this.imageResyncPendingIds.delete(image.id);
+    }
+  }
+
+  private recoveredImagePayloadIds(
+    images: WebHostSurfaceImage[] | undefined
+  ): string[] {
+    const recoveredIds = new Set<string>();
+    for (const image of images ?? []) {
+      if (
+        image.dataBase64 !== undefined
+        && this.imageResyncOutstandingIds.has(image.id)
+      ) {
+        recoveredIds.add(image.id);
+      }
+    }
+    return [...recoveredIds].sort();
+  }
+
+  private sweepImageResyncForPresentedImages(
+    images: WebHostSurfaceImage[] | undefined
+  ): void {
+    const presentedIds = new Set<string>();
+    for (const image of images ?? []) {
+      if (this.imageResyncOutstandingIds.has(image.id)) {
+        presentedIds.add(image.id);
+      }
+    }
+    for (const id of this.imageResyncOutstandingIds) {
+      if (presentedIds.has(id)) {
+        continue;
+      }
+      this.imageResyncOutstandingIds.delete(id);
+      this.imageResyncPendingIds.delete(id);
+    }
   }
 
   private materializeDeltaFrame(
@@ -487,6 +651,47 @@ export class WebHostOutputDecoder {
       preferredGridHeight: frame.preferredGridHeight,
     };
   }
+}
+
+function boundedImageResyncIds(
+  sortedIds: string[],
+  maximumEncodedBytes: number | undefined
+): {
+  ids: string[];
+  rejectedIds: string[];
+} {
+  if (
+    maximumEncodedBytes === undefined
+    || !Number.isFinite(maximumEncodedBytes)
+  ) {
+    return { ids: sortedIds, rejectedIds: [] };
+  }
+
+  const emptyRequestBytes = encodeResyncControlMessage({
+    scope: "images",
+    ids: [],
+  }).byteLength;
+  const normalizedMaximum = Math.max(0, Math.floor(maximumEncodedBytes));
+  const ids: string[] = [];
+  const rejectedIds: string[] = [];
+  let encodedBytes = emptyRequestBytes;
+  for (const id of sortedIds) {
+    const separatorBytes = ids.length === 0 ? 0 : 1;
+    const idBytes = textEncoder.encode(JSON.stringify(id)).byteLength;
+    if (encodedBytes + separatorBytes + idBytes > normalizedMaximum) {
+      if (ids.length === 0) {
+        rejectedIds.push(id);
+        continue;
+      }
+      break;
+    }
+    ids.push(id);
+    encodedBytes += separatorBytes + idBytes;
+    if (encodedBytes >= normalizedMaximum) {
+      break;
+    }
+  }
+  return { ids, rejectedIds };
 }
 
 function declaresNewerSurfaceVersion(

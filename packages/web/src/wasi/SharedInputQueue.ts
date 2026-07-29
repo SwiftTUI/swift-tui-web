@@ -1,4 +1,5 @@
 const controlSlots = 3;
+const capacityWaitTimeoutMilliseconds = 50;
 
 const enum ControlSlot {
   readIndex = 0,
@@ -86,9 +87,52 @@ export class SharedInputQueueWriter {
     Atomics.notify(this.queue.control, ControlSlot.writeIndex);
   }
 
+  availableCapacity(): number {
+    const length = this.queue.data.length;
+    const readIndex = Atomics.load(this.queue.control, ControlSlot.readIndex);
+    const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
+    return length - ringUsed(readIndex, writeIndex, length);
+  }
+
+  async waitForCapacity(
+    minimumBytes: number
+  ): Promise<boolean> {
+    const required = Math.max(0, Math.ceil(minimumBytes));
+    if (required > this.queue.data.length) {
+      return false;
+    }
+
+    while (true) {
+      const readIndex = Atomics.load(this.queue.control, ControlSlot.readIndex);
+      if (Atomics.load(this.queue.control, ControlSlot.closed) !== 0) {
+        return false;
+      }
+      if (this.availableCapacity() >= required) {
+        return true;
+      }
+
+      if (typeof Atomics.waitAsync === "function") {
+        const waiting = Atomics.waitAsync(
+          this.queue.control,
+          ControlSlot.readIndex,
+          readIndex,
+          capacityWaitTimeoutMilliseconds
+        );
+        if (waiting.async) {
+          await waiting.value;
+        }
+      } else {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 1);
+        });
+      }
+    }
+  }
+
   close(): void {
     Atomics.store(this.queue.control, ControlSlot.closed, 1);
     Atomics.notify(this.queue.control, ControlSlot.writeIndex);
+    Atomics.notify(this.queue.control, ControlSlot.readIndex);
   }
 }
 
@@ -136,6 +180,7 @@ export class SharedInputQueueReader {
       ControlSlot.readIndex,
       ringAdvance(readIndex, byteCount, length)
     );
+    Atomics.notify(this.queue.control, ControlSlot.readIndex);
     return chunk;
   }
 

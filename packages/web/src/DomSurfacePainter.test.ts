@@ -3,7 +3,11 @@ import { expect, test } from "bun:test";
 import { DomSurfacePainter } from "./DomSurfacePainter.ts";
 import type { SurfaceMetrics } from "./SurfaceRenderer.ts";
 import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
-import type { WebHostSurfaceFrame } from "./WebHostSurfaceTransport.ts";
+import {
+  MAX_OUTSTANDING_IMAGE_RECOVERY_IDS,
+  WebHostOutputDecoder,
+  type WebHostSurfaceFrame,
+} from "./WebHostSurfaceTransport.ts";
 
 test("full paint renders positioned row and cell elements with resolved styles", () => {
   const dom = installFakeDOM();
@@ -290,14 +294,20 @@ test("payload-less repeats preserve a known image while updating its geometry", 
   }
 });
 
-test("payload-less unknown image ids remain skipped", () => {
+test("payload-less unknown positive-area image ids request recovery once", () => {
   const dom = installFakeDOM();
   try {
-    const painter = new DomSurfacePainter();
+    const misses: string[][] = [];
+    const painter = new DomSurfacePainter({
+      onImagePayloadMiss: (ids) => {
+        misses.push([...ids]);
+      },
+    });
     const root = new FakeElement("div");
     painter.attach(root as unknown as HTMLElement);
 
-    painter.paint(metricsFor(1), makeFrame({
+    const frame = makeFrame({
+      epoch: 5,
       styles: [null],
       rows: [[]],
       images: [
@@ -309,9 +319,155 @@ test("payload-less unknown image ids remain skipped", () => {
           scalingMode: "stretch" as const,
         },
       ],
-    }));
+    });
+    painter.paint(metricsFor(1), frame);
+    painter.paint(metricsFor(1), frame);
 
     expect(root.children[1]?.children).toHaveLength(0);
+    expect(misses).toEqual([["unknown"]]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("DOM keeps decoder-cap overflow image ids eligible for later recovery", () => {
+  const dom = installFakeDOM();
+  try {
+    const decoder = new WebHostOutputDecoder();
+    const admissionAttempts: Array<{
+      candidates: string[];
+      accepted: string[];
+    }> = [];
+    const painter = new DomSurfacePainter({
+      onImagePayloadMiss: (ids) => {
+        const accepted = [...decoder.requestImagePayloads(ids)];
+        admissionAttempts.push({
+          candidates: [...ids],
+          accepted,
+        });
+        decoder.takeResyncRequest();
+        return accepted;
+      },
+    });
+    const root = new FakeElement("div");
+    painter.attach(root as unknown as HTMLElement);
+    const images: NonNullable<WebHostSurfaceFrame["images"]> = Array.from(
+      { length: MAX_OUTSTANDING_IMAGE_RECOVERY_IDS + 1 },
+      (_, index) => ({
+        id: `png:${String(index).padStart(4, "0")}`,
+        format: "png",
+        bounds: [0, 0, 1, 1],
+        visibleBounds: [0, 0, 1, 1],
+        scalingMode: "stretch",
+      })
+    );
+    const overflowId = images.at(-1)!.id;
+    const missingFrame = makeFrame({
+      epoch: 15,
+      styles: [null],
+      rows: [[]],
+      images,
+    });
+
+    decoder.prepareToPresentSurface(missingFrame);
+    painter.paint(metricsFor(1), missingFrame);
+    decoder.prepareToPresentSurface(missingFrame);
+    painter.paint(metricsFor(1), missingFrame);
+
+    expect(admissionAttempts[0]?.candidates).toHaveLength(
+      MAX_OUTSTANDING_IMAGE_RECOVERY_IDS + 1
+    );
+    expect(admissionAttempts[0]?.accepted).toHaveLength(
+      MAX_OUTSTANDING_IMAGE_RECOVERY_IDS
+    );
+    expect(admissionAttempts).toHaveLength(1);
+
+    const recoveryFrame = makeFrame({
+      epoch: 15,
+      styles: [null],
+      rows: [[]],
+      images: images.map((image, index) => index === 0
+        ? { ...image, dataBase64: "QUJD" }
+        : image),
+    });
+    decoder.prepareToPresentSurface(recoveryFrame);
+    painter.paint(metricsFor(1), recoveryFrame);
+
+    expect(admissionAttempts[1]).toEqual({
+      candidates: [overflowId],
+      accepted: [overflowId],
+    });
+  } finally {
+    dom.restore();
+  }
+});
+
+test("DOM image misses exclude retained, unsupported, invisible, and zero-area images", () => {
+  const dom = installFakeDOM();
+  try {
+    const misses: string[][] = [];
+    const painter = new DomSurfacePainter({
+      onImagePayloadMiss: (ids) => {
+        misses.push([...ids]);
+      },
+    });
+    const root = new FakeElement("div");
+    painter.attach(root as unknown as HTMLElement);
+
+    painter.paint(metricsFor(1), makeFrame({
+      epoch: 11,
+      styles: [null],
+      rows: [[]],
+      images: [
+        {
+          id: "retained",
+          format: "png",
+          bounds: [0, 0, 1, 1],
+          visibleBounds: [0, 0, 1, 1],
+          scalingMode: "stretch",
+          dataBase64: "QUJD",
+        },
+      ],
+    }));
+    painter.paint(metricsFor(1), makeFrame({
+      epoch: 11,
+      styles: [null],
+      rows: [[]],
+      images: [
+        {
+          id: "retained",
+          format: "png",
+          bounds: [1, 0, 1, 1],
+          visibleBounds: [1, 0, 1, 1],
+          scalingMode: "fit",
+        },
+        {
+          id: "future",
+          format: "future-format",
+          bounds: [0, 0, 1, 1],
+          visibleBounds: [0, 0, 1, 1],
+          scalingMode: "stretch",
+        },
+        {
+          id: "zero",
+          format: "png",
+          bounds: [0, 0, 0, 1],
+          visibleBounds: [0, 0, 1, 1],
+          scalingMode: "stretch",
+        },
+        {
+          id: "invisible",
+          format: "png",
+          bounds: [0, 0, 1, 1],
+          visibleBounds: [0, 0, 0, 1],
+          scalingMode: "stretch",
+        },
+      ],
+    }));
+
+    expect(misses).toEqual([]);
+    expect(root.children[1]?.children).toHaveLength(1);
+    expect(root.children[1]?.children[0]?.style.left).toBe("8px");
   } finally {
     dom.restore();
   }
