@@ -237,8 +237,9 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     for (const image of images) {
       const [boundsX, boundsY, boundsWidth, boundsHeight] = image.bounds;
       const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
+      const existing = this.renderedImages.get(image.id);
       if (
-        !image.dataBase64
+        (!existing && !image.dataBase64)
         || boundsWidth <= 0
         || boundsHeight <= 0
         || clipWidth <= 0
@@ -247,7 +248,6 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         continue;
       }
 
-      const existing = this.renderedImages.get(image.id);
       const entry = existing ?? makeImageEntry();
       entry.container.style.left = `${clipX * metrics.cellWidth}px`;
       entry.container.style.top = `${clipY * metrics.cellHeight}px`;
@@ -258,10 +258,12 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       entry.image.style.width = `${boundsWidth * metrics.cellWidth}px`;
       entry.image.style.height = `${boundsHeight * metrics.cellHeight}px`;
 
-      const source = `data:image/${image.format};base64,${image.dataBase64}`;
-      if (entry.source !== source) {
-        entry.image.setAttribute("src", source);
-        entry.source = source;
+      if (image.dataBase64) {
+        const source = `data:image/${image.format};base64,${image.dataBase64}`;
+        if (entry.source !== source) {
+          entry.image.setAttribute("src", source);
+          entry.source = source;
+        }
       }
       if (!existing) {
         layer.appendChild(entry.container);

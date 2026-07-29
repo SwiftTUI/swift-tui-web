@@ -233,6 +233,90 @@ test("surface images render as clipped elements and reconcile by id", () => {
   }
 });
 
+test("payload-less repeats preserve a known image while updating its geometry", () => {
+  const dom = installFakeDOM();
+  try {
+    const painter = new DomSurfacePainter();
+    const root = new FakeElement("div");
+    painter.attach(root as unknown as HTMLElement);
+
+    painter.paint(metricsFor(2), makeFrame({
+      styles: [null],
+      rows: [[], []],
+      images: [
+        {
+          id: "img-1",
+          format: "png" as const,
+          bounds: [1, 0, 4, 2] as [number, number, number, number],
+          visibleBounds: [2, 0, 3, 2] as [number, number, number, number],
+          scalingMode: "stretch" as const,
+          dataBase64: "QUJD",
+        },
+      ],
+    }));
+
+    const imagesLayer = root.children[1];
+    const container = imagesLayer?.children[0];
+    const image = container?.children[0];
+
+    painter.paint(metricsFor(2), makeFrame({
+      styles: [null],
+      rows: [[], []],
+      images: [
+        {
+          id: "img-1",
+          format: "png" as const,
+          bounds: [2, 1, 5, 3] as [number, number, number, number],
+          visibleBounds: [3, 1, 2, 1] as [number, number, number, number],
+          scalingMode: "stretch" as const,
+        },
+      ],
+    }));
+
+    expect(imagesLayer?.children).toHaveLength(1);
+    expect(imagesLayer?.children[0]).toBe(container as FakeElement);
+    expect(container?.style.left).toBe("24px");
+    expect(container?.style.top).toBe("18px");
+    expect(container?.style.width).toBe("16px");
+    expect(container?.style.height).toBe("18px");
+    expect(container?.children[0]).toBe(image as FakeElement);
+    expect(image?.style.left).toBe("-8px");
+    expect(image?.style.top).toBe("0px");
+    expect(image?.style.width).toBe("40px");
+    expect(image?.style.height).toBe("54px");
+    expect(image?.getAttribute("src")).toBe("data:image/png;base64,QUJD");
+  } finally {
+    dom.restore();
+  }
+});
+
+test("payload-less unknown image ids remain skipped", () => {
+  const dom = installFakeDOM();
+  try {
+    const painter = new DomSurfacePainter();
+    const root = new FakeElement("div");
+    painter.attach(root as unknown as HTMLElement);
+
+    painter.paint(metricsFor(1), makeFrame({
+      styles: [null],
+      rows: [[]],
+      images: [
+        {
+          id: "unknown",
+          format: "png" as const,
+          bounds: [1, 0, 4, 1] as [number, number, number, number],
+          visibleBounds: [1, 0, 4, 1] as [number, number, number, number],
+          scalingMode: "stretch" as const,
+        },
+      ],
+    }));
+
+    expect(root.children[1]?.children).toHaveLength(0);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("painting an undefined frame clears the surface", () => {
   const dom = installFakeDOM();
   try {
