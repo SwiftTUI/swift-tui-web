@@ -8,6 +8,7 @@ import {
 import { SharedInputQueueReader } from "./wasi/SharedInputQueue.ts";
 import { createWasmSceneRuntimeFactory } from "./wasi/WasmSceneRuntime.ts";
 import { WebHostSceneRuntime, type WheelMode } from "./WebHostSceneRuntime.ts";
+import { encodePasteInputMessage } from "./WebHostSurfaceTransport.ts";
 import { transportFixture } from "./WebHostTestFixtures.ts";
 
 const encoder = new TextEncoder();
@@ -555,6 +556,109 @@ test("WASI runtime forwards bridge control input into the worker queue", async (
 
     runtime.dispose();
   } finally {
+    globalThis.Worker = previousWorker;
+    dom.restore();
+  }
+});
+
+test("characterization: WASI input routing drops whole oversized paste records", async () => {
+  const dom = installFakeDOM();
+  const previousWorker = globalThis.Worker;
+  const previousConsoleError = console.error;
+  const postedMessages: Array<{
+    inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
+  }> = [];
+  const consoleErrors: unknown[][] = [];
+
+  class FakeWorker {
+    constructor(
+      _url: string | URL,
+      _options?: WorkerOptions
+    ) {}
+
+    addEventListener(
+      _type: string,
+      _listener: EventListener
+    ): void {}
+
+    postMessage(
+      message: {
+        inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
+      }
+    ): void {
+      postedMessages.push(message);
+    }
+
+    terminate(): void {}
+  }
+
+  globalThis.Worker = FakeWorker as unknown as typeof Worker;
+  console.error = (...arguments_: unknown[]): void => {
+    consoleErrors.push(arguments_);
+  };
+
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const runtime = createWasmSceneRuntimeFactory(
+      new URL("https://example.test/app.wasm"),
+      { workerModuleURL: "fake-worker.js" }
+    )({
+      mount: new FakeElement("div") as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    const inputQueue = postedMessages[0]?.inputQueue;
+    if (!inputQueue) {
+      throw new Error("worker did not receive an input queue");
+    }
+    const reader = new SharedInputQueueReader(inputQueue);
+    reader.readAvailable(reader.availableBytes());
+
+    const firstOverflowingPastes = [
+      "a".repeat(65_529),
+      "界".repeat(7_281),
+    ];
+    expect(
+      firstOverflowingPastes.map(
+        (text) => encodePasteInputMessage(text).byteLength
+      )
+    ).toEqual([65_537, 65_537]);
+
+    for (const text of firstOverflowingPastes) {
+      let preventedDefault = false;
+      runtime.terminalMount.dispatch("paste", {
+        clipboardData: {
+          getData: () => text,
+        },
+        preventDefault: () => {
+          preventedDefault = true;
+        },
+      });
+      // Known defect D13: the router catches the overflow and drops the
+      // complete paste record, leaving no bytes for the WASI consumer.
+      expect(preventedDefault).toBe(true);
+      expect(reader.availableBytes()).toBe(0);
+    }
+
+    expect(consoleErrors).toHaveLength(2);
+    for (const [message, error] of consoleErrors) {
+      expect(message).toBe("[SwiftTUIWeb] failed to enqueue terminal input");
+      expect(String(error)).toBe(
+        "Error: Shared input queue overflow: cannot enqueue 65537 byte(s) into 65536 byte(s) of free space."
+      );
+    }
+
+    runtime.dispose();
+  } finally {
+    console.error = previousConsoleError;
     globalThis.Worker = previousWorker;
     dom.restore();
   }

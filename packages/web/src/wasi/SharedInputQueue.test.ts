@@ -6,7 +6,28 @@ import {
   SharedInputQueueWriter,
   type SharedInputQueueBuffers,
   createSharedInputQueue,
+  sharedInputQueueDefaultCapacity,
 } from "./SharedInputQueue.ts";
+import { encodePasteInputMessage } from "../WebHostSurfaceTransport.ts";
+
+const pasteOverflowCharacterizations = [
+  {
+    label: "ASCII",
+    character: "a",
+    maximumFittingCharacters: 65_528,
+    maximumFittingRecordBytes: 65_536,
+    firstOverflowingCharacters: 65_529,
+    firstOverflowingRecordBytes: 65_537,
+  },
+  {
+    label: "CJK",
+    character: "界",
+    maximumFittingCharacters: 7_280,
+    maximumFittingRecordBytes: 65_528,
+    firstOverflowingCharacters: 7_281,
+    firstOverflowingRecordBytes: 65_537,
+  },
+] as const;
 
 test("shared input queue preserves write order across partial reads", () => {
   const queue = createSharedInputQueue(8);
@@ -89,6 +110,43 @@ test("shared input queue readiness wait wakes on close", async () => {
     expect(reader.waitForReadable(250)).toBe("closed");
   } finally {
     await worker.terminate();
+  }
+});
+
+test("characterization: percent-encoded paste records overflow at the pinned 64 KiB boundaries", () => {
+  expect(sharedInputQueueDefaultCapacity).toBe(65_536);
+
+  for (const characterization of pasteOverflowCharacterizations) {
+    const queue = createSharedInputQueue();
+    const writer = new SharedInputQueueWriter(queue);
+    const reader = new SharedInputQueueReader(queue);
+    const maximumFittingRecord = encodePasteInputMessage(
+      characterization.character.repeat(characterization.maximumFittingCharacters)
+    );
+    const firstOverflowingRecord = encodePasteInputMessage(
+      characterization.character.repeat(characterization.firstOverflowingCharacters)
+    );
+
+    expect(maximumFittingRecord.byteLength).toBe(
+      characterization.maximumFittingRecordBytes
+    );
+    expect(firstOverflowingRecord.byteLength).toBe(
+      characterization.firstOverflowingRecordBytes
+    );
+
+    writer.write(maximumFittingRecord);
+    expect(reader.availableBytes()).toBe(
+      characterization.maximumFittingRecordBytes
+    );
+    reader.readAvailable(sharedInputQueueDefaultCapacity);
+    expect(reader.availableBytes()).toBe(0);
+
+    // Known defect D13: the writer rejects the entire input record rather
+    // than applying backpressure or streaming it in bounded chunks.
+    expect(() => writer.write(firstOverflowingRecord)).toThrow(
+      `Shared input queue overflow: cannot enqueue ${characterization.firstOverflowingRecordBytes} byte(s) into ${sharedInputQueueDefaultCapacity} byte(s) of free space.`
+    );
+    expect(reader.availableBytes()).toBe(0);
   }
 });
 
