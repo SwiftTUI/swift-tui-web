@@ -824,6 +824,53 @@ test("runtime mounts accessibility tree and announces live-region changes", asyn
   }
 });
 
+test("unknown accessibility tokens preserve rendering and apply consumer defaults", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 1,
+    });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {
+        fontSize: 20,
+        fontFamily: "Test Mono",
+      },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    const context = dom.canvases[0]!.context;
+    context.operations = [];
+
+    bridge.stdout.write(
+      encoder.encode(transportFixture("web-surface-open-world-tokens"))
+    );
+
+    expect(fillTextOperations(context, "A")).toHaveLength(1);
+    const tree = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-tree");
+    const status = childWithData(tree, "accessibilityId", "status");
+    expect(status.getAttribute("aria-live")).toBeNull();
+    const announcer = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-announcer"
+    );
+    expect(announcer.getAttribute("aria-live")).toBe("polite");
+    expect(announcer.textContent).toBe("Ready");
+    expect(runtime.focusPresentation?.semantics).toBe("automatic");
+    expect(runtime.terminalMount.children.some(
+      (child) => child.className === "webhost-scene__diagnostic"
+    )).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime decodes surface images once and reuses the cached image", async () => {
   const decodedBlobs: Blob[] = [];
   const dom = installFakeDOM({
@@ -860,14 +907,23 @@ test("runtime decodes surface images once and reuses the cached image", async ()
       width: 4,
       height: 2,
       styles: [null],
-      rows: [[], []],
+      rows: [[[0, "A", 1, 0]], []],
       images: [
+        {
+          id: "future:test",
+          format: "future-format",
+          bounds: [0, 0, 1, 1],
+          visibleBounds: [0, 0, 1, 1],
+          scalingMode: "future-scaling",
+          pixelSize: [1, 1],
+          dataBase64: "Rk9P",
+        },
         {
           id: "png:test",
           format: "png",
           bounds: [1, 0, 2, 2],
           visibleBounds: [1, 0, 1, 2],
-          scalingMode: "stretch",
+          scalingMode: "future-scaling",
           pixelSize: [2, 2],
           dataBase64: "iVBORw==",
         },
@@ -884,6 +940,7 @@ test("runtime decodes surface images once and reuses the cached image", async ()
     await flushPromises();
 
     expect(decodedBlobs).toHaveLength(1);
+    expect(fillTextOperations(context, "A").length).toBeGreaterThanOrEqual(1);
     expect(drawImageOperations(context)).toEqual([
       {
         type: "drawImage",
@@ -1773,6 +1830,27 @@ test("runtime exposes focus presentation and preferred grid size", async () => {
       hasFocusedRegion: true,
     });
     expect(runtime.preferredGridSize).toEqual({ width: 9, height: 8 });
+
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 2,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[], []],
+      focusPresentation: {
+        focusedIdentity: "root/future",
+        semantics: "future-focus",
+        prefersTextInput: false,
+        hasFocusedRegion: true,
+      },
+    })));
+
+    expect(runtime.focusPresentation).toEqual({
+      focusedIdentity: "root/future",
+      semantics: "automatic",
+      prefersTextInput: false,
+      hasFocusedRegion: true,
+    });
   } finally {
     dom.restore();
   }

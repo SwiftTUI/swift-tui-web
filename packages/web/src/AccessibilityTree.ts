@@ -2,6 +2,10 @@ import type {
   WebHostAccessibilityAnnouncement,
   WebHostAccessibilityNode,
 } from "./WebHostSurfaceTransport.ts";
+import {
+  normalizeLiveRegion,
+  normalizePoliteness,
+} from "./normalizeWireTokens.ts";
 
 interface AccessibilityTreeMetrics {
   cellWidth: number;
@@ -45,7 +49,16 @@ export class AccessibilityTreeMounter {
     // Nodes the app marked hidden stay out of the assistive-technology tree,
     // mirroring the Android host's overlay filter. Hidden is per-node on the
     // wire, so children of a hidden node re-parent to the mount root.
-    const visibleNodes = nodes.filter((node) => !node.hidden);
+    const visibleNodes = nodes
+      .filter((node) => !node.hidden)
+      .map((node) => ({
+        ...node,
+        liveRegion: normalizeLiveRegion(node.liveRegion),
+      }));
+    const normalizedAnnouncements = announcements.map((announcement) => ({
+      ...announcement,
+      politeness: normalizePoliteness(announcement.politeness),
+    }));
     const previousById = this.nodesById;
     const nextById = new Map<string, HTMLElement>();
 
@@ -74,7 +87,7 @@ export class AccessibilityTreeMounter {
       (parent ?? this.element).appendChild(element);
     }
 
-    this.announceLiveRegionChanges(visibleNodes, announcements);
+    this.announceLiveRegionChanges(visibleNodes, normalizedAnnouncements);
 
     const focused = visibleNodes.find((node) => node.isFocused);
     if ((options.synchronizeFocus ?? true) && focused) {

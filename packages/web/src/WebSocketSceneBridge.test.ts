@@ -128,7 +128,9 @@ test("bridge decodes websocket output and sends queued input when the socket ope
   expect(decoder.decode(socket.sent[1])).toBe("\u001Eresize:100:32:9:18\n");
 
   socket.message(encoder.encode(
-    '\u001Esurface:{"version":2,"width":2,"height":1,"styles":[null],"rows":[[]],'
+    '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,'
+      + '"styles":[null],"deltaRows":[[0,[]]]}\n'
+      + '\u001Esurface:{"version":2,"width":2,"height":1,"styles":[null],"rows":[[]],'
       + '"accessibilityTree":[{"id":"root","rect":[0,0,2,1],"role":"group"}]}\n'
       + '\u001Eclipboard:{"text":"copied text"}\n'
       + '\u001EruntimeIssue:{"severity":"warning","code":"toolbar.unhostedItems",'

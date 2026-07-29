@@ -6,6 +6,10 @@ import {
   type WebHostSurfacePainter,
 } from "./SurfaceRenderer.ts";
 import { webTUITerminalBackgroundColor } from "./WebHostTerminalStyle.ts";
+import {
+  isSupportedImageFormat,
+  normalizeScalingMode,
+} from "./normalizeWireTokens.ts";
 import type {
   WebHostSurfaceDamage,
   WebHostSurfaceFrame,
@@ -234,7 +238,14 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     }
 
     const next = new Map<string, RenderedImage>();
-    for (const image of images) {
+    for (const rawImage of images) {
+      if (!isSupportedImageFormat(rawImage.format)) {
+        continue;
+      }
+      const image = {
+        ...rawImage,
+        scalingMode: normalizeScalingMode(rawImage.scalingMode),
+      };
       const [boundsX, boundsY, boundsWidth, boundsHeight] = image.bounds;
       const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
       const existing = this.renderedImages.get(image.id);

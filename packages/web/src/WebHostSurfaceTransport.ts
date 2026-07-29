@@ -1,3 +1,8 @@
+/**
+ * Browser consumer for SwiftTUI's host wire. The normative cross-host
+ * contract lives upstream:
+ * https://github.com/SwiftTUI/swift-tui/blob/main/docs/HOST-WIRE-CONTRACT.md
+ */
 import {
   encodeWebHostTerminalRenderStyleBase64,
   type WebHostTerminalStyle,
@@ -41,7 +46,7 @@ export type WebHostAccessibilityPoint = [
   y: number,
 ];
 
-export type WebHostAccessibilityLiveRegion = "off" | "polite" | "assertive";
+export type WebHostAccessibilityLiveRegion = string;
 
 export interface WebHostAccessibilityNode {
   id: string;
@@ -73,7 +78,7 @@ export type WebHostSurfaceLinkRow = [
   runs: WebHostSurfaceLinkRun[],
 ];
 
-export type WebHostFocusSemantics = "none" | "automatic" | "activate" | "edit";
+export type WebHostFocusSemantics = string;
 
 /**
  * The settled focus presentation for a committed frame — the same derivation
@@ -91,14 +96,14 @@ export interface WebHostAccessibilityAnnouncement {
   politeness: WebHostAccessibilityLiveRegion;
 }
 
-export type WebHostSurfaceImageFormat = "png" | "jpeg" | "gif";
+export type WebHostSurfaceImageFormat = string;
 
 export interface WebHostSurfaceImage {
   id: string;
   format: WebHostSurfaceImageFormat;
   bounds: WebHostSurfaceRect;
   visibleBounds: WebHostSurfaceRect;
-  scalingMode: "stretch" | "fit" | "fill";
+  scalingMode: string;
   pixelSize?: WebHostSurfaceSize;
   dataBase64?: string;
 }
@@ -202,6 +207,7 @@ export type WebHostOutputRecord =
   | { type: "clipboard"; text: string }
   | { type: "runtimeIssue"; issue: WebHostRuntimeIssue }
   | { type: "frameDiagnostic"; diagnostic: WebHostFrameDiagnosticRecord }
+  | { type: "surfaceDropped"; reason: "noBaseline" }
   | { type: "text"; text: string };
 
 export interface WebHostOutputSink {
@@ -360,6 +366,13 @@ export class WebHostOutputDecoder {
         return { type: "surface", frame };
       }
       if (isWebHostSurfaceDeltaFrame(frame)) {
+        if (
+          !this.lastSurfaceFrame
+          || this.lastSurfaceFrame.width !== frame.width
+          || this.lastSurfaceFrame.height !== frame.height
+        ) {
+          return { type: "surfaceDropped", reason: "noBaseline" };
+        }
         const materialized = this.materializeDeltaFrame(frame);
         if (materialized) {
           this.lastSurfaceFrame = materialized;
@@ -377,7 +390,7 @@ export class WebHostOutputDecoder {
     frame: WebHostSurfaceDeltaFrame
   ): WebHostSurfaceFrame | undefined {
     const baseline = this.lastSurfaceFrame;
-    if (!baseline || baseline.width !== frame.width || baseline.height !== frame.height) {
+    if (!baseline) {
       return undefined;
     }
 
@@ -678,12 +691,7 @@ function isWebHostFocusPresentation(
     presentation.focusedIdentity === undefined
       || typeof presentation.focusedIdentity === "string"
   )
-    && (
-      presentation.semantics === "none"
-        || presentation.semantics === "automatic"
-        || presentation.semantics === "activate"
-        || presentation.semantics === "edit"
-    )
+    && typeof presentation.semantics === "string"
     && typeof presentation.prefersTextInput === "boolean"
     && typeof presentation.hasFocusedRegion === "boolean";
 }
@@ -738,12 +746,7 @@ function isWebHostAccessibilityNode(
     && (node.label === undefined || typeof node.label === "string")
     && (node.hint === undefined || typeof node.hint === "string")
     && (node.hidden === undefined || typeof node.hidden === "boolean")
-    && (
-      node.liveRegion === undefined
-        || node.liveRegion === "off"
-        || node.liveRegion === "polite"
-        || node.liveRegion === "assertive"
-    )
+    && (node.liveRegion === undefined || typeof node.liveRegion === "string")
     && (node.cursorAnchor === undefined || isWebHostAccessibilityPoint(node.cursorAnchor))
     && (node.isFocused === undefined || typeof node.isFocused === "boolean");
 }
@@ -770,11 +773,7 @@ function isWebHostAccessibilityAnnouncement(
   }
   const announcement = value as Partial<WebHostAccessibilityAnnouncement>;
   return typeof announcement.message === "string"
-    && (
-      announcement.politeness === "off"
-        || announcement.politeness === "polite"
-        || announcement.politeness === "assertive"
-    );
+    && typeof announcement.politeness === "string";
 }
 
 function isWebHostSurfaceImages(
@@ -834,7 +833,7 @@ function isWebHostSurfaceDamageRange(
 function isWebHostSurfaceImageFormat(
   value: unknown
 ): value is WebHostSurfaceImageFormat {
-  return value === "png" || value === "jpeg" || value === "gif";
+  return typeof value === "string";
 }
 
 function isWebHostScrollRegions(
@@ -875,5 +874,5 @@ function isWebHostSurfaceSize(
 function isWebHostSurfaceScalingMode(
   value: unknown
 ): value is WebHostSurfaceImage["scalingMode"] {
-  return value === "stretch" || value === "fit" || value === "fill";
+  return typeof value === "string";
 }

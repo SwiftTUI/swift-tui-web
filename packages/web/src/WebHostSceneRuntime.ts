@@ -25,6 +25,7 @@ import {
   type PointerGeometryMetrics,
 } from "./PointerGeometry.ts";
 import { AccessibilityTreeMounter } from "./AccessibilityTree.ts";
+import { normalizeSemantics } from "./normalizeWireTokens.ts";
 import {
   type WebHostFocusPresentation,
   type WebHostFrameDiagnosticRecord,
@@ -387,7 +388,14 @@ export class WebHostSceneRuntime {
    * embedders can drive virtual-keyboard or focus affordances from it.
    */
   get focusPresentation(): WebHostFocusPresentation | undefined {
-    return this.currentFrame?.focusPresentation;
+    const presentation = this.currentFrame?.focusPresentation;
+    if (!presentation) {
+      return undefined;
+    }
+    return {
+      ...presentation,
+      semantics: normalizeSemantics(presentation.semantics),
+    };
   }
 
   private linkTarget(

@@ -145,6 +145,29 @@ test("bridge delivers typed clipboard output to sinks", () => {
   expect(clipboard).toEqual(["copied text"]);
 });
 
+test("bridge consumes a delta without a baseline as a silent no-op", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  const frames: unknown[] = [];
+  const text: string[] = [];
+
+  bridge.bindOutput({
+    presentSurface: (frame) => frames.push(frame),
+    writeOutput: (chunk) => text.push(chunk),
+  });
+
+  bridge.stdout.write(new TextEncoder().encode(
+    '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,'
+      + '"styles":[null],"deltaRows":[[0,[]]]}\n'
+  ));
+
+  expect(frames).toEqual([]);
+  expect(text).toEqual([]);
+});
+
 test("bridge delivers typed runtime issues and frame diagnostics to sinks", () => {
   const bridge = new BrowserWASIBridge({
     sceneId: "main",

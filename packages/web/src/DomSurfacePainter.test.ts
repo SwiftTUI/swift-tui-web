@@ -317,6 +317,46 @@ test("payload-less unknown image ids remain skipped", () => {
   }
 });
 
+test("unknown image formats skip only that image", () => {
+  const dom = installFakeDOM();
+  try {
+    const painter = new DomSurfacePainter();
+    const root = new FakeElement("div");
+    painter.attach(root as unknown as HTMLElement);
+
+    painter.paint(metricsFor(1), makeFrame({
+      styles: [null],
+      rows: [[[0, "A", 1, 0]]],
+      images: [
+        {
+          id: "future",
+          format: "future-format",
+          bounds: [0, 0, 1, 1],
+          visibleBounds: [0, 0, 1, 1],
+          scalingMode: "future-scaling",
+          dataBase64: "Rk9P",
+        },
+        {
+          id: "known",
+          format: "png",
+          bounds: [1, 0, 1, 1],
+          visibleBounds: [1, 0, 1, 1],
+          scalingMode: "future-scaling",
+          dataBase64: "QUJD",
+        },
+      ],
+    }));
+
+    expect(root.children[0]?.children[0]?.children[0]?.textContent).toBe("A");
+    const imagesLayer = root.children[1];
+    expect(imagesLayer?.children).toHaveLength(1);
+    expect(imagesLayer?.children[0]?.children[0]?.getAttribute("src"))
+      .toBe("data:image/png;base64,QUJD");
+  } finally {
+    dom.restore();
+  }
+});
+
 test("painting an undefined frame clears the surface", () => {
   const dom = installFakeDOM();
   try {

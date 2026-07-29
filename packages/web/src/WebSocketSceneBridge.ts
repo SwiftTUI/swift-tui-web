@@ -169,6 +169,8 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     case "frameDiagnostic":
       sink.recordFrameDiagnostic?.(record.diagnostic);
       break;
+    case "surfaceDropped":
+      break;
     case "text":
       sink.writeOutput?.(record.text);
       break;

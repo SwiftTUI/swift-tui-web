@@ -137,6 +137,22 @@ test("decoder accepts imperative accessibility announcements", () => {
   ]);
 });
 
+test("decoder preserves structurally valid unknown wire tokens for consumer normalization", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(
+    encoder.encode(transportFixture("web-surface-open-world-tokens"))
+  );
+
+  expect(records).toHaveLength(1);
+  const frame = surfaceFrame(records[0]);
+  expect(frame.rows[0]).toEqual([[0, "A", 1, 0]]);
+  expect(frame.focusPresentation?.semantics).toBe("future-focus");
+  expect(frame.accessibilityTree?.[0]?.liveRegion).toBe("future-live");
+  expect(frame.accessibilityAnnouncements?.[0]?.politeness).toBe("future-politeness");
+  expect(frame.images?.[0]?.format).toBe("future-format");
+  expect(frame.images?.[0]?.scalingMode).toBe("future-scaling");
+});
+
 test("decoder rejects malformed accessibility trees as diagnostic text", () => {
   const decoder = new WebHostOutputDecoder();
   const line = '\u001Esurface:{"version":2,"width":2,"height":1,"styles":[null],"rows":[[]],'
@@ -309,20 +325,20 @@ test("decoder rebaselines a full frame received after a delta", () => {
   });
 });
 
-test("decoder keeps delta surface output before any full baseline visible as text", () => {
+test("decoder drops a delta received before any full baseline", () => {
   const decoder = new WebHostOutputDecoder();
   const line = '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":2,'
     + '"styles":[null],"deltaRows":[[1,[[0,"C",1,0]]]],"images":[]}\n';
 
   expect(decoder.feed(encoder.encode(line))).toEqual([
     {
-      type: "text",
-      text: line,
+      type: "surfaceDropped",
+      reason: "noBaseline",
     },
   ]);
 });
 
-test("decoder keeps delta surface output with changed dimensions visible as text", () => {
+test("decoder drops a delta whose dimensions have no compatible baseline", () => {
   const decoder = new WebHostOutputDecoder();
   const baseline = '\u001Esurface:{"version":2,"width":2,"height":2,"styles":[null],'
     + '"rows":[[[0,"A",1,0]],[[0,"B",1,0]]]}\n';
@@ -331,8 +347,22 @@ test("decoder keeps delta surface output with changed dimensions visible as text
 
   const records = decoder.feed(encoder.encode(baseline + delta));
 
-  expect(records.map((record) => record.type)).toEqual(["surface", "text"]);
-  expect(records[1]).toEqual({ type: "text", text: delta });
+  expect(records).toEqual([
+    {
+      type: "surface",
+      frame: {
+        version: 2,
+        width: 2,
+        height: 2,
+        styles: [null],
+        rows: [[[0, "A", 1, 0]], [[0, "B", 1, 0]]],
+      },
+    },
+    {
+      type: "surfaceDropped",
+      reason: "noBaseline",
+    },
+  ]);
 });
 
 test("decoder keeps delta surface output with out-of-range row indexes visible as text", () => {

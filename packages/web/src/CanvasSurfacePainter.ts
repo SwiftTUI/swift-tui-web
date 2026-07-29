@@ -9,6 +9,11 @@ import {
   type WebHostSurfacePainter,
 } from "./SurfaceRenderer.ts";
 import {
+  isSupportedImageFormat,
+  normalizeScalingMode,
+  type NormalizedSurfaceImageFormat,
+} from "./normalizeWireTokens.ts";
+import {
   type ResolvedWebHostTerminalStyle,
   webTUITerminalBackgroundColor,
 } from "./WebHostTerminalStyle.ts";
@@ -16,7 +21,6 @@ import type {
   WebHostSurfaceDamage,
   WebHostSurfaceFrame,
   WebHostSurfaceImage,
-  WebHostSurfaceImageFormat,
   WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
 
@@ -164,7 +168,18 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     dirtyRegion?: DirtyRegion
   ): void {
     for (const image of images) {
-      this.drawImage(context, image, metrics, dirtyRegion);
+      if (!isSupportedImageFormat(image.format)) {
+        continue;
+      }
+      this.drawImage(
+        context,
+        {
+          ...image,
+          scalingMode: normalizeScalingMode(image.scalingMode),
+        },
+        metrics,
+        dirtyRegion
+      );
     }
   }
 
@@ -386,7 +401,7 @@ function cellRect(
 
 async function decodeImage(
   dataBase64: string,
-  format: WebHostSurfaceImageFormat
+  format: NormalizedSurfaceImageFormat
 ): Promise<CanvasImageSource> {
   const bytes = decodeBase64Bytes(dataBase64);
   const blob = new Blob([bytes], { type: `image/${format}` });
@@ -483,4 +498,3 @@ function dirtyRegionIntersectsCellRect(
   }
   return false;
 }
-
