@@ -326,7 +326,7 @@ test("decoder rebaselines a full frame received after a delta", () => {
   });
 });
 
-test("decoder drops a stale stamped delta, requests resync, and recovers on a keyframe", () => {
+test("decoder dedupes stale-baseline resync until a keyframe recovers", () => {
   const decoder = new WebHostOutputDecoder();
   const records = decoder.feed(encoder.encode(
     "\u001Esurface:" + JSON.stringify({
@@ -357,6 +357,24 @@ test("decoder drops a stale stamped delta, requests resync, and recovers on a ke
     reason: "staleBaseline",
   });
   expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+
+  const repeatedDrop = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      epoch: 17,
+      gen: 3,
+      baselineGen: 2,
+      width: 2,
+      height: 1,
+      styles: [null],
+      deltaRows: [[0, [[0, "still-stale", 1, 0]]]],
+    }) + "\n"
+  ));
+  expect(repeatedDrop).toEqual([
+    { type: "surfaceDropped", reason: "staleBaseline" },
+  ]);
   expect(decoder.takeResyncRequest()).toBeUndefined();
 
   const recovery = decoder.feed(encoder.encode(
@@ -394,6 +412,24 @@ test("decoder drops a stale stamped delta, requests resync, and recovers on a ke
     rows: [[[0, "C", 1, 0]]],
   });
   expect(decoder.takeResyncRequest()).toBeUndefined();
+
+  const nextLoss = decoder.feed(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      epoch: 17,
+      gen: 7,
+      baselineGen: 6,
+      width: 2,
+      height: 1,
+      styles: [null],
+      deltaRows: [[0, [[0, "new-loss", 1, 0]]]],
+    }) + "\n"
+  ));
+  expect(nextLoss).toEqual([
+    { type: "surfaceDropped", reason: "staleBaseline" },
+  ]);
+  expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
 });
 
 test("decoder refuses a partial delivery stamp tuple and requests resync", () => {

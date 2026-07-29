@@ -168,13 +168,24 @@ test("bridge consumes a delta without a baseline as a silent no-op", () => {
   expect(text).toEqual([]);
 });
 
-test("bridge writes a keyframe resync for a stamped dimension mismatch and recovers", async () => {
+test("bridge dedupes keyframe resync while a stamped dimension repair is outstanding", () => {
   const bridge = new BrowserWASIBridge({
     sceneId: "main",
     columns: 80,
     rows: 24,
   });
   const frames: unknown[] = [];
+  const input: string[] = [];
+  let acceptsInput = false;
+  let deliveryAttempts = 0;
+  const unsubscribe = bridge.stdin.subscribe((chunk) => {
+    deliveryAttempts += 1;
+    if (!acceptsInput) {
+      return false;
+    }
+    input.push(new TextDecoder().decode(chunk));
+    return true;
+  });
   bridge.bindOutput({
     presentSurface: (frame) => frames.push(frame),
   });
@@ -203,8 +214,41 @@ test("bridge writes a keyframe resync for a stamped dimension mismatch and recov
   ));
 
   expect(frames).toHaveLength(1);
-  expect(new TextDecoder().decode(await bridge.stdin.read()))
-    .toBe('\u001Eresync:{"scope":"keyframe"}\n');
+  expect(deliveryAttempts).toBe(1);
+  expect(input).toEqual([]);
+
+  acceptsInput = true;
+  bridge.stdout.write(new TextEncoder().encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      epoch: 41,
+      gen: 2,
+      baselineGen: 1,
+      width: 3,
+      height: 1,
+      styles: [null],
+      deltaRows: [[0, [[0, "still-wrong-size", 1, 0]]]],
+    }) + "\n"
+  ));
+  expect(deliveryAttempts).toBe(2);
+  expect(input).toEqual(['\u001Eresync:{"scope":"keyframe"}\n']);
+
+  bridge.stdout.write(new TextEncoder().encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      epoch: 41,
+      gen: 2,
+      baselineGen: 1,
+      width: 3,
+      height: 1,
+      styles: [null],
+      deltaRows: [[0, [[0, "still-outstanding", 1, 0]]]],
+    }) + "\n"
+  ));
+  expect(deliveryAttempts).toBe(2);
+  expect(input).toHaveLength(1);
 
   bridge.stdout.write(new TextEncoder().encode(
     "\u001Esurface:" + JSON.stringify({
@@ -235,6 +279,26 @@ test("bridge writes a keyframe resync for a stamped dimension mismatch and recov
     gen: 4,
     rows: [[[0, "C", 1, 0]]],
   });
+
+  bridge.stdout.write(new TextEncoder().encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      epoch: 41,
+      gen: 6,
+      baselineGen: 5,
+      width: 3,
+      height: 1,
+      styles: [null],
+      deltaRows: [[0, [[0, "new-loss", 1, 0]]]],
+    }) + "\n"
+  ));
+  expect(input).toEqual([
+    '\u001Eresync:{"scope":"keyframe"}\n',
+    '\u001Eresync:{"scope":"keyframe"}\n',
+  ]);
+  expect(deliveryAttempts).toBe(3);
+  unsubscribe();
 });
 
 test("bridge delivers typed runtime issues and frame diagnostics to sinks", () => {

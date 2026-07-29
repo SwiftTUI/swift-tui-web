@@ -191,7 +191,11 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
   private sendPendingResyncRequest(): void {
     const request = this.decoder.takeResyncRequest();
     if (request) {
-      this.sendInput(encodeResyncControlMessage(request));
+      try {
+        this.sendInput(encodeResyncControlMessage(request));
+      } catch {
+        this.decoder.resyncRequestDeliveryFailed(request);
+      }
     }
   }
 }

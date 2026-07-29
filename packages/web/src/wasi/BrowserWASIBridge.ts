@@ -123,7 +123,10 @@ export class BrowserWASIBridge {
       }
       const request = decoder.takeResyncRequest();
       if (request) {
-        this.stdin.write(encodeResyncControlMessage(request));
+        const accepted = this.stdin.write(encodeResyncControlMessage(request));
+        if (!accepted) {
+          decoder.resyncRequestDeliveryFailed(request);
+        }
       }
     });
     this.detachStderr = this.stderr.subscribe((chunk) => {

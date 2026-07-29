@@ -276,6 +276,7 @@ export class WebHostOutputDecoder {
   private lastEpoch?: number;
   private lastGen?: number;
   private pendingResyncRequest?: WebHostResyncRequest;
+  private keyframeResyncOutstanding = false;
 
   feed(
     chunk: Uint8Array
@@ -315,6 +316,18 @@ export class WebHostOutputDecoder {
     const request = this.pendingResyncRequest;
     this.pendingResyncRequest = undefined;
     return request;
+  }
+
+  resyncRequestDeliveryFailed(
+    request: WebHostResyncRequest
+  ): void {
+    if (
+      request.scope === "keyframe"
+      && this.keyframeResyncOutstanding
+      && this.pendingResyncRequest === undefined
+    ) {
+      this.pendingResyncRequest = request;
+    }
   }
 
   private decodeLine(
@@ -384,6 +397,7 @@ export class WebHostOutputDecoder {
         this.lastEpoch = frame.epoch;
         this.lastGen = frame.gen;
         this.pendingResyncRequest = undefined;
+        this.keyframeResyncOutstanding = false;
         return { type: "surface", frame };
       }
       if (isWebHostSurfaceDeltaFrame(frame)) {
@@ -396,7 +410,7 @@ export class WebHostOutputDecoder {
           || this.lastSurfaceFrame.height !== frame.height
         ) {
           if (carriesDeliveryStamps) {
-            this.pendingResyncRequest = { scope: "keyframe" };
+            this.requestKeyframeResync();
           }
           return { type: "surfaceDropped", reason: "noBaseline" };
         }
@@ -410,7 +424,7 @@ export class WebHostOutputDecoder {
             || frame.baselineGen !== this.lastGen
           )
         ) {
-          this.pendingResyncRequest = { scope: "keyframe" };
+          this.requestKeyframeResync();
           return { type: "surfaceDropped", reason: "staleBaseline" };
         }
         const materialized = this.materializeDeltaFrame(frame);
@@ -426,6 +440,14 @@ export class WebHostOutputDecoder {
     }
 
     return { type: "text", text: `${line}\n` };
+  }
+
+  private requestKeyframeResync(): void {
+    if (this.keyframeResyncOutstanding) {
+      return;
+    }
+    this.keyframeResyncOutstanding = true;
+    this.pendingResyncRequest = { scope: "keyframe" };
   }
 
   private materializeDeltaFrame(

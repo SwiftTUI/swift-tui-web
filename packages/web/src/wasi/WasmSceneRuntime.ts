@@ -120,7 +120,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   private readonly executionModePreference: WasmExecutionModePreference;
   private readonly inputQueue?: SharedInputQueueBuffers;
   private readonly inputWriter?: SharedInputQueueWriter;
-  private readonly inputRouter: { route(chunk: Uint8Array): void };
+  private readonly inputRouter: { route(chunk: Uint8Array): boolean };
   private readonly sharedQueueError?: unknown;
   private readonly pauseCell?: SharedArrayBuffer;
 
@@ -152,11 +152,16 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     }
 
     const inputRouter = {
-      route: (chunk: Uint8Array): void => {
+      route: (chunk: Uint8Array): boolean => {
+        if (!inputWriter) {
+          return false;
+        }
         try {
-          inputWriter?.write(chunk);
+          inputWriter.write(chunk);
+          return true;
         } catch (error) {
           console.error("[SwiftTUIWeb] failed to enqueue terminal input", error);
+          return false;
         }
       },
     };
@@ -196,7 +201,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
 
     this.didMount = true;
     this.detachBridgeInputListener = this.bridge?.stdin.subscribe((chunk) => {
-      this.inputRouter.route(chunk);
+      return this.inputRouter.route(chunk);
     });
     this.detachResizeListener = this.bridge?.subscribeResize((columns, rows, cellWidth, cellHeight) => {
       this.onSceneResize?.({
@@ -302,7 +307,10 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       },
     });
     this.executor = executor;
-    this.inputRouter.route = (chunk) => executor.sendInput(chunk);
+    this.inputRouter.route = (chunk) => {
+      executor.sendInput(chunk);
+      return true;
+    };
     executor.setSuspended(this.suspended);
     executor.start();
   }

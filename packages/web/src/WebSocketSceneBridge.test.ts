@@ -204,7 +204,7 @@ test("bridge buffers output until a runtime binds a sink", async () => {
   ]);
 });
 
-test("bridge requests a keyframe for a stamped delta without a baseline and recovers", async () => {
+test("bridge dedupes keyframe requests until a stamped baseline recovers", async () => {
   const socket = new FakeWebSocket();
   const bridge = new WebSocketSceneBridge({
     sceneId: "main",
@@ -239,6 +239,24 @@ test("bridge requests a keyframe for a stamped delta without a baseline and reco
 
   socket.message(encoder.encode(
     "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      epoch: 29,
+      gen: 2,
+      baselineGen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      deltaRows: [[0, [[0, "still-lost", 1, 0]]]],
+    }) + "\n"
+  ));
+  await Promise.resolve();
+  expect(socket.sent.filter(
+    (chunk) => decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n'
+  )).toHaveLength(1);
+
+  socket.message(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
       version: 2,
       epoch: 29,
       gen: 3,
@@ -270,6 +288,24 @@ test("bridge requests a keyframe for a stamped delta without a baseline and reco
   expect(socket.sent.filter(
     (chunk) => decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n'
   )).toHaveLength(1);
+
+  socket.message(encoder.encode(
+    "\u001Esurface:" + JSON.stringify({
+      version: 3,
+      encoding: "delta",
+      epoch: 29,
+      gen: 6,
+      baselineGen: 5,
+      width: 2,
+      height: 1,
+      styles: [null],
+      deltaRows: [[0, [[0, "new-loss", 1, 0]]]],
+    }) + "\n"
+  ));
+  await Promise.resolve();
+  expect(socket.sent.filter(
+    (chunk) => decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n'
+  )).toHaveLength(2);
 
   bridge.dispose();
 });

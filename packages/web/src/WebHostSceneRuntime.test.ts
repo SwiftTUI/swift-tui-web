@@ -5,10 +5,16 @@ import {
   encodeRenderStyleControlMessage,
   encodeResizeControlMessage,
 } from "./wasi/BrowserWASIBridge.ts";
-import { SharedInputQueueReader } from "./wasi/SharedInputQueue.ts";
+import {
+  SharedInputQueueReader,
+  sharedInputQueueDefaultCapacity,
+} from "./wasi/SharedInputQueue.ts";
 import { createWasmSceneRuntimeFactory } from "./wasi/WasmSceneRuntime.ts";
 import { WebHostSceneRuntime, type WheelMode } from "./WebHostSceneRuntime.ts";
-import { encodePasteInputMessage } from "./WebHostSurfaceTransport.ts";
+import {
+  encodePasteInputMessage,
+  encodeResyncControlMessage,
+} from "./WebHostSurfaceTransport.ts";
 import { transportFixture } from "./WebHostTestFixtures.ts";
 
 const encoder = new TextEncoder();
@@ -556,6 +562,111 @@ test("WASI runtime forwards bridge control input into the worker queue", async (
 
     runtime.dispose();
   } finally {
+    globalThis.Worker = previousWorker;
+    dom.restore();
+  }
+});
+
+test("WASI retries one keyframe resync after shared input capacity returns", async () => {
+  const dom = installFakeDOM();
+  const previousWorker = globalThis.Worker;
+  const previousConsoleError = console.error;
+  const postedMessages: Array<{
+    inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
+  }> = [];
+  const consoleErrors: unknown[][] = [];
+
+  class FakeWorker {
+    constructor(
+      _url: string | URL,
+      _options?: WorkerOptions
+    ) {}
+
+    addEventListener(
+      _type: string,
+      _listener: EventListener
+    ): void {}
+
+    postMessage(
+      message: {
+        inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
+      }
+    ): void {
+      postedMessages.push(message);
+    }
+
+    terminate(): void {}
+  }
+
+  globalThis.Worker = FakeWorker as unknown as typeof Worker;
+  console.error = (...arguments_: unknown[]): void => {
+    consoleErrors.push(arguments_);
+  };
+
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const runtime = createWasmSceneRuntimeFactory(
+      new URL("https://example.test/app.wasm"),
+      { workerModuleURL: "fake-worker.js" }
+    )({
+      mount: new FakeElement("div") as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    const inputQueue = postedMessages[0]?.inputQueue;
+    if (!inputQueue) {
+      throw new Error("worker did not receive an input queue");
+    }
+    const reader = new SharedInputQueueReader(inputQueue);
+    reader.readAvailable(reader.availableBytes());
+
+    const resync = encodeResyncControlMessage({ scope: "keyframe" });
+    const filler = new Uint8Array(
+      sharedInputQueueDefaultCapacity - resync.byteLength + 1
+    );
+    bridge.sendInput(filler);
+    expect(reader.availableBytes()).toBe(filler.byteLength);
+
+    const missingBaselineDelta = surfaceRecord({
+      version: 3,
+      encoding: "delta",
+      epoch: 7,
+      gen: 2,
+      baselineGen: 1,
+      width: 4,
+      height: 2,
+      styles: [null],
+      deltaRows: [[0, [[0, "lost", 1, 0]]]],
+    });
+    bridge.stdout.write(encoder.encode(missingBaselineDelta));
+
+    expect(reader.availableBytes()).toBe(filler.byteLength);
+    expect(consoleErrors).toHaveLength(1);
+    expect(String(consoleErrors[0]?.[1])).toContain(
+      "Shared input queue overflow"
+    );
+
+    reader.readAvailable(reader.availableBytes());
+    bridge.stdout.write(encoder.encode(missingBaselineDelta));
+
+    expect(Array.from(
+      reader.readAvailable(reader.availableBytes()) ?? []
+    )).toEqual(Array.from(resync));
+
+    bridge.stdout.write(encoder.encode(missingBaselineDelta));
+    expect(reader.availableBytes()).toBe(0);
+
+    runtime.dispose();
+  } finally {
+    console.error = previousConsoleError;
     globalThis.Worker = previousWorker;
     dom.restore();
   }

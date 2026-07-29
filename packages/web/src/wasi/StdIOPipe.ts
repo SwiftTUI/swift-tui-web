@@ -1,25 +1,29 @@
 export class StdIOPipe implements AsyncIterable<Uint8Array> {
   private readonly chunks: Uint8Array[] = [];
   private readonly waiters: Array<(value: IteratorResult<Uint8Array>) => void> = [];
-  private readonly listeners = new Set<(chunk: Uint8Array) => void>();
+  private readonly listeners = new Set<(chunk: Uint8Array) => boolean | void>();
   private closed = false;
 
-  write(chunk: Uint8Array | string): void {
+  write(chunk: Uint8Array | string): boolean {
     if (this.closed) {
-      return;
+      return false;
     }
 
     const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk);
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter({ done: false, value: bytes });
-      return;
+      return true;
     }
 
     this.chunks.push(bytes);
+    let accepted = true;
     for (const listener of this.listeners) {
-      listener(bytes);
+      if (listener(bytes) === false) {
+        accepted = false;
+      }
     }
+    return accepted;
   }
 
   close(): void {
@@ -52,7 +56,7 @@ export class StdIOPipe implements AsyncIterable<Uint8Array> {
   }
 
   subscribe(
-    listener: (chunk: Uint8Array) => void
+    listener: (chunk: Uint8Array) => boolean | void
   ): () => void {
     this.listeners.add(listener);
     return () => {
