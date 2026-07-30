@@ -132,9 +132,6 @@ function parseManifest(
   if (new Set(entries.map((entry) => entry.scenario)).size !== entries.length) {
     fail("manifest: duplicate scenario");
   }
-  if (entries.some((entry) => entry.requiresStage === "s3d")) {
-    fail("manifest: S5 must not contain an s3d fixture");
-  }
   return { formatVersion: 1, fixtures: entries };
 }
 

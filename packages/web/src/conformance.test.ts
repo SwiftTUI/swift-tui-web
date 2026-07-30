@@ -26,11 +26,11 @@ const fixtureDirectory = join(
 );
 
 describe("host-wire conformance corpus", () => {
-  test("loads the full nine-body census including inactive host-only fixtures", async () => {
+  test("loads the full ten-body census including host-only fixtures", async () => {
     const corpus = await loadConformanceCorpus(fixtureDirectory);
 
-    expect(corpus.manifest.fixtures).toHaveLength(9);
-    expect(corpus.fixtures.size).toBe(9);
+    expect(corpus.manifest.fixtures).toHaveLength(10);
+    expect(corpus.fixtures.size).toBe(10);
     expect(corpus.manifest.fixtures.map((entry) => entry.file)).toEqual([
       "conformance-android-delivery-commit.jsonl",
       "conformance-baseline-loss.jsonl",
@@ -39,19 +39,26 @@ describe("host-wire conformance corpus", () => {
       "conformance-image-decode-failure.jsonl",
       "conformance-image-forget-record.jsonl",
       "conformance-image-forget-web-painter.jsonl",
+      "conformance-style-append.jsonl",
       "conformance-unknown-token.jsonl",
       "conformance-websocket-detached-backlog.jsonl",
     ]);
+    // The mirror is the full census; only the two host-only stages are
+    // inapplicable to a web runner, and skipping them is allowed solely because
+    // their file, manifest entry, and body hash are all present locally.
     expect(
       corpus.manifest.fixtures.filter((entry) =>
         !WEB_CONFORMANCE_ACTIVE_STAGES.includes(
-          entry.requiresStage as "s1" | "s2"
+          entry.requiresStage as "s1" | "s2" | "s3d"
         )
       ).map((entry) => entry.requiresStage)
     ).toEqual(["s3a", "s3b"]);
+    // S3d landed, so the append fixture is part of the active census rather
+    // than forbidden from it.
     expect(
-      corpus.manifest.fixtures.some((entry) => entry.requiresStage === "s3d")
-    ).toBe(false);
+      corpus.manifest.fixtures.filter((entry) => entry.requiresStage === "s3d")
+        .map((entry) => entry.scenario)
+    ).toEqual(["style-append-splices-onto-the-retained-table"]);
   });
 
   for (const runner of WEB_CONFORMANCE_RUNNERS) {
@@ -60,7 +67,7 @@ describe("host-wire conformance corpus", () => {
       const expected = corpus.manifest.fixtures.filter((entry) =>
         entry.runners.includes(runner)
         && WEB_CONFORMANCE_ACTIVE_STAGES.includes(
-          entry.requiresStage as "s1" | "s2"
+          entry.requiresStage as "s1" | "s2" | "s3d"
         )
       );
       const executed: string[] = [];

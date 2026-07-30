@@ -188,7 +188,19 @@ export interface WebHostSurfaceDeltaFrame {
   sequence?: number;
   width: number;
   height: number;
+  /**
+   * With `stylesBase` present, only the styles this record *added*: index `i`
+   * of this array is table index `stylesBase + i`. Absent `stylesBase`, the
+   * complete accumulated table, as deployed decoders expect.
+   */
   styles: Array<WebHostSurfaceStyle | null>;
+  /**
+   * Where `styles` splices onto the retained table. Present only when the
+   * client declared `styleAppend`, which is why it is negotiated rather than
+   * additive: reading `styles` as a whole table when this is present
+   * mis-indexes every style in the record.
+   */
+  stylesBase?: number;
   deltaRows: WebHostSurfaceDeltaRow[];
   images?: WebHostSurfaceImage[];
   damage?: WebHostSurfaceDamage;
@@ -622,6 +634,11 @@ export class WebHostOutputDecoder {
       return undefined;
     }
 
+    const styles = this.materializeDeltaStyles(frame, baseline);
+    if (!styles) {
+      return undefined;
+    }
+
     const rows = baseline.rows.slice();
     for (const [row, cells] of frame.deltaRows) {
       if (!Number.isSafeInteger(row) || row < 0 || row >= frame.height) {
@@ -637,7 +654,7 @@ export class WebHostOutputDecoder {
       sequence: frame.sequence,
       width: frame.width,
       height: frame.height,
-      styles: frame.styles,
+      styles,
       rows,
       images: frame.images,
       damage: frame.damage,
@@ -650,6 +667,28 @@ export class WebHostOutputDecoder {
       preferredGridWidth: frame.preferredGridWidth,
       preferredGridHeight: frame.preferredGridHeight,
     };
+  }
+
+  /**
+   * The delta's style table: either the record's own complete table, or the
+   * negotiated append spliced onto the baseline's.
+   *
+   * A `stylesBase` that does not name the end of the retained table is a
+   * structural break, not a recoverable one — splicing at the wrong offset
+   * silently repaints cells in the wrong style, which is worse than refusing
+   * the record and asking for a keyframe.
+   */
+  private materializeDeltaStyles(
+    frame: WebHostSurfaceDeltaFrame,
+    baseline: WebHostSurfaceFrame
+  ): Array<WebHostSurfaceStyle | null> | undefined {
+    if (frame.stylesBase === undefined) {
+      return frame.styles;
+    }
+    if (frame.stylesBase !== baseline.styles.length) {
+      return undefined;
+    }
+    return baseline.styles.concat(frame.styles);
   }
 }
 
@@ -781,8 +820,14 @@ export function encodeCapabilitiesControlMessage(): Uint8Array {
   // this decoder already performs on every record (SUPPORTED_SURFACE_VERSION).
   // Servers still expecting it skip unknown keys, so dropping it is safe in
   // both directions.
+  //
+  // `styleAppend` is declared here because `materializeDeltaStyles` splices a
+  // delta's `styles` onto the retained table when `stylesBase` is present.
+  // Declaring it is truthful by construction: this decoder and this record are
+  // the same release. Measured at Stage SV, the full retransmit it replaces was
+  // 69.7% of late-record bytes in a style-churning epoch.
   return textEncoder.encode(
-    `${recordPrefix}caps:{"acceptsDeltaFrames":true}\n`
+    `${recordPrefix}caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n`
   );
 }
 
@@ -891,6 +936,7 @@ function isWebHostSurfaceDeltaFrame(
     && Array.isArray(frame.deltaRows)
     && frame.deltaRows.every(isWebHostSurfaceDeltaRow)
     && isOptionalSafeInteger(frame.baselineGen)
+    && isOptionalSafeInteger(frame.stylesBase)
     && (frame.images === undefined || isWebHostSurfaceImages(frame.images))
     && (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage))
     && (

@@ -293,6 +293,45 @@ test("decoder materializes delta surface frames from a full baseline", () => {
   });
 });
 
+test("decoder splices an appended style table onto its retained one", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    '\u001Esurface:{"version":2,"epoch":5,"gen":1,"width":2,"height":1,'
+      + '"styles":[null,{"fg":"#FF0000FF"}],'
+      + '"rows":[[[0,"A",1,1],[1,"B",1,0]]],"images":[]}\n'
+      // Negotiated append shape: `stylesBase` names the end of the retained
+      // table, and `styles` carries only what this record added.
+      + '\u001Esurface:{"version":3,"encoding":"delta","epoch":5,"gen":2,'
+      + '"baselineGen":1,"width":2,"height":1,"stylesBase":2,'
+      + '"styles":[{"fg":"#0000FFFF"}],'
+      + '"deltaRows":[[0,[[0,"C",1,2],[1,"D",1,1]]]],"images":[]}\n'
+  ));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "surface"]);
+  const frame = surfaceFrame(records[1]);
+  expect(frame.styles).toEqual([null, { fg: "#FF0000FF" }, { fg: "#0000FFFF" }]);
+  // Style index 2 is the appended entry and index 1 is the retained one, so a
+  // wrong splice offset would repaint both cells in the wrong colour.
+  expect(frame.rows).toEqual([[[0, "C", 1, 2], [1, "D", 1, 1]]]);
+});
+
+test("decoder refuses an appended style table whose base does not match", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    '\u001Esurface:{"version":2,"epoch":6,"gen":1,"width":1,"height":1,'
+      + '"styles":[null,{"fg":"#FF0000FF"}],'
+      + '"rows":[[[0,"A",1,1]]],"images":[]}\n'
+      // A base of 1 claims the retained table has one entry; it has two.
+      // Splicing anyway would silently paint every cell in the wrong style.
+      + '\u001Esurface:{"version":3,"encoding":"delta","epoch":6,"gen":2,'
+      + '"baselineGen":1,"width":1,"height":1,"stylesBase":1,'
+      + '"styles":[{"fg":"#0000FFFF"}],'
+      + '"deltaRows":[[0,[[0,"C",1,2]]]],"images":[]}\n'
+  ));
+
+  expect(records.map((record) => record.type)).toEqual(["surface", "text"]);
+});
+
 test("decoder rebaselines a full frame received after a delta", () => {
   const decoder = new WebHostOutputDecoder();
   const records = decoder.feed(encoder.encode(

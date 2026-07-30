@@ -1,6 +1,6 @@
 export const CONFORMANCE_FORMAT_VERSION = 1;
 export const WEB_CONFORMANCE_RUNNERS = ["web-canvas", "web-dom"] as const;
-export const WEB_CONFORMANCE_ACTIVE_STAGES = ["s1", "s2"] as const;
+export const WEB_CONFORMANCE_ACTIVE_STAGES = ["s1", "s2", "s3d"] as const;
 
 export const CONFORMANCE_RUNNERS = [
   "swift-reference",
