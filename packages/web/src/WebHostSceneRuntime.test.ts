@@ -630,6 +630,8 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
     reader.readAvailable(reader.availableBytes());
 
     const resync = encodeResyncControlMessage({ scope: "keyframe" });
+    // One byte more than the ring can hold alongside the resync record, so the
+    // resync cannot be written in one go.
     const filler = new Uint8Array(
       sharedInputQueueDefaultCapacity - resync.byteLength + 1
     );
@@ -649,19 +651,17 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
     });
     bridge.stdout.write(encoder.encode(missingBaselineDelta));
 
-    expect(reader.availableBytes()).toBe(filler.byteLength);
-    expect(consoleErrors).toHaveLength(1);
-    expect(String(consoleErrors[0]?.[1])).toContain(
-      "Shared input queue overflow"
-    );
+    // The resync request is no longer rejected for want of space: it streams
+    // through the ring as the reader drains, so nothing is dropped and nothing
+    // is reported.
+    expect(
+      Array.from(await drainExactly(reader, filler.byteLength + resync.byteLength))
+        .slice(filler.byteLength)
+    ).toEqual(Array.from(resync));
+    expect(consoleErrors).toEqual([]);
 
-    reader.readAvailable(reader.availableBytes());
-    await waitForAvailableInput(reader);
-
-    expect(Array.from(
-      reader.readAvailable(reader.availableBytes()) ?? []
-    )).toEqual(Array.from(resync));
-
+    // Still deduplicated: a second refused delta does not re-request while the
+    // first keyframe request is outstanding.
     bridge.stdout.write(encoder.encode(missingBaselineDelta));
     expect(reader.availableBytes()).toBe(0);
 
@@ -674,14 +674,12 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
     );
     bridge.sendInput(imageFiller);
     bridge.requestImagePayloads(["png:capacity-retry"]);
-    expect(reader.availableBytes()).toBe(imageFiller.byteLength);
-    expect(consoleErrors).toHaveLength(2);
-
-    reader.readAvailable(reader.availableBytes());
-    await waitForAvailableInput(reader);
-    expect(Array.from(
-      reader.readAvailable(reader.availableBytes()) ?? []
-    )).toEqual(Array.from(imageResync));
+    expect(
+      Array.from(
+        await drainExactly(reader, imageFiller.byteLength + imageResync.byteLength)
+      ).slice(imageFiller.byteLength)
+    ).toEqual(Array.from(imageResync));
+    expect(consoleErrors).toEqual([]);
 
     bridge.requestImagePayloads(["png:capacity-retry"]);
     expect(reader.availableBytes()).toBe(0);
@@ -694,7 +692,7 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
   }
 });
 
-test("characterization: WASI input routing drops whole oversized paste records", async () => {
+test("WASI input routing streams an oversized paste through the ring", async () => {
   const dom = installFakeDOM();
   const previousWorker = globalThis.Worker;
   const previousConsoleError = console.error;
@@ -755,17 +753,19 @@ test("characterization: WASI input routing drops whole oversized paste records",
     const reader = new SharedInputQueueReader(inputQueue);
     reader.readAvailable(reader.availableBytes());
 
-    const firstOverflowingPastes = [
+    // Both of these exceed the 64 KiB ring by one byte, which used to drop the
+    // whole clipboard. They now stream through it while the reader drains.
+    const overflowingPastes = [
       "a".repeat(65_529),
       "界".repeat(7_281),
     ];
     expect(
-      firstOverflowingPastes.map(
+      overflowingPastes.map(
         (text) => encodePasteInputMessage(text).byteLength
       )
     ).toEqual([65_537, 65_537]);
 
-    for (const text of firstOverflowingPastes) {
+    for (const text of overflowingPastes) {
       let preventedDefault = false;
       runtime.terminalMount.dispatch("paste", {
         clipboardData: {
@@ -775,19 +775,29 @@ test("characterization: WASI input routing drops whole oversized paste records",
           preventedDefault = true;
         },
       });
-      // Known defect D13: the router catches the overflow and drops the
-      // complete paste record, leaving no bytes for the WASI consumer.
       expect(preventedDefault).toBe(true);
-      expect(reader.availableBytes()).toBe(0);
+
+      // Drain like the worker would: the writer hands over what fits, waits for
+      // the reader, and continues. Every byte arrives, in order, as one paste.
+      const expected = encodePasteInputMessage(text);
+      const received: number[] = [];
+      for (let turn = 0; turn < 512 && received.length < expected.byteLength; turn += 1) {
+        const chunk = reader.readAvailable(expected.byteLength);
+        if (chunk) {
+          received.push(...chunk);
+        }
+        // A macrotask turn, not just a microtask: the writer resumes on the
+        // reader's `Atomics.notify`, which lands in a task.
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        });
+      }
+      expect(received.length).toBe(expected.byteLength);
+      expect(new Uint8Array(received)).toEqual(expected);
     }
 
-    expect(consoleErrors).toHaveLength(2);
-    for (const [message, error] of consoleErrors) {
-      expect(message).toBe("[SwiftTUIWeb] failed to enqueue terminal input");
-      expect(String(error)).toBe(
-        "Error: Shared input queue overflow: cannot enqueue 65537 byte(s) into 65536 byte(s) of free space."
-      );
-    }
+    // Nothing was dropped, so nothing was reported.
+    expect(consoleErrors).toEqual([]);
 
     runtime.dispose();
   } finally {
@@ -2244,6 +2254,32 @@ function childWithData(
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+/// Drains exactly `byteCount` bytes, letting the chunked writer resume between
+/// reads. Bounded by turns rather than by a sleep.
+async function drainExactly(
+  reader: SharedInputQueueReader,
+  byteCount: number
+): Promise<Uint8Array> {
+  const received: number[] = [];
+  for (let turn = 0; turn < 4_096 && received.length < byteCount; turn += 1) {
+    const chunk = reader.readAvailable(byteCount - received.length);
+    if (chunk) {
+      received.push(...chunk);
+    }
+    // A macrotask turn: the writer resumes on the reader's `Atomics.notify`,
+    // which lands in a task rather than a microtask.
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+  }
+  if (received.length !== byteCount) {
+    throw new Error(
+      `timed out draining shared input: got ${received.length} of ${byteCount} bytes`
+    );
+  }
+  return new Uint8Array(received);
 }
 
 async function waitForAvailableInput(

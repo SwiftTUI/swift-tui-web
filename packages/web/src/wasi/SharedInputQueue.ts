@@ -1,5 +1,6 @@
 const controlSlots = 3;
 const capacityWaitTimeoutMilliseconds = 50;
+const writeDeadlineMilliseconds = 500;
 
 const enum ControlSlot {
   readIndex = 0,
@@ -15,6 +16,25 @@ export interface SharedInputQueueBuffers {
 }
 
 export type SharedInputReadiness = "readable" | "closed" | "timedOut";
+
+/**
+ * The outcome of one logical `writeAsync`.
+ *
+ * `partial` carries how many bytes reached the ring before the deadline. It is
+ * distinct from `timedOut`-with-nothing-written because a caller reporting a
+ * dropped paste wants to say whether the app saw part of it.
+ */
+export type SharedInputWriteOutcome =
+  | { readonly status: "written" }
+  | { readonly status: "closed"; readonly bytesWritten: number }
+  | { readonly status: "partial"; readonly bytesWritten: number; readonly bytesRemaining: number };
+
+export interface SharedInputWriteOptions {
+  /** Total budget for the whole logical write. Defaults to 500 ms. */
+  readonly deadlineMilliseconds?: number;
+  /** Injectable clock, so deadline behavior is testable without wall time. */
+  readonly now?: () => number;
+}
 
 interface SharedInputQueueState {
   readonly control: Int32Array;
@@ -51,9 +71,125 @@ export function hydrateSharedInputQueue(
 
 export class SharedInputQueueWriter {
   private readonly queue: SharedInputQueueState;
+  /**
+   * Serializes `writeAsync` calls. A chunked write suspends while the reader
+   * drains, so two concurrent logical writes would otherwise interleave their
+   * segments in the ring and corrupt both records.
+   */
+  private writeChain: Promise<unknown> = Promise.resolve();
+  /**
+   * How many logical writes are queued or in flight. A write must join the
+   * chain whenever one is already pending, or a small later chunk could
+   * overtake an earlier chunked one and land out of order.
+   */
+  private pendingWrites = 0;
 
   constructor(buffers: SharedInputQueueBuffers) {
     this.queue = hydrateSharedInputQueue(buffers);
+  }
+
+  /**
+   * Streams one logical write into the ring, in as many segments as the reader's
+   * drain rate requires.
+   *
+   * A single `write` can only ever enqueue what currently fits, so a paste
+   * larger than the free space failed outright and the whole clipboard was lost.
+   * Here the write takes `min(free, remaining)` bytes at a time and awaits
+   * capacity in between, so a paste larger than the ring streams through it
+   * while the worker drains. No record shape changes: the bytes arrive in
+   * order, so a bracketed paste is still one paste.
+   *
+   * Never blocks: this runs on the main thread, where `Atomics.wait` is
+   * forbidden, so it awaits the reader's notification instead. Each wait is
+   * capped at 50 ms (or whatever is left of the deadline) so a missed
+   * notification costs one bounded recheck rather than a hang, and the whole
+   * write is bounded by a 500 ms deadline.
+   */
+  writeAsync(
+    chunk: Uint8Array | string,
+    options: SharedInputWriteOptions = {}
+  ): Promise<SharedInputWriteOutcome> {
+    const bytes = normalizeChunk(chunk);
+    if (bytes.length == 0) {
+      return Promise.resolve({ status: "written" });
+    }
+    if (Atomics.load(this.queue.control, ControlSlot.closed) !== 0) {
+      return Promise.resolve({ status: "closed", bytesWritten: 0 });
+    }
+
+    // Fast path: with nothing queued ahead of it and room for the whole chunk,
+    // the write lands synchronously. That keeps an ordinary keystroke exactly as
+    // immediate as it was before chunking existed — only a write that cannot fit
+    // pays for suspension.
+    if (this.pendingWrites === 0 && bytes.length <= this.availableCapacity()) {
+      this.writeSegment(bytes);
+      return Promise.resolve({ status: "written" });
+    }
+
+    this.pendingWrites += 1;
+    const attempt = this.writeChain.then(
+      () => this.performChunkedWrite(bytes, options),
+      () => this.performChunkedWrite(bytes, options)
+    );
+    this.writeChain = attempt;
+    return attempt.finally(() => {
+      this.pendingWrites -= 1;
+    });
+  }
+
+  private async performChunkedWrite(
+    bytes: Uint8Array,
+    options: SharedInputWriteOptions
+  ): Promise<SharedInputWriteOutcome> {
+    const now = options.now ?? (() => Date.now());
+    const deadline = now()
+      + Math.max(0, options.deadlineMilliseconds ?? writeDeadlineMilliseconds);
+    let written = 0;
+
+    while (written < bytes.length) {
+      if (Atomics.load(this.queue.control, ControlSlot.closed) !== 0) {
+        return { status: "closed", bytesWritten: written };
+      }
+
+      const free = this.availableCapacity();
+      if (free > 0) {
+        const segment = Math.min(free, bytes.length - written);
+        this.writeSegment(bytes.subarray(written, written + segment));
+        written += segment;
+        continue;
+      }
+
+      const remainingBudget = deadline - now();
+      if (remainingBudget <= 0) {
+        return {
+          status: "partial",
+          bytesWritten: written,
+          bytesRemaining: bytes.length - written,
+        };
+      }
+      // `singleWait` keeps the deadline in this loop: without it the helper
+      // would spin internally until capacity arrived, ignoring the budget.
+      await this.waitForCapacity(1, {
+        timeoutMilliseconds: Math.min(capacityWaitTimeoutMilliseconds, remainingBudget),
+        singleWait: true,
+      });
+    }
+
+    return { status: "written" };
+  }
+
+  private writeSegment(
+    segment: Uint8Array
+  ): void {
+    const length = this.queue.data.length;
+    const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
+    writeToRingBuffer(this.queue.data, segment, writeIndex);
+    Atomics.store(
+      this.queue.control,
+      ControlSlot.writeIndex,
+      ringAdvance(writeIndex, segment.length, length)
+    );
+    Atomics.notify(this.queue.control, ControlSlot.writeIndex);
   }
 
   write(chunk: Uint8Array | string): void {
@@ -95,12 +231,14 @@ export class SharedInputQueueWriter {
   }
 
   async waitForCapacity(
-    minimumBytes: number
+    minimumBytes: number,
+    options: { readonly timeoutMilliseconds?: number; readonly singleWait?: boolean } = {}
   ): Promise<boolean> {
     const required = Math.max(0, Math.ceil(minimumBytes));
     if (required > this.queue.data.length) {
       return false;
     }
+    const timeout = options.timeoutMilliseconds ?? capacityWaitTimeoutMilliseconds;
 
     while (true) {
       const readIndex = Atomics.load(this.queue.control, ControlSlot.readIndex);
@@ -116,7 +254,7 @@ export class SharedInputQueueWriter {
           this.queue.control,
           ControlSlot.readIndex,
           readIndex,
-          capacityWaitTimeoutMilliseconds
+          timeout
         );
         if (waiting.async) {
           await waiting.value;
@@ -125,6 +263,13 @@ export class SharedInputQueueWriter {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 1);
         });
+      }
+
+      // One bounded recheck and return, for callers that own the retry loop
+      // themselves: a missed notification then costs a single capped wait
+      // rather than spinning inside here.
+      if (options.singleWait) {
+        return this.availableCapacity() >= required;
       }
     }
   }

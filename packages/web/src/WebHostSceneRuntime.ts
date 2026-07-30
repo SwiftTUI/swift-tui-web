@@ -329,7 +329,10 @@ export class WebHostSceneRuntime {
   notifyRuntimeIssue(
     issue: WebHostRuntimeIssue
   ): void {
-    console.log(issue.description);
+    // Into the mount, not only the console: a runtime issue is the app telling
+    // the user something went wrong, and a console line is invisible to anyone
+    // who is not already looking at devtools.
+    this.writeOutput(`${issue.description}\n`);
   }
 
   private recordFrameDiagnostic(

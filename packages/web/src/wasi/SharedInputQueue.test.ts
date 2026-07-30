@@ -226,13 +226,139 @@ test("characterization: percent-encoded paste records overflow at the pinned 64 
     reader.readAvailable(sharedInputQueueDefaultCapacity);
     expect(reader.availableBytes()).toBe(0);
 
-    // Known defect D13: the writer rejects the entire input record rather
-    // than applying backpressure or streaming it in bounded chunks.
+    // The synchronous `write` still refuses what cannot fit in one go — it is
+    // the worker-side, non-suspending entry point. `writeAsync` is the
+    // main-thread path that streams it instead; see the tests below.
     expect(() => writer.write(firstOverflowingRecord)).toThrow(
       `Shared input queue overflow: cannot enqueue ${characterization.firstOverflowingRecordBytes} byte(s) into ${sharedInputQueueDefaultCapacity} byte(s) of free space.`
     );
     expect(reader.availableBytes()).toBe(0);
   }
+});
+
+test("writeAsync streams a paste larger than the ring, in order", async () => {
+  for (const bytes of [
+    // 128 KiB of ASCII and 64 KiB of CJK: two records each larger than the
+    // 64 KiB ring, one of them by 2x.
+    encodePasteInputMessage("a".repeat(128 * 1024)),
+    encodePasteInputMessage("界".repeat(64 * 1024 / 3)),
+  ]) {
+    expect(bytes.byteLength).toBeGreaterThan(sharedInputQueueDefaultCapacity);
+
+    const queue = createSharedInputQueue();
+    const writer = new SharedInputQueueWriter(queue);
+    const reader = new SharedInputQueueReader(queue);
+
+    // A deliberately slow reader: 4 KiB per turn, so the write suspends many
+    // times before completing.
+    const received: number[] = [];
+    const write = writer.writeAsync(bytes);
+    for (let turn = 0; turn < 4_096 && received.length < bytes.byteLength; turn += 1) {
+      const chunk = reader.readAvailable(4 * 1024);
+      if (chunk) {
+        received.push(...chunk);
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
+
+    expect(await write).toEqual({ status: "written" });
+    expect(new Uint8Array(received)).toEqual(bytes);
+  }
+});
+
+test("writeAsync preserves order across concurrent logical writes", async () => {
+  const queue = createSharedInputQueue();
+  const writer = new SharedInputQueueWriter(queue);
+  const reader = new SharedInputQueueReader(queue);
+
+  // The first write cannot fit, so it suspends mid-record. A small write issued
+  // while it is still pending must queue behind it — with free space available
+  // it would otherwise take the synchronous fast path and land *inside* the
+  // first record, splitting one paste into two and corrupting both.
+  const first = encodePasteInputMessage("a".repeat(96 * 1024));
+  const second = encodePasteInputMessage("b");
+  const firstWrite = writer.writeAsync(first);
+
+  const received: number[] = [];
+  // Free some space so a fast-path write would fit, then issue the small one.
+  received.push(...(reader.readAvailable(8 * 1024) ?? []));
+  const secondWrite = writer.writeAsync(second);
+  expect(writer.availableCapacity()).toBeGreaterThan(second.byteLength);
+
+  const total = first.byteLength + second.byteLength;
+  for (let turn = 0; turn < 4_096 && received.length < total; turn += 1) {
+    const chunk = reader.readAvailable(8 * 1024);
+    if (chunk) {
+      received.push(...chunk);
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+  }
+
+  expect(await Promise.all([firstWrite, secondWrite])).toEqual([
+    { status: "written" },
+    { status: "written" },
+  ]);
+  expect(new Uint8Array(received)).toEqual(
+    new Uint8Array([...first, ...second])
+  );
+});
+
+test("writeAsync reports a partial write once its deadline expires", async () => {
+  const queue = createSharedInputQueue();
+  const writer = new SharedInputQueueWriter(queue);
+  const bytes = encodePasteInputMessage("a".repeat(96 * 1024));
+
+  // A reader that never drains, and an injected clock that jumps past the
+  // 500 ms budget: bounded by the deadline, not by wall time.
+  let clock = 0;
+  const outcome = await writer.writeAsync(bytes, {
+    deadlineMilliseconds: 500,
+    now: () => {
+      clock += 250;
+      return clock;
+    },
+  });
+
+  expect(outcome.status).toBe("partial");
+  if (outcome.status !== "partial") {
+    throw new Error("expected a partial write");
+  }
+  // Everything that fit was delivered; only the remainder was dropped.
+  expect(outcome.bytesWritten).toBe(sharedInputQueueDefaultCapacity);
+  expect(outcome.bytesRemaining).toBe(
+    bytes.byteLength - sharedInputQueueDefaultCapacity
+  );
+});
+
+test("writeAsync stops when the queue closes mid-write", async () => {
+  const queue = createSharedInputQueue();
+  const writer = new SharedInputQueueWriter(queue);
+  const bytes = encodePasteInputMessage("a".repeat(96 * 1024));
+
+  const write = writer.writeAsync(bytes);
+  writer.close();
+  const outcome = await write;
+
+  expect(outcome.status).toBe("closed");
+});
+
+test("the main-thread writer never blocks on Atomics.wait", async () => {
+  // A structural guard, because the failure mode is a frozen tab rather than a
+  // wrong value: blocking on the main thread throws in browsers, and a test
+  // that only checked outputs would not see the difference.
+  const source = await Bun.file(
+    new URL("./SharedInputQueue.ts", import.meta.url)
+  ).text();
+  const writerSource = source.slice(
+    source.indexOf("export class SharedInputQueueWriter"),
+    source.indexOf("export class SharedInputQueueReader")
+  );
+  expect(writerSource).not.toContain("Atomics.wait(");
+  expect(writerSource).toContain("Atomics.waitAsync");
 });
 
 function decode(

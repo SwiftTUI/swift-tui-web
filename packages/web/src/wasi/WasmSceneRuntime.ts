@@ -159,28 +159,53 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       sharedQueueError = error;
     }
 
+    // Input is streamed rather than all-or-nothing. A single ring write can
+    // only enqueue what currently fits, so a paste larger than the free space
+    // used to fail outright and drop the whole clipboard; `writeAsync` takes
+    // `min(free, remaining)` bytes at a time and awaits the reader in between,
+    // bounded by a 500 ms deadline. It never blocks — this is the main thread.
+    // Assigned right after `super()`: `this` is unavailable until then, and the
+    // reporter is only ever invoked from a settled promise afterwards.
+    const overflowReporter: {
+      report?: (bytesWritten: number, bytesRemaining: number) => void;
+    } = {};
+
+    const enqueueInput = (
+      writer: SharedInputQueueWriter,
+      chunk: Uint8Array
+    ): void => {
+      void writer.writeAsync(chunk).then((outcome) => {
+        if (inputCapacityNotifier.disposed || outcome.status === "written") {
+          return;
+        }
+        if (outcome.status === "closed") {
+          return;
+        }
+        // Only a write that ran out of budget is reportable, and it is
+        // reportable *into the app's mount*: silently losing the tail of a
+        // paste is exactly the failure this stage exists to remove, so it must
+        // not be console-only.
+        overflowReporter.report?.(outcome.bytesWritten, outcome.bytesRemaining);
+      });
+      if (!inputCapacityNotifier.pending) {
+        inputCapacityNotifier.pending = true;
+        void writer.waitForCapacity(1).then((available) => {
+          inputCapacityNotifier.pending = false;
+          if (available && !inputCapacityNotifier.disposed) {
+            (options.bridge as BrowserWASIBridge | undefined)
+              ?.notifyInputCapacityAvailable();
+          }
+        });
+      }
+    };
+
     const inputRouter = {
       route: (chunk: Uint8Array): boolean => {
         if (!inputWriter) {
           return false;
         }
-        try {
-          inputWriter.write(chunk);
-          return true;
-        } catch (error) {
-          console.error("[SwiftTUIWeb] failed to enqueue terminal input", error);
-          if (!inputCapacityNotifier.pending) {
-            inputCapacityNotifier.pending = true;
-            void inputWriter.waitForCapacity(chunk.byteLength).then((available) => {
-              inputCapacityNotifier.pending = false;
-              if (available && !inputCapacityNotifier.disposed) {
-                (options.bridge as BrowserWASIBridge | undefined)
-                  ?.notifyInputCapacityAvailable();
-              }
-            });
-          }
-          return false;
-        }
+        enqueueInput(inputWriter, chunk);
+        return true;
       },
     };
 
@@ -188,6 +213,9 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       ...options,
       onInput: (chunk) => inputRouter.route(chunk),
     });
+    overflowReporter.report = (bytesWritten, bytesRemaining) => {
+      this.notifyInputOverflow(bytesWritten, bytesRemaining);
+    };
 
     this.bridge = options.bridge;
     this.wasmURL = wasmURL;
@@ -200,6 +228,27 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     this.inputCapacityNotifier = inputCapacityNotifier;
     this.sharedQueueError = sharedQueueError;
     this.pauseCell = pauseCell;
+  }
+
+  /// Reports a logical input write that ran out of its deadline.
+  ///
+  /// Surfaced as a runtime issue rather than a console message: the tail of a
+  /// paste going missing is a user-visible data loss, and the whole point of
+  /// the chunked writer is that it should not happen silently.
+  private notifyInputOverflow(
+    bytesWritten: number,
+    bytesRemaining: number
+  ): void {
+    const message = bytesWritten === 0
+      ? `Dropped ${bytesRemaining} byte(s) of terminal input: the app did not read from its input queue within 500 ms.`
+      : `Delivered ${bytesWritten} byte(s) of terminal input and dropped ${bytesRemaining}: the app did not drain its input queue within 500 ms.`;
+    this.notifyRuntimeIssue({
+      severity: "warning",
+      code: "web.input.queueDeadlineExceeded",
+      message,
+      description: `SwiftTUI runtime warning [web.input.queueDeadlineExceeded] ${message}`,
+      source: "web-host",
+    });
   }
 
   protected override onRuntimeSuspensionChange(
