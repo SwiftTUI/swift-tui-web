@@ -199,17 +199,25 @@ describe("host-wire conformance integrity and schema teeth", () => {
     const fixtureName = "conformance-control.jsonl";
     const original = bytes.fixtures.get(fixtureName)!;
     const originalText = new TextDecoder().decode(original);
+    // Both hashes are read out of the fixture header rather than pinned as
+    // literals here: a hard-coded hash makes every canonical re-record red in
+    // a mirror that is otherwise byte-correct, which says nothing about the
+    // integrity check this test exists to prove.
+    const header = JSON.parse(originalText.slice(0, originalText.indexOf("\n"))) as {
+      manifestSHA256: string;
+      bodySHA256: string;
+    };
 
     for (const corruptedText of [
       replaceFirst(
         originalText,
-        "640752802ef20cfcd0683f7c206111ac3500a35339d2af08f764030d2478710a",
-        "740752802ef20cfcd0683f7c206111ac3500a35339d2af08f764030d2478710a"
+        header.manifestSHA256,
+        flipLeadingHexDigit(header.manifestSHA256)
       ),
       replaceFirst(
         originalText,
-        "27a5c95eab79def001b1fa807890f21122efca56641f5d153ba0ddc3536e737e",
-        "37a5c95eab79def001b1fa807890f21122efca56641f5d153ba0ddc3536e737e"
+        header.bodySHA256,
+        flipLeadingHexDigit(header.bodySHA256)
       ),
       replaceFirst(originalText, '\\"A\\"', '\\"X\\"'),
     ]) {
@@ -509,6 +517,12 @@ async function readCorpusBytes(): Promise<{
     }
   }
   return { manifest, fixtures };
+}
+
+function flipLeadingHexDigit(
+  hash: string
+): string {
+  return (hash[0] === "6" ? "7" : "6") + hash.slice(1);
 }
 
 function replaceFirst(
