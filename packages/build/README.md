@@ -9,9 +9,9 @@ compile a SwiftTUI app to `wasm32-wasi` and capture its scene manifest.**
 `@swifttui/build` turns a SwiftTUI app into the two artifacts the browser needs:
 an `app.wasm` and a `scene-manifest.json`. It drives the Swift toolchain, runs a
 browser `WebAssembly.compile` validation pass, and packages the result. It
-intentionally sits outside [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web)
-(the browser runtime) so runtime imports never pull in Swift process spawning,
-Node filesystem APIs, or wasm packaging helpers.
+is separate from [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web),
+the browser runtime. Thus, runtime imports do not include Swift processes, Node
+filesystem APIs, or wasm packaging helpers.
 
 - **Runtime counterpart:** [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web)
   — mounts the artifacts this package produces.
@@ -20,18 +20,18 @@ Node filesystem APIs, or wasm packaging helpers.
 
 ## Installation
 
-Published to npm as an ESM package with a Node CLI and bundled TypeScript
-declarations:
+Install the ESM package from npm. The package includes a Node CLI and bundled
+TypeScript declarations:
 
 ```bash
 npm install --save-dev @swifttui/build
 ```
 
 This exposes the `swifttui-web` CLI (`npx swifttui-web build --app <Exe>`) and a
-programmatic ESM API. The package ships compiled `dist/` JavaScript — the bin
-runs on plain Node (`#!/usr/bin/env node`), no Bun or TypeScript toolchain
-required to consume it. Building a SwiftTUI app to wasm does require a Swift
-6.3.x toolchain and the `swift-6.3.3-RELEASE_wasm` SDK on your machine.
+programmatic ESM API. The package contains compiled JavaScript in `dist/`. The
+binary runs on Node (`#!/usr/bin/env node`). You do not need Bun or a TypeScript
+toolchain to use it. To compile a SwiftTUI app to wasm, install Swift 6.3.x and
+the `swift-6.3.3-RELEASE_wasm` SDK.
 
 ## Use
 
@@ -71,21 +71,21 @@ Callers can override `swiftCommand`, `swiftSDK`, `configuration`,
 
 > The WASI release flags (`-Osize` plus `-disable-llvm-merge-functions-pass`)
 > keep the output under the browser `WebAssembly` API's 1000-parameter limit.
-> The canonical command lives in this package — prefer the CLI/API over a
-> hand-rolled `swift build`.
+> The canonical command is in this package. Use the CLI or API instead of a
+> separate `swift build` command.
 
 ## Developing this package
 
-> Only needed if you are working **on** `@swifttui/build` itself. Consuming it
-> from a project needs only `npm install --save-dev` (above).
+> This section applies only to work **on** `@swifttui/build`. A project that
+> uses the package needs only the `npm install --save-dev` command above.
 
-Use Bun for the CLI, bundling, and tests, and `swiftly` Swift 6.3.3 for the wasm
-build it invokes (not bare `swift`).
+Use Bun for the CLI, bundling, and tests. Use `swiftly` Swift 6.3.3 for the wasm
+build. Do not use bare `swift`.
 
 - `bun test`
-- `bun run build` — compile the publishable package to `dist/` with tsdown
-  (ESM `.js` + `.d.ts`, plus the `swifttui-web` bin). Run automatically on
-  publish via `prepublishOnly`.
+- `bun run build` — Compile the publishable package to `dist/` with tsdown.
+  The output contains ESM `.js`, `.d.ts`, and the `swifttui-web` binary.
+  `prepublishOnly` runs this command during publication.
 - `bun run build:manifest -- --app <AppExecutable>`
 - `bun run build:wasm -- --app <AppExecutable>`
 

@@ -11,22 +11,22 @@ a `<canvas>` — no rewrite, no terminal emulator, no `xterm.js`.
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 
 A SwiftTUI app compiles to `wasm32-wasi` and streams a structured raster surface.
-`@swifttui/web` draws that surface into a canvas and mounts an ARIA tree, so the
-same `App` and `Scene` you run in a terminal run on a web page. These two
+`@swifttui/web` draws that surface in a canvas. It also mounts an ARIA tree.
+Thus, the same `App` and `Scene` run in a terminal and on a web page. These two
 packages deliver two of SwiftTUI's five hosts — a **static WASI bundle** and a
 **localhost WebHost**. The framework itself lives in
-[`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui); this repo is the
-deployment story for the browser.
+[`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui). This repository
+contains the browser deployment packages.
 
-> Status: `0.4.6` beta — source-breaking changes may land before 1.0.
+> Status: `0.4.6` beta. Source-breaking changes can occur before 1.0.
 
 | Package | Role |
 | --- | --- |
 | [`@swifttui/web`](packages/web) | Browser runtime: scene-manifest loading, canvas rendering, ARIA mounting, WebSocket + WASI scene bridges |
 | [`@swifttui/build`](packages/build) | Build tooling: manifest generation, Swift WASI builds, wasm validation, and the `swifttui-web` CLI |
 
-The split keeps browser-safe runtime imports out of build-time Swift process
-spawning and filesystem work — so the runtime stays importable in any bundler.
+The split keeps build-time Swift processes and filesystem work out of the
+browser-safe runtime. Thus, any bundler can import the runtime.
 
 **Run the demo:** a live SwiftTUI app compiled to `wasm32-wasi` and mounted via
 `@swifttui/web` runs at <https://swifttui.sh/webexample>. The reference template
@@ -36,8 +36,8 @@ that produces it is
 ## Installation
 
 Both packages publish to npm as ESM with bundled TypeScript declarations. You
-need no Bun or TypeScript toolchain to consume them — they ship compiled `dist/`
-JavaScript (`.js` + `.d.ts`):
+do not need Bun or a TypeScript toolchain to use them. They contain compiled
+`dist/` JavaScript and declarations (`.js` + `.d.ts`):
 
 ```bash
 npm install @swifttui/web @swifttui/build
@@ -74,9 +74,9 @@ await createWebHostApp({
 });
 ```
 
-The WASI runtime starts only when the hosting page serves these two headers —
-they unlock the `SharedArrayBuffer`-backed stdin the runtime needs. Without them
-the canvas stays blank:
+The WASI runtime starts only if the host page serves these two headers. The
+headers enable the `SharedArrayBuffer`-backed stdin that the runtime uses.
+Without them, the canvas stays blank:
 
 ```text
 Cross-Origin-Opener-Policy: same-origin
@@ -85,8 +85,8 @@ Cross-Origin-Embedder-Policy: require-corp
 
 ## Working on these packages
 
-The commands below are for developing **on** these packages. Consuming them from
-an app needs only `npm install` (above) — not Bun or the Swift toolchain.
+Use the commands below to develop these packages. An app needs only the
+`npm install` command above. It does not need Bun or the Swift toolchain.
 
 ```bash
 bun install
@@ -96,21 +96,20 @@ bun run build:web        # bundle the in-repo browser demo to dist-demo/
 bun run ci               # frozen install + test + build:packages + build:web
 ```
 
-The publishable artifacts are the compiled `dist/` directories from
-`build:packages`. Each package's `prepublishOnly` reruns the build, so
-`npm publish` always ships fresh output; `package.json` `exports` point at
-`dist/*`, and raw TypeScript source is never shipped. Generate release tarballs
-with `bun run pack:web` / `bun run pack:build` — `bun pm pack` rewrites the
-internal `workspace:*` dependency to the concrete version, so the published
-`@swifttui/build` depends on a real `@swifttui/web` release.
+`build:packages` creates the publishable artifacts in the compiled `dist/`
+directories. Each package uses `prepublishOnly` to run the build again before
+`npm publish`. The `package.json` `exports` fields point to `dist/*`. Published
+packages do not contain raw TypeScript source. Run `bun run pack:web` or
+`bun run pack:build` to generate release tarballs. `bun pm pack` replaces the
+internal `workspace:*` dependency with a concrete version. Thus, the published
+`@swifttui/build` package depends on a published `@swifttui/web` version.
 
-The host-wire corpus under `Fixtures/Transport/conformance-*` is a full,
-byte-identical mirror of the canonical `swift-tui` corpus. `bun test` validates
-its manifest and body hashes, rejects missing or extra bodies, and runs every
-active scenario named for both the Canvas and DOM consumers through the real
-decoder and painter paths. Keep the mirror complete even when a fixture names
-only another host; the org-root fixture-sync gate owns cross-repository byte
-equality.
+The host-wire corpus in `Fixtures/Transport/conformance-*` is a byte-identical
+copy of the canonical `swift-tui` corpus. `bun test` makes sure that its
+manifest and body hashes match. It rejects missing or extra bodies. It also
+sends each active Canvas and DOM scenario through the real decoder and painter
+paths. If a fixture names a different host, keep the copy complete. The
+organization fixture gate makes sure that the repositories contain equal bytes.
 
 ## Documentation and support
 

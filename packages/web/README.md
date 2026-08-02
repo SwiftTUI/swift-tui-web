@@ -7,11 +7,11 @@ Swift-authored UI into a `<canvas>`, no terminal emulator.**
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 
 `@swifttui/web` is the browser host for SwiftTUI. A SwiftTUI app compiles to
-`wasm32-wasi` and streams a structured raster surface on stdout; this package
-loads the scene manifest, renders that surface into a canvas, mounts an ARIA
-tree for accessibility, and bridges input back to the running app — so the same
-view code you run in a terminal runs on a web page. It does not load a terminal
-emulator.
+`wasm32-wasi` and sends a structured raster surface on stdout. This package
+loads the scene manifest and renders that surface in a canvas. It mounts an
+ARIA tree for accessibility and sends input to the running app. Thus, the same
+view code runs in a terminal and on a web page. The package does not load a
+terminal emulator.
 
 The build side — compiling your Swift app to wasm and capturing its manifest —
 lives in the sibling
@@ -25,14 +25,14 @@ lives in the sibling
 ## Installation
 
 Published to npm as an ESM package with bundled TypeScript declarations — no
-TypeScript toolchain required to consume it:
+TypeScript toolchain is necessary to use it:
 
 ```bash
 npm install @swifttui/web
 ```
 
-The package ships compiled `dist/` JavaScript (`.js` + `.d.ts`); consuming it
-does **not** require Bun or a TypeScript build step. Subpath entrypoints
+The package contains compiled JavaScript and declarations in `dist/`
+(`.js` + `.d.ts`). You do **not** need Bun or a TypeScript build step. Subpath entry points
 (`./wasi`, `./wasi-worker`, `./manifest`, `./websocket`, `./testing`) and the
 `./style.css` asset are declared in `package.json` `exports`.
 
@@ -86,7 +86,8 @@ stdin works.
 
 ## Renderers
 
-Two surface presenters ship behind one option; both consume the same frames:
+One option selects between two surface presenters. Both presenters consume the
+same frames:
 
 ```ts
 await createWebHostApp({
@@ -96,21 +97,21 @@ await createWebHostApp({
 });
 ```
 
-- **`"canvas"`** (default) paints cells onto a 2D `<canvas>`: one DOM node,
-  pixel-exact box-drawing seams and decoration patterns.
-- **`"dom"`** renders cells as absolutely positioned text elements: the
-  browser's own font shaping and fallback (emoji, CJK), crisp text at any
-  page zoom, an inspectable element tree, and — uniquely — native text
-  selection: **hold Alt/Option and drag** to select and copy the app's text
-  (plain drags remain pointer input for the app). Box-drawing characters
-  render as font glyphs, and underline/strikethrough patterns map onto CSS
-  `text-decoration`, so hairline details can differ slightly from the canvas
-  painter. Grid alignment is kept exact by stretching each glyph advance to
-  the cell width via `letter-spacing`.
+- **`"canvas"`** (default) paints cells on one 2D `<canvas>` DOM node. It draws
+  exact box seams and decoration patterns.
+- **`"dom"`** renders cells as absolutely positioned text elements. It uses
+  browser font shaping and fallback for emoji and CJK. Text stays sharp at each
+  page zoom, and the element tree is inspectable. Hold Alt/Option and drag to
+  select and copy app text. A drag without Alt/Option remains pointer input for
+  the app. Box characters render as font glyphs. Underline and strikethrough
+  patterns use CSS `text-decoration`. Thus, thin details can differ from the
+  canvas painter. `letter-spacing` stretches each glyph advance to the cell
+  width and keeps the grid aligned.
 
-The option is also available per scene runtime (`WebHostSceneRuntimeOptions.renderer`)
-and both painters are exported (`CanvasSurfacePainter`, `DomSurfacePainter`)
-for hosts that compose their own runtimes.
+The option is also available for each scene runtime through
+`WebHostSceneRuntimeOptions.renderer`. The package exports both painters:
+`CanvasSurfacePainter` and `DomSurfacePainter`. Hosts can use these painters in
+custom runtimes.
 
 ## Surface transport
 
@@ -129,31 +130,32 @@ self-describing.
 - Scene switching is controller-managed and retains existing scene runtimes.
 - Terminal styling is host-owned through `WebHostTerminalStyle`, which carries
   one active palette/theme pair plus the runtime payload sent into SwiftTUI.
-- Hosts that want multiple themes swap entire `WebHostTerminalStyle` objects;
-  the library does not provide a built-in mode switcher.
+- Hosts with multiple themes swap entire `WebHostTerminalStyle` objects. The
+  library does not provide a built-in mode switcher.
 - `BrowserWASIBridge` sets `SWIFTTUI_TRANSPORT=surface` and decodes surface
   frames before handing them to the canvas runtime.
-- Hyperlink cells published by the app (`links`/`linkTargets` on the frame)
-  are clickable: a click opens the target in a new tab (`http(s)` only) or
-  through the `onOpenHyperlink` runtime option; the pointer cursor signals
-  linked cells. Accessibility nodes the app marks `hidden` stay out of the
-  ARIA tree, and the runtime exposes the frame's `focusPresentation` and
-  `preferredGridSize` for embedders.
+- Hyperlink cells from the app use `links` and `linkTargets` on the frame. A
+  click opens an `http(s)` target in a new tab. The `onOpenHyperlink` runtime
+  option can open the target instead. A pointer cursor identifies linked
+  cells. Accessibility nodes that the app marks `hidden` do not enter the ARIA
+  tree. The runtime exposes the frame `focusPresentation` and
+  `preferredGridSize` values to hosts.
 
 ## Developing this package
 
-> Only needed if you are working **on** `@swifttui/web` itself. Consuming the
-> package from an app needs only `npm install` (above) — not Bun or the Swift
-> toolchain.
+> This section applies only to work **on** `@swifttui/web`. An app that uses the
+> package needs only the `npm install` command above. It does not need Bun or
+> the Swift toolchain.
 
-Use Bun for repo-local development, and the repo-default `swiftly` Swift 6.3.3
-toolchain for any Swift command the build pipeline triggers
-(`swiftly run swift --version`). Run `bun install` from the repo root or any
-workspace package directory; Bun maintains one root `bun.lock`.
+Use Bun for local development. Use the repository `swiftly` Swift 6.3.3
+toolchain for each Swift command that the build pipeline starts
+(`swiftly run swift --version`). Run `bun install` from the repository root or
+a workspace package directory. Bun maintains one root `bun.lock`.
 
 - `bun test`
-- `bun run build` — compile the publishable package to `dist/` with tsdown
-  (ESM `.js` + `.d.ts`). Run automatically on publish via `prepublishOnly`.
+- `bun run build` — Compile the publishable package to `dist/` with tsdown.
+  The output contains ESM `.js` and `.d.ts` files. `prepublishOnly` runs this
+  command during publication.
 - `bun run build:manifest -- --app <AppExecutable>`
 - `bun run build:wasm -- --app <AppExecutable>`
 - `bun run build:web`
@@ -161,18 +163,19 @@ workspace package directory; Bun maintains one root `bun.lock`.
 - `bun run dev`
 
 `build` produces the published library. `build:manifest`, `build:wasm`, and
-`build:app` delegate manifest/WASI packaging to `@swifttui/build`; `build:wasm`
-and `build:app` default to `--configuration release` (pass
-`--configuration debug` for local debug-oriented wasm builds). The demo/app
-pipeline writes its artifacts to `dist-demo/` so they stay separate from the
+`build:app` delegate manifest and WASI packaging to `@swifttui/build`.
+`build:wasm` and `build:app` use `--configuration release` by default. Pass
+`--configuration debug` for local debug wasm builds. The demo app pipeline
+writes its artifacts to `dist-demo/`. Thus, they stay separate from the
 published `dist/` library output.
 
 The demo/app build flow is intentionally small:
 
-1. `build:manifest` captures `SWIFTTUI_MODE=manifest` output from the Swift app by invoking `swiftly run swift`.
-2. `build:wasm` copies the app's wasm artifact into `dist-demo/assets/app.wasm`,
-   validates it with the browser `WebAssembly` API, then keeps the stripped
-   artifact only if stripping still produces browser-parseable wasm.
+1. `build:manifest` runs `swiftly run swift` and captures the Swift app output for `SWIFTTUI_MODE=manifest`.
+2. `build:wasm` copies the app wasm artifact to
+   `dist-demo/assets/app.wasm`. The command makes sure that the browser
+   `WebAssembly` API accepts the artifact. Then it strips the artifact. It keeps
+   the stripped artifact only if the browser can parse it.
 3. `build:web` bundles `index.html` and the browser entrypoint with Bun.
 
 ## License

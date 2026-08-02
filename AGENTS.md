@@ -13,16 +13,16 @@ A Bun workspace with two packages intended for public release:
 | [`@swifttui/web`](packages/web) | `packages/web` | Browser **runtime**: scene-manifest loading, canvas + DOM rendering, ARIA mount, WebSocket + WASI scene bridges |
 | [`@swifttui/build`](packages/build) | `packages/build` | Build/packaging **tooling**: manifest capture + wasm packaging (`swifttui-web` CLI) |
 
-Keep the runtime/tooling split: browser-safe APIs in `web`, build steps in
-`build`. Each package has its own `AGENTS.md` with specifics.
+Keep browser-safe APIs in `web`. Keep build steps in `build`. Each package has
+an `AGENTS.md` file with package-specific instructions.
 
 ## Toolchains
 
-- **Bun** for dev, bundling, and tests.
-- **`swiftly`** Swift 6.3.3 for any Swift the build path triggers
-  (`swiftly run swift --version`). Not bare `swift`/`xcrun swift`.
+- Use **Bun** for development, bundling, and tests.
+- Use **`swiftly`** Swift 6.3.3 for each Swift command that the build starts
+  (`swiftly run swift --version`). Do not use bare `swift` or `xcrun swift`.
 
-Run `bun install` from this root; one root `bun.lock` covers both packages.
+Run `bun install` from this root. One root `bun.lock` covers both packages.
 
 ## Commands
 
@@ -37,7 +37,7 @@ bun run build:web      # build the web package's browser demo bundle (dist-demo/
 
 ## Conventions
 
-`AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it. Edit `AGENTS.md`.
-This repo must remain Bun/npm-consumable. Public release work should publish
+`AGENTS.md` is the real file. `CLAUDE.md` is a symlink to it. Edit `AGENTS.md`.
+This repo must remain Bun/npm-consumable. Public release work must publish
 `@swifttui/web` and `@swifttui/build` to npm or attach package tarballs to a
 tagged GitHub release.

@@ -1,60 +1,63 @@
 # Vision Gap
 
 This document is the **only gap register** in this repository. Every other
-document describes the code as it is at `HEAD`; this one records, concretely,
-where the shipped browser runtime falls short of its intent. Entries state
-what is **shipped today** and what is **not yet built**. Nothing here is
-scheduled or promised — it is a gap register, not a roadmap.
+document describes the code at `HEAD`. This document records differences
+between the browser runtime and its intended state. Entries identify what is
+**shipped today** and what is **not yet built**. The entries do not promise or
+schedule work.
 
 ## Execution profile and performance
 
-**Shipped.** Two execution modes (worker with `Atomics.wait` stdin; opt-in
-JSPI main-thread via `WebAssembly.Suspending`/`promising`), engine-family
-detection from Error mechanics, JSPI capability detection, and the v3 delta
-wire (deltas are materialized against a cached baseline before consumers see
-them; canvas repaint is damage-scoped).
+**Shipped.** The runtime has two execution modes. The worker mode uses
+`Atomics.wait` stdin. The optional JSPI main-thread mode uses
+`WebAssembly.Suspending`/`promising`. The runtime detects engine families from
+Error behavior. It also detects JSPI support. The v3 delta wire applies deltas
+to a cached baseline before consumers receive them. Canvas repaint is limited
+to damaged areas.
 
 **Not yet built.**
 
-- **Non-lean defaults.** `stackProfileEnvironmentDefaults()` holds the
-  stack-lean profile ON for every engine. The exit condition is
-  framework-side per-tick frame emission under reuse (a `swift-tui` gap):
-  under non-lean, reuse gates coalesce per-tick frame emission, which
-  regressed live Chromium in 0.1.9. Until then, V8's measured non-lean win
-  (~2× pipeline) stays parked, as does auto-selecting main-thread execution
-  on JSPI-capable engines.
-- **Frame pacing.** Painting is synchronous per surface record — there is no
-  requestAnimationFrame batching. Irrelevant at today's cadence, but a
-  prerequisite for defaulting main-thread execution, where wasm and paint
-  share the thread.
+- **Non-lean defaults.** `stackProfileEnvironmentDefaults()` keeps the
+  stack-lean profile on for every engine. A framework gap blocks a different
+  default. This gap is in `swift-tui`. The framework must emit one frame per
+  tick when it reuses content.
+  Without the lean profile, reuse gates combine frame output for each tick.
+  This behavior caused a Chromium regression in version 0.1.9. V8 has a
+  measured non-lean pipeline improvement of approximately 2×. This mode and
+  automatic JSPI main-thread selection remain disabled.
+- **Frame pacing.** Each surface record starts a synchronous paint. The runtime
+  does not batch paint operations with requestAnimationFrame. This batching
+  is necessary before main-thread execution can become the default. In that
+  mode, wasm and paint share one thread.
 - **JSC detection hardening.** Trunk WebKit (STP ≥ 238) dropped the
   `sourceURL` Error property, so JSC classification rides only the
-  `fn@url` stack-shape fallback. Fail-safe today (unknown engines keep
-  lean), but the signal should be strengthened.
+  `fn@url` stack-shape fallback. Unknown engines keep the lean profile. The
+  detection needs an additional signal.
 
 ## Wire protocol robustness
 
-**Shipped.** Version-skew guard (frames declaring a newer version raise a
-runtime issue instead of degrading silently); delta validation falls back to
-text on baseline/dimension/row mismatches.
+**Shipped.** The version-skew guard reports frames that declare a newer
+version. It does not silently degrade them. Delta validation uses text output
+after baseline, dimension, or row mismatches.
 
 **Not yet built.**
 
-- **Late-join delta recovery.** A consumer that attaches mid-stream and
-  receives only v3 deltas renders nothing until the next full frame; there is
-  no baseline-request or resync mechanism.
+- **Late-join delta recovery.** A consumer can attach mid-stream and receive
+  only v3 deltas. It renders nothing before the next full frame. The protocol
+  has no baseline request or synchronization mechanism.
 - **Sequence enforcement.** Frames carry `sequence` numbers but nothing
   enforces monotonicity or detects drops.
 
 ## Verification
 
-**Shipped.** Headless `bun:test` suites for the transport, engine
-capabilities, execution-mode selection, and scene runtime; the org-level
-native gate runs `bun run ci`.
+**Shipped.** Headless `bun:test` suites cover the transport, engine features,
+execution-mode selection, and scene runtime. The organization native gate runs
+`bun run ci`.
 
 **Not yet built.**
 
-- **In-repo browser-engine coverage.** No Playwright/browser tests or perf
-  budgets run in this repository's CI; the browser gates (webkit-journey,
-  frame-cadence, raster-damage) live in `swift-tui-examples/WebExample`. A
-  wasm scene-switch gate exists only on WebKit, none on Chromium.
+- **In-repo browser-engine coverage.** This repository CI does not run
+  Playwright tests, browser tests, or performance budgets. The browser gates
+  live in `swift-tui-examples/WebExample`: webkit-journey, frame-cadence, and
+  raster-damage. The wasm scene-selection gate runs only on WebKit. It does not
+  run on Chromium.
