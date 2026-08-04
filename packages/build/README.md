@@ -76,25 +76,14 @@ Callers can override `swiftCommand`, `swiftSDK`, `configuration`,
 
 ## Developing this package
 
-> This section applies only to work **on** `@swifttui/build`. A project that
-> uses the package needs only the `npm install --save-dev` command above.
+Development happens in the
+[`swift-tui-web`](https://github.com/SwiftTUI/swift-tui-web) workspace, not
+against the published tarball. The workspace commands and build pipeline are
+documented in the repository's `docs/DEVELOPMENT.md` and
+`packages/build/AGENTS.md`. The published CLI stays available as
+`npx swifttui-web build --app <AppExecutable>`.
 
-Use Bun for the CLI, bundling, and tests. Use `swiftly` Swift 6.3.3 for the wasm
-build. Do not use bare `swift`.
-
-- `bun test`
-- `bun run build` — Compile the publishable package to `dist/` with tsdown.
-  The output contains ESM `.js`, `.d.ts`, and the `swifttui-web` binary.
-  `prepublishOnly` runs this command during publication.
-- `bun run build:manifest -- --app <AppExecutable>`
-- `bun run build:wasm -- --app <AppExecutable>`
-
-The full app pipeline (manifest + wasm) is exposed through the CLI:
-
-```bash
-bun run cli.ts build --app <AppExecutable>    # from source
-npx swifttui-web build --app <AppExecutable>  # from the published bin
-```
+Full SwiftTUI API reference: <https://swifttui.sh/docs/documentation/>.
 
 ## License
 

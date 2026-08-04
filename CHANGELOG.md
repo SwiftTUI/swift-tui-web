@@ -6,6 +6,11 @@ documented here. The format is based on
 follows pre-1.0 semantics: while the public surface is being proven, minor
 releases may include source-breaking changes.
 
+> **Note:** entries after `0.1.15` are recorded in the org-wide lockstep
+> release notes on
+> [GitHub Releases](https://github.com/SwiftTUI/swift-tui-web/releases); the
+> packages currently ship at the lockstep version (`0.6.3`).
+
 ## [Unreleased]
 
 ### Changed
@@ -197,7 +202,12 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.1.10...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.6.3...HEAD
+[0.1.15]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.15
+[0.1.14]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.14
+[0.1.13]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.13
+[0.1.12]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.12
+[0.1.11]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.11
 [0.1.10]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.10
 [0.1.9]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.9
 [0.1.8]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.8

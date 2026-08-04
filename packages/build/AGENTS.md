@@ -43,7 +43,7 @@ WASI release builds need specific flags (`-Osize` plus
 `-disable-llvm-merge-functions-pass`) to stay under the browser WebAssembly
 API's 1000-parameter limit. The canonical command is in the build code of this
 package. Do not write a separate Swift command. See
-[`WebExample`](../../../swift-tui-examples/WebExample) for the full rationale.
+[`WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample) for the full rationale.
 
 ## Conventions
 

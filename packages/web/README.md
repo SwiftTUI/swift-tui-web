@@ -143,40 +143,14 @@ self-describing.
 
 ## Developing this package
 
-> This section applies only to work **on** `@swifttui/web`. An app that uses the
-> package needs only the `npm install` command above. It does not need Bun or
-> the Swift toolchain.
+Development happens in the
+[`swift-tui-web`](https://github.com/SwiftTUI/swift-tui-web) workspace, not
+against the published tarball. The workspace commands and build pipeline are
+documented in the repository's `docs/DEVELOPMENT.md` and
+`packages/web/AGENTS.md`. An app that uses this package needs only
+`npm install` — no Bun, no Swift toolchain.
 
-Use Bun for local development. Use the repository `swiftly` Swift 6.3.3
-toolchain for each Swift command that the build pipeline starts
-(`swiftly run swift --version`). Run `bun install` from the repository root or
-a workspace package directory. Bun maintains one root `bun.lock`.
-
-- `bun test`
-- `bun run build` — Compile the publishable package to `dist/` with tsdown.
-  The output contains ESM `.js` and `.d.ts` files. `prepublishOnly` runs this
-  command during publication.
-- `bun run build:manifest -- --app <AppExecutable>`
-- `bun run build:wasm -- --app <AppExecutable>`
-- `bun run build:web`
-- `bun run build:app -- --app <AppExecutable>`
-- `bun run dev`
-
-`build` produces the published library. `build:manifest`, `build:wasm`, and
-`build:app` delegate manifest and WASI packaging to `@swifttui/build`.
-`build:wasm` and `build:app` use `--configuration release` by default. Pass
-`--configuration debug` for local debug wasm builds. The demo app pipeline
-writes its artifacts to `dist-demo/`. Thus, they stay separate from the
-published `dist/` library output.
-
-The demo/app build flow is intentionally small:
-
-1. `build:manifest` runs `swiftly run swift` and captures the Swift app output for `SWIFTTUI_MODE=manifest`.
-2. `build:wasm` copies the app wasm artifact to
-   `dist-demo/assets/app.wasm`. The command makes sure that the browser
-   `WebAssembly` API accepts the artifact. Then it strips the artifact. It keeps
-   the stripped artifact only if the browser can parse it.
-3. `build:web` bundles `index.html` and the browser entrypoint with Bun.
+Full SwiftTUI API reference: <https://swifttui.sh/docs/documentation/>.
 
 ## License
 
