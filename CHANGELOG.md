@@ -9,7 +9,7 @@ releases may include source-breaking changes.
 > **Note:** entries after `0.1.15` are recorded in the org-wide lockstep
 > release notes on
 > [GitHub Releases](https://github.com/SwiftTUI/swift-tui-web/releases); the
-> packages currently ship at the lockstep version (`0.7.0`).
+> packages currently ship at the lockstep version (`0.7.1`).
 
 ## [0.7.0] - 2026-08-06
 
@@ -202,7 +202,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.6.3...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.7.1...HEAD
+[0.7.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.7.0
 [0.1.15]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.15
 [0.1.14]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.14
 [0.1.13]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.13
