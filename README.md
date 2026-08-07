@@ -4,14 +4,16 @@
 
 The browser-host packages for [SwiftTUI](https://swifttui.sh). Author your `App`
 once and ship the same `View` tree, the same `@State`, the same `@FocusState` to
-a `<canvas>` — no rewrite, no terminal emulator, no `xterm.js`.
+the browser, rendered to the DOM with a real accessibility tree — no rewrite,
+no terminal emulator, no `xterm.js`.
 
 [![npm @swifttui/web](https://img.shields.io/npm/v/@swifttui/web?label=%40swifttui%2Fweb)](https://www.npmjs.com/package/@swifttui/web)
 [![npm @swifttui/build](https://img.shields.io/npm/v/@swifttui/build?label=%40swifttui%2Fbuild)](https://www.npmjs.com/package/@swifttui/build)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 
 A SwiftTUI app compiles to `wasm32-wasi` and streams a structured raster surface.
-`@swifttui/web` draws that surface in a canvas. It also mounts an ARIA tree.
+`@swifttui/web` paints that surface into the page — DOM or canvas engines — and
+mounts a real ARIA accessibility tree.
 Thus, the same `App` and `Scene` run in a terminal and on a web page. These two
 packages deliver two of SwiftTUI's five hosts — a **static WASI bundle** and a
 **localhost WebHost**. The framework itself lives in
@@ -22,7 +24,7 @@ contains the browser deployment packages.
 
 | Package | Role |
 | --- | --- |
-| [`@swifttui/web`](packages/web) | Browser runtime: scene-manifest loading, canvas rendering, ARIA mounting, WebSocket + WASI scene bridges |
+| [`@swifttui/web`](packages/web) | Browser runtime: scene-manifest loading, DOM + canvas rendering, ARIA mounting, WebSocket + WASI scene bridges |
 | [`@swifttui/build`](packages/build) | Build tooling: manifest generation, Swift WASI builds, wasm validation, and the `swifttui-web` CLI |
 
 The split keeps build-time Swift processes and filesystem work out of the
