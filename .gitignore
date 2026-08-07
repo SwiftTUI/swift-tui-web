@@ -6,4 +6,3 @@ coverage/
 *.lcov
 .cache/
 *.tsbuildinfo
-bazel-*
