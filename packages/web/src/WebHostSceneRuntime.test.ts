@@ -1493,6 +1493,98 @@ test("runtime reports frame diagnostics without rendering them as terminal text"
   }
 });
 
+test("a coarse-pointer client declares scroll panning and tracks paradigm changes", async () => {
+  const coarsePointer = new FakeMediaQueryList(true);
+  const dom = installFakeDOM({ coarsePointer });
+  try {
+    const declarations: boolean[] = [];
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      onInput: () => {},
+      bridge: {
+        bindOutput: () => {},
+        resize: () => {},
+        updateRenderStyle: () => {},
+        sendInput: () => {},
+        updatePointerCapabilities: (supportsScrollPanning) => {
+          declarations.push(supportsScrollPanning);
+        },
+        dispose: () => {},
+      },
+    });
+    await runtime.mount();
+
+    // A touch-primary client says so at mount; the app has no other way to
+    // know, and one page bundle serves both paradigms.
+    expect(declarations).toEqual([true]);
+
+    // Docking a mouse flips the primary pointer. Only the change is sent.
+    coarsePointer.setMatches(false);
+    coarsePointer.setMatches(false);
+    expect(declarations).toEqual([true, false]);
+
+    // A real press is stronger evidence than the media query: this is the
+    // pointer actually in use, not merely the primary one.
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0,
+      buttons: 1,
+      pointerId: 3,
+      pointerType: "touch",
+    }));
+    expect(declarations).toEqual([true, false, true]);
+
+    // A pointer type the runtime cannot classify (pen, or an embedder that
+    // omits it) leaves the last answer standing rather than guessing.
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0,
+      buttons: 1,
+      pointerId: 4,
+      pointerType: "pen",
+    }));
+    expect(declarations).toEqual([true, false, true]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a desktop client declares nothing, because absence already means desktop", async () => {
+  const dom = installFakeDOM({ coarsePointer: new FakeMediaQueryList(false) });
+  try {
+    const declarations: boolean[] = [];
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      onInput: () => {},
+      bridge: {
+        bindOutput: () => {},
+        resize: () => {},
+        updateRenderStyle: () => {},
+        sendInput: () => {},
+        updatePointerCapabilities: (supportsScrollPanning) => {
+          declarations.push(supportsScrollPanning);
+        },
+        dispose: () => {},
+      },
+    });
+    await runtime.mount();
+
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
+      button: 0,
+      buttons: 1,
+      pointerId: 3,
+      pointerType: "mouse",
+    }));
+    expect(declarations).toEqual([]);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime maps browser input events to web-surface messages", async () => {
   const dom = installFakeDOM();
   try {
@@ -2361,6 +2453,46 @@ function surfaceRecord(
 interface FakeDOMOptions {
   devicePixelRatio?: number;
   createImageBitmap?: (blob: Blob) => Promise<unknown>;
+  /**
+   * Installs a `matchMedia` whose `(pointer: coarse)` result starts at this
+   * value. Omit it to leave `matchMedia` absent, which is what most tests
+   * want: the runtime then reads "desktop" and declares nothing.
+   */
+  coarsePointer?: FakeMediaQueryList;
+}
+
+/**
+ * The slice of `MediaQueryList` the runtime uses, plus a `setMatches` the test
+ * calls to simulate the device changing paradigm mid-session.
+ */
+class FakeMediaQueryList {
+  matches: boolean;
+  private readonly listeners = new Set<(event: { matches: boolean }) => void>();
+
+  constructor(matches: boolean) {
+    this.matches = matches;
+  }
+
+  addEventListener(
+    _type: "change",
+    listener: (event: { matches: boolean }) => void
+  ): void {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(
+    _type: "change",
+    listener: (event: { matches: boolean }) => void
+  ): void {
+    this.listeners.delete(listener);
+  }
+
+  setMatches(matches: boolean): void {
+    this.matches = matches;
+    for (const listener of this.listeners) {
+      listener({ matches });
+    }
+  }
 }
 
 function installFakeDOM(
@@ -2373,6 +2505,7 @@ function installFakeDOM(
   const previousWindow = globalThis.window;
   const previousResizeObserver = globalThis.ResizeObserver;
   const previousCreateImageBitmap = globalThis.createImageBitmap;
+  const previousMatchMedia = globalThis.matchMedia;
   const canvases: FakeCanvasElement[] = [];
 
   globalThis.document = {
@@ -2392,6 +2525,13 @@ function installFakeDOM(
   if (options.createImageBitmap) {
     globalThis.createImageBitmap = options.createImageBitmap as typeof createImageBitmap;
   }
+  if (options.coarsePointer) {
+    const coarsePointer = options.coarsePointer;
+    globalThis.matchMedia = ((query: string) =>
+      query === "(pointer: coarse)"
+        ? coarsePointer
+        : new FakeMediaQueryList(false)) as unknown as typeof matchMedia;
+  }
 
   return {
     canvases,
@@ -2400,6 +2540,7 @@ function installFakeDOM(
       globalThis.window = previousWindow;
       globalThis.ResizeObserver = previousResizeObserver;
       globalThis.createImageBitmap = previousCreateImageBitmap;
+      globalThis.matchMedia = previousMatchMedia;
     },
   };
 }

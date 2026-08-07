@@ -6,6 +6,7 @@ import {
   WebHostOutputDecoder,
   encodeCapabilitiesControlMessage,
   encodeMouseInputMessage,
+  encodePointerCapabilitiesControlMessage,
   encodeResyncControlMessage,
   type WebHostOutputRecord,
   type WebHostSurfaceFrame,
@@ -1031,6 +1032,16 @@ test("the capability declaration matches the canonical cross-repo record fixture
   const decoderText = new TextDecoder();
   expect(decoderText.decode(encodeCapabilitiesControlMessage()))
     .toBe(transportFixture("web-caps-record"));
+});
+
+test("the pointer paradigm declaration has a stable key=value record shape", () => {
+  // Byte-pinned because swift-tui's WebSurfaceInputParser reads exactly these
+  // bytes: `pointer:` plus `key=value` tokens, so a later pointer fact can
+  // join the record without changing its arity.
+  expect(decoder.decode(encodePointerCapabilitiesControlMessage(true)))
+    .toBe("\u001Epointer:panning=1\n");
+  expect(decoder.decode(encodePointerCapabilitiesControlMessage(false)))
+    .toBe("\u001Epointer:panning=0\n");
 });
 
 test("resync control messages have deterministic keyframe and image shapes", () => {

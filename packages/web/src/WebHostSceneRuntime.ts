@@ -44,6 +44,12 @@ export interface WebHostSceneBridge {
   sendInput(chunk: Uint8Array): void;
   /** Optional for compatibility with custom bridges predating image recovery. */
   requestImagePayloads?: WebHostImagePayloadRequestHandler;
+  /**
+   * Declares whether this client scrolls by dragging content directly.
+   * Optional for compatibility with custom bridges predating the record; an
+   * app that never receives it keeps the desktop paradigm.
+   */
+  updatePointerCapabilities?(supportsScrollPanning: boolean): void;
   dispose(): void;
 }
 
@@ -118,6 +124,31 @@ function legacyWheelMode(captureWheelInput: boolean | undefined): WheelMode {
 }
 
 /**
+ * The media query for "the primary pointing device is coarse", i.e. a finger.
+ * Deliberately `pointer` and not `any-pointer`: a touch-capable laptop has a
+ * coarse pointer *available* but is driven by a trackpad, and it should get
+ * the desktop paradigm.
+ *
+ * Returns `undefined` where `matchMedia` is unavailable (SSR, older embedding
+ * hosts, some test environments), which callers read as "desktop".
+ */
+export function coarsePointerQuery(): MediaQueryList | undefined {
+  if (typeof globalThis.matchMedia !== "function") {
+    return undefined;
+  }
+  try {
+    return globalThis.matchMedia("(pointer: coarse)");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether the primary pointing device is a finger rather than a pointer. */
+export function coarsePrimaryPointer(): boolean {
+  return coarsePointerQuery()?.matches ?? false;
+}
+
+/**
  * Coordinates a single SwiftTUI scene's browser presentation: it owns the DOM
  * mount, canvas, accessibility tree, and bridge wiring, and delegates the heavy
  * responsibilities to focused collaborators — {@link CanvasSurfacePainter} for
@@ -164,6 +195,14 @@ export class WebHostSceneRuntime {
   private documentVisible = true;
   private runtimeSuspended = false;
   private readonly suspendWhenHidden: boolean;
+  /**
+   * Seeded to `false` rather than left unset because absence of the record
+   * already means the desktop paradigm on the Swift side: a mouse-driven
+   * client therefore says nothing, and only a client that actually pans by
+   * dragging puts a record on the wire.
+   */
+  private lastSentPointerCapabilities = false;
+  private detachPointerParadigmObserver?: () => void;
 
   constructor(options: WebHostSceneRuntimeOptions) {
     this.descriptor = options.descriptor;
@@ -240,6 +279,8 @@ export class WebHostSceneRuntime {
     });
 
     this.applyStyle(this.currentStyle);
+    this.installPointerParadigmObserver();
+    this.sendPointerCapabilitiesIfChanged(coarsePrimaryPointer());
     this.measureCells();
     this.resizeToMount();
     this.draw();
@@ -365,8 +406,43 @@ export class WebHostSceneRuntime {
 
   dispose(): void {
     this.detachInputHandlers?.();
+    this.detachPointerParadigmObserver?.();
     this.resizeObserver?.disconnect();
     this.element.remove();
+  }
+
+  /**
+   * Tells the app whether this client scrolls by dragging content directly.
+   *
+   * The app cannot see the browsing device, and one page bundle serves both a
+   * phone and a desktop, so the paradigm has to be declared from here. It is
+   * also not fixed for the session: a tablet can be docked to a mouse, so the
+   * media query is watched and every real pointer press refines the answer
+   * from `pointerType`. Only changes are sent.
+   */
+  private sendPointerCapabilitiesIfChanged(
+    supportsScrollPanning: boolean
+  ): void {
+    if (this.lastSentPointerCapabilities === supportsScrollPanning) {
+      return;
+    }
+    this.lastSentPointerCapabilities = supportsScrollPanning;
+    this.bridge?.updatePointerCapabilities?.(supportsScrollPanning);
+  }
+
+  private installPointerParadigmObserver(): void {
+    const query = coarsePointerQuery();
+    if (!query?.addEventListener) {
+      return;
+    }
+
+    const handleChange = (event: MediaQueryListEvent) => {
+      this.sendPointerCapabilitiesIfChanged(event.matches);
+    };
+    query.addEventListener("change", handleChange);
+    this.detachPointerParadigmObserver = () => {
+      query.removeEventListener?.("change", handleChange);
+    };
   }
 
   private presentSurface(
@@ -519,6 +595,13 @@ export class WebHostSceneRuntime {
     };
 
     const handlePointerDown = (event: PointerEvent) => {
+      // A real press is better evidence than the media query: a hybrid device
+      // reports its *primary* pointer there, but this is the pointer actually
+      // being used. Refined before the press is forwarded so the app has the
+      // paradigm by the time it decides what to do with the gesture.
+      if (event.pointerType === "touch" || event.pointerType === "mouse") {
+        this.sendPointerCapabilitiesIfChanged(event.pointerType === "touch");
+      }
       if (this.allowsNativeTextSelection(event)) {
         // DOM renderer + Alt/Option: leave the event to the browser so the
         // drag becomes a native text selection instead of app pointer input.

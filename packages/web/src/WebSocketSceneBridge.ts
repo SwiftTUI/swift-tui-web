@@ -1,6 +1,7 @@
 import {
   WebHostOutputDecoder,
   encodeCapabilitiesControlMessage,
+  encodePointerCapabilitiesControlMessage,
   encodeResyncControlMessage,
   encodeRenderStyleControlMessage,
   encodeResizeControlMessage,
@@ -100,6 +101,12 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     style: WebHostTerminalStyle
   ): void {
     this.sendInput(encodeRenderStyleControlMessage(style));
+  }
+
+  updatePointerCapabilities(
+    supportsScrollPanning: boolean
+  ): void {
+    this.sendInput(encodePointerCapabilitiesControlMessage(supportsScrollPanning));
   }
 
   sendInput(

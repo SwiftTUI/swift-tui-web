@@ -831,6 +831,30 @@ export function encodeCapabilitiesControlMessage(): Uint8Array {
   );
 }
 
+/**
+ * The page's pointer-paradigm declaration.
+ *
+ * `panning=1` tells the app that this client scrolls by dragging content
+ * directly, which is how touch devices and coarse-pointer browsers behave and
+ * is not how a desktop mouse behaves. The app uses it to decide whether a drag
+ * on a scroll view's background pans it, and whether a drag that starts on a
+ * control may be taken over by an enclosing scroll view.
+ *
+ * Payload is `key=value` tokens rather than positional fields so a later
+ * pointer fact can join the record without changing its arity; the Swift
+ * parser skips keys it does not know. Unlike `caps:`, this record is not a
+ * once-per-connection epoch marker — the device can change (a tablet docked to
+ * a mouse), so it may be sent again at any time. Servers that predate the
+ * record drop it and keep the desktop paradigm.
+ */
+export function encodePointerCapabilitiesControlMessage(
+  supportsScrollPanning: boolean
+): Uint8Array {
+  return textEncoder.encode(
+    `${recordPrefix}pointer:panning=${supportsScrollPanning ? 1 : 0}\n`
+  );
+}
+
 export function encodeResyncControlMessage(
   request: WebHostResyncRequest
 ): Uint8Array {

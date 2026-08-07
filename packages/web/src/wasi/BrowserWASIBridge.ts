@@ -10,6 +10,7 @@ import {
 } from "../WebHostTerminalStyle.ts";
 import {
   WebHostOutputDecoder,
+  encodePointerCapabilitiesControlMessage,
   encodeResyncControlMessage,
   encodeRenderStyleControlMessage,
   encodeResizeControlMessage,
@@ -162,6 +163,12 @@ export class BrowserWASIBridge {
   ): void {
     this.environment.SWIFTTUI_RENDER_STYLE = encodeWebHostTerminalRenderStyleBase64(style);
     this.stdin.write(encodeRenderStyleControlMessage(style));
+  }
+
+  updatePointerCapabilities(
+    supportsScrollPanning: boolean
+  ): void {
+    this.stdin.write(encodePointerCapabilitiesControlMessage(supportsScrollPanning));
   }
 
   sendInput(
