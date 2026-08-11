@@ -1,6 +1,6 @@
 # `@swifttui/build`
 
-**Build tooling for [SwiftTUI](https://swifttui.sh) browser deployments —
+**Build tooling for [SwiftTUI](https://swifttui.sh) browser deployments:
 compile a SwiftTUI app to `wasm32-wasi` and capture its scene manifest.**
 
 [![npm](https://img.shields.io/npm/v/@swifttui/build)](https://www.npmjs.com/package/@swifttui/build)
@@ -13,8 +13,8 @@ is separate from [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web),
 the browser runtime. Thus, runtime imports do not include Swift processes, Node
 filesystem APIs, or wasm packaging helpers.
 
-- **Runtime counterpart:** [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web)
-  — mounts the artifacts this package produces.
+- **Runtime counterpart:** [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web),
+  which mounts the artifacts this package produces.
 - **Reference template:** [`swift-tui-examples/WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample)
 - **The framework:** [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui)
 
@@ -62,7 +62,7 @@ Toolchain defaults match the repo:
   `-Xswiftc -Osize -Xswiftc -Xfrontend -Xswiftc -disable-llvm-merge-functions-pass`
 - Initial memory: `536870912`
 - Max memory: `4294967296`
-- Stack size: `16777216` (16 MiB — the earlier 1 MiB default overflowed the
+- Stack size: `16777216` (16 MiB; the earlier 1 MiB default overflowed the
   wasm linear-memory stack in deep scenes)
 
 Callers can override `swiftCommand`, `swiftSDK`, `configuration`,
@@ -87,4 +87,4 @@ Full SwiftTUI API reference: <https://swifttui.sh/docs/documentation/>.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT; see [LICENSE](LICENSE).

@@ -1,7 +1,7 @@
 # `@swifttui/web`
 
-**Browser runtime for [SwiftTUI](https://swifttui.sh) apps — draw a
-Swift-authored UI into a `<canvas>`, no terminal emulator.**
+**Browser runtime for [SwiftTUI](https://swifttui.sh) apps: draw a
+Swift-authored UI into a `<canvas>` without a terminal emulator.**
 
 [![npm](https://img.shields.io/npm/v/@swifttui/web)](https://www.npmjs.com/package/@swifttui/web)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
@@ -13,7 +13,7 @@ ARIA tree for accessibility and sends input to the running app. Thus, the same
 view code runs in a terminal and on a web page. The package does not load a
 terminal emulator.
 
-The build side — compiling your Swift app to wasm and capturing its manifest —
+The build side (compiling your Swift app to wasm and capturing its manifest)
 lives in the sibling
 [`@swifttui/build`](https://www.npmjs.com/package/@swifttui/build) package.
 
@@ -24,8 +24,8 @@ lives in the sibling
 
 ## Installation
 
-Published to npm as an ESM package with bundled TypeScript declarations — no
-TypeScript toolchain is necessary to use it:
+The package publishes to npm as ESM with bundled TypeScript declarations, so
+no TypeScript toolchain is necessary to use it:
 
 ```bash
 npm install @swifttui/web
@@ -117,7 +117,7 @@ custom runtimes.
 
 This package uses SwiftTUI's `web-surface` WASI transport. The Swift runner
 emits structured raster-surface records on stdout, and the browser host draws
-them with the configured renderer — canvas rects/text or DOM elements. It does
+them with the configured renderer (canvas rects/text or DOM elements). It does
 not load a terminal emulator and does not depend on `ghostty-web` or
 `ghostty-vt.wasm`.
 
@@ -148,10 +148,10 @@ Development happens in the
 against the published tarball. The workspace commands and build pipeline are
 documented in the repository's `docs/DEVELOPMENT.md` and
 `packages/web/AGENTS.md`. An app that uses this package needs only
-`npm install` — no Bun, no Swift toolchain.
+`npm install`; it does not need Bun or the Swift toolchain.
 
 Full SwiftTUI API reference: <https://swifttui.sh/docs/documentation/>.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT; see [LICENSE](LICENSE).

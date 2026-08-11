@@ -1,21 +1,21 @@
 # SwiftTUI Web Packages
 
-**SwiftUI semantics, drawn in terminal cells — now on a web page.**
+**SwiftUI semantics, drawn in terminal cells, now on a web page.**
 
 The browser-host packages for [SwiftTUI](https://swifttui.sh). Author your `App`
-once and ship the same `View` tree, the same `@State`, the same `@FocusState` to
-the browser, rendered to the DOM with a real accessibility tree — no rewrite,
-no terminal emulator, no `xterm.js`.
+once and ship the same `View` tree, `@State`, and `@FocusState` to the browser,
+rendered to the DOM with a real accessibility tree, without a rewrite or a
+terminal emulator such as `xterm.js`.
 
 [![npm @swifttui/web](https://img.shields.io/npm/v/@swifttui/web?label=%40swifttui%2Fweb)](https://www.npmjs.com/package/@swifttui/web)
 [![npm @swifttui/build](https://img.shields.io/npm/v/@swifttui/build?label=%40swifttui%2Fbuild)](https://www.npmjs.com/package/@swifttui/build)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 
 A SwiftTUI app compiles to `wasm32-wasi` and streams a structured raster surface.
-`@swifttui/web` paints that surface into the page — DOM or canvas engines — and
-mounts a real ARIA accessibility tree.
+`@swifttui/web` paints that surface into the page through its DOM or canvas
+engine and mounts a real ARIA accessibility tree.
 Thus, the same `App` and `Scene` run in a terminal and on a web page. These two
-packages deliver two of SwiftTUI's five hosts — a **static WASI bundle** and a
+packages deliver two of SwiftTUI's five hosts: a **static WASI bundle** and a
 **localhost WebHost**. The framework itself lives in
 [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui). This repository
 contains the browser deployment packages.
@@ -87,7 +87,7 @@ Cross-Origin-Embedder-Policy: require-corp
 
 ## Working on these packages
 
-An app needs only the `npm install` command above — it does not need Bun or
+An app needs only the `npm install` command above; it does not need Bun or
 the Swift toolchain. Workspace development commands, publishing notes, and the
 cross-repo fixture-corpus contract live in
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md); repository conventions live in
@@ -95,12 +95,12 @@ cross-repo fixture-corpus contract live in
 
 ## Documentation and support
 
-- **Read the DocC** — project site + live API reference: <https://swifttui.sh/docs/documentation/>
-- **The framework** — authoring API, products, and the full platform matrix: [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui)
-- **The other hosts** — terminal (the default `SwiftTUI` import), native SwiftUI via [`swift-tui-swiftui`](https://github.com/SwiftTUI/swift-tui-swiftui) (macOS · iOS), and Jetpack Compose via [`swift-tui-android`](https://github.com/SwiftTUI/swift-tui-android)
+- **Read the DocC:** project site and live API reference at <https://swifttui.sh/docs/documentation/>
+- **The framework:** [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui) covers the authoring API, products, and the full platform matrix
+- **The other hosts:** terminal (the default `SwiftTUI` import), native SwiftUI via [`swift-tui-swiftui`](https://github.com/SwiftTUI/swift-tui-swiftui) (macOS · iOS), and Jetpack Compose via [`swift-tui-android`](https://github.com/SwiftTUI/swift-tui-android)
 - **Questions and issues:** <https://github.com/SwiftTUI/swift-tui-web/issues>
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Each published package (`@swifttui/web`,
+MIT; see [LICENSE](LICENSE). Each published package (`@swifttui/web`,
 `@swifttui/build`) also bundles the license text.

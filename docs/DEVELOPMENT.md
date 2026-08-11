@@ -4,8 +4,7 @@ Internal notes for developing the `@swifttui/web` and `@swifttui/build`
 workspace. Consumers never need this file: apps install the published npm
 packages and need neither Bun nor the Swift toolchain.
 
-Use the commands below to develop these packages. An app needs only the
-`npm install` command above. It does not need Bun or the Swift toolchain.
+Use the commands below to develop these packages.
 
 ```bash
 bun install
