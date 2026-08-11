@@ -528,9 +528,12 @@ export class WebHostSceneRuntime {
 
     this.terminalMount.style.position = "relative";
     this.terminalMount.style.overflow = "hidden";
-    // Keep a captured wheel from rubber-banding/chaining the page; the wheel
-    // capture vs. fall-through decision lives in handleWheel.
-    this.terminalMount.style.overscrollBehavior = "contain";
+    // `contain` suppresses native ancestor scroll chaining even when the wheel
+    // handler does not call preventDefault(). Only the explicit capture mode
+    // wants that backstop. Chain/passive modes must leave the browser's default
+    // scroll path open when handleWheel declines the event.
+    this.terminalMount.style.overscrollBehavior =
+      this.wheelMode === "capture" ? "contain" : "auto";
     this.terminalMount.style.outline = "none";
     this.terminalMount.style.background = webTUITerminalBackgroundColor(this.currentStyle);
     this.terminalMount.style.minHeight = `${this.cellHeight * 8}px`;

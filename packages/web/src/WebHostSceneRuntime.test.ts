@@ -1734,6 +1734,7 @@ test("chain mode captures the wheel when a region under the pointer can scroll",
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
+    expect(result.overscrollBehavior).toBe("auto");
   } finally {
     dom.restore();
   }
@@ -1751,6 +1752,7 @@ test("chain mode lets the wheel fall through at the region's scroll edge", async
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
+    expect(result.overscrollBehavior).toBe("auto");
   } finally {
     dom.restore();
   }
@@ -1767,6 +1769,7 @@ test("chain mode captures an upward wheel when scrolled away from the top", asyn
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
+    expect(result.overscrollBehavior).toBe("auto");
   } finally {
     dom.restore();
   }
@@ -1783,6 +1786,7 @@ test("chain mode falls through when the pointer is outside every scroll region",
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
+    expect(result.overscrollBehavior).toBe("auto");
   } finally {
     dom.restore();
   }
@@ -1797,6 +1801,7 @@ test("chain mode falls through when the scene publishes no scroll regions", asyn
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
+    expect(result.overscrollBehavior).toBe("auto");
   } finally {
     dom.restore();
   }
@@ -1811,6 +1816,7 @@ test("capture mode always eats the wheel even without scroll regions", async () 
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
+    expect(result.overscrollBehavior).toBe("contain");
   } finally {
     dom.restore();
   }
@@ -1825,6 +1831,7 @@ test("legacy captureWheelInput:true maps to capture mode", async () => {
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
+    expect(result.overscrollBehavior).toBe("contain");
   } finally {
     dom.restore();
   }
@@ -1841,6 +1848,7 @@ test("legacy captureWheelInput:false maps to passive mode", async () => {
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
+    expect(result.overscrollBehavior).toBe("auto");
   } finally {
     dom.restore();
   }
@@ -1857,6 +1865,7 @@ test("default wheel mode is chain: captures over a scrollable region", async () 
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
+    expect(result.overscrollBehavior).toBe("auto");
   } finally {
     dom.restore();
   }
@@ -1872,6 +1881,7 @@ test("default wheel mode is chain: page scrolls with no scrollable region", asyn
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
+    expect(result.overscrollBehavior).toBe("auto");
   } finally {
     dom.restore();
   }
@@ -2397,7 +2407,11 @@ async function wheelScenario(options: {
   captureWheelInput?: boolean;
   scrollRegions?: Array<Record<string, unknown>>;
   wheel: { clientX: number; clientY: number; deltaX?: number; deltaY?: number };
-}): Promise<{ captured: boolean; wheelPrevented: boolean }> {
+}): Promise<{
+  captured: boolean;
+  wheelPrevented: boolean;
+  overscrollBehavior: string;
+}> {
   const inputs: string[] = [];
   const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
   const mount = new FakeElement("div");
@@ -2441,7 +2455,11 @@ async function wheelScenario(options: {
     },
   });
 
-  return { captured: inputs.some((i) => i.includes("scrolled")), wheelPrevented };
+  return {
+    captured: inputs.some((i) => i.includes("scrolled")),
+    wheelPrevented,
+    overscrollBehavior: String(runtime.terminalMount.style.overscrollBehavior),
+  };
 }
 
 function surfaceRecord(
