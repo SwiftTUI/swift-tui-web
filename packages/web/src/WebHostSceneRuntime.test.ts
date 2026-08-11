@@ -85,24 +85,24 @@ test("runtime draws decoded surface frames into the canvas", async () => {
     context.operations = [];
     bridge.stdout.write(encoder.encode(transportFixture("web-surface-styled")));
 
-    expect(canvas.width).toBe(80);
-    expect(canvas.height).toBe(108);
-    expect(canvas.style.width).toBe("40px");
-    expect(canvas.style.height).toBe("54px");
+    expect(canvas.width).toBe(200);
+    expect(canvas.height).toBe(216);
+    expect(canvas.style.width).toBe("100%");
+    expect(canvas.style.height).toBe("100%");
 
     expect(context.operations).toContainEqual({
       type: "clearRect",
       x: 0,
       y: 0,
-      width: 40,
-      height: 54,
+      width: 100,
+      height: 108,
     });
     expect(context.operations).toContainEqual({
       type: "fillRect",
       x: 0,
       y: 0,
-      width: 40,
-      height: 54,
+      width: 100,
+      height: 108,
       fillStyle: "rgba(16, 24, 32, 1)",
       globalAlpha: 1,
     });
@@ -150,6 +150,68 @@ test("runtime draws decoded surface frames into the canvas", async () => {
       path: [["moveTo", 0, 13], ["lineTo", 10, 13]],
     });
     expect(strokes.some((operation) => operation.lineWidth === 2)).toBe(true);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("canvas and scene wrappers fill a non-cell-aligned mount without overflow", async () => {
+  const dom = installFakeDOM({ devicePixelRatio: 2 });
+  try {
+    const resizes: Array<{ columns: number; rows: number }> = [];
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge: {
+        bindOutput: () => {},
+        resize: (columns, rows) => {
+          resizes.push({ columns, rows });
+        },
+        updateRenderStyle: () => {},
+        sendInput: () => {},
+        dispose: () => {},
+      },
+      onInput: () => {},
+    });
+    const terminalMount = runtime.terminalMount as unknown as FakeElement;
+    terminalMount.rect = {
+      left: 0,
+      top: 0,
+      width: 103,
+      height: 109,
+      right: 103,
+      bottom: 109,
+    };
+
+    await runtime.mount();
+
+    expect(runtime.element.style.boxSizing).toBe("border-box");
+    expect(runtime.element.style.width).toBe("100%");
+    expect(runtime.element.style.height).toBe("100%");
+    expect(runtime.element.style.overflow).toBe("hidden");
+    expect(terminalMount.style.boxSizing).toBe("border-box");
+    expect(terminalMount.style.width).toBe("100%");
+    expect(terminalMount.style.height).toBe("100%");
+    expect(terminalMount.style.minHeight).toBe("0");
+    expect(terminalMount.style.overflow).toBe("hidden");
+
+    const canvas = dom.canvases[0]!;
+    expect(canvas.style.width).toBe("100%");
+    expect(canvas.style.height).toBe("100%");
+    expect(canvas.width).toBe(206);
+    expect(canvas.height).toBe(218);
+    expect(resizes.at(-1)).toEqual({ columns: 10, rows: 4 });
+    expect(canvas.context.operations).toContainEqual({
+      type: "fillRect",
+      x: 0,
+      y: 0,
+      width: 103,
+      height: 109,
+      fillStyle: "rgba(30, 34, 42, 1)",
+      globalAlpha: 1,
+    });
   } finally {
     dom.restore();
   }

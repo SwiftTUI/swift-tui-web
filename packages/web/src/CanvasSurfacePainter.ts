@@ -179,7 +179,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       }
     } else {
       context.clearRect(0, 0, canvas.width / scale, canvas.height / scale);
-      context.fillRect(0, 0, metrics.columns * metrics.cellWidth, metrics.rows * metrics.cellHeight);
+      context.fillRect(0, 0, canvas.width / scale, canvas.height / scale);
     }
 
     if (!frame) {

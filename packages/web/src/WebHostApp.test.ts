@@ -152,6 +152,38 @@ test("app accepts existing custom bridges without the optional image recovery se
   await controller.dispose();
 });
 
+test("app host frame contains padding within its mount", async () => {
+  const mount = makeElement("main");
+  let sceneRoot: ReturnType<typeof makeElement> | undefined;
+  const controller = await createWebHostApp({
+    mount: mount as unknown as HTMLElement,
+    manifest: {
+      defaultSceneId: "main",
+      scenes: [{ id: "main", title: "Main", isDefault: true }],
+    },
+    createElement: (tagName: string) => {
+      sceneRoot = makeElement(tagName);
+      return sceneRoot as unknown as HTMLElement;
+    },
+    sceneRuntimeFactory: (options) =>
+      new FakeRuntime(options.descriptor.id) as unknown as never,
+  });
+
+  const mountStyle = mount.style as Record<string, string>;
+  const sceneStyle = sceneRoot?.style as Record<string, string>;
+  expect(mountStyle.boxSizing).toBe("border-box");
+  expect(mountStyle.width).toBe("100%");
+  expect(mountStyle.height).toBe("100%");
+  expect(mountStyle.overflow).toBe("hidden");
+  expect(mountStyle.padding).toBe("1rem");
+  expect(sceneStyle.boxSizing).toBe("border-box");
+  expect(sceneStyle.width).toBe("100%");
+  expect(sceneStyle.height).toBe("100%");
+  expect(sceneStyle.overflow).toBe("hidden");
+
+  await controller.dispose();
+});
+
 test("app controller uses the embedded WebSocket bridge when configured", async () => {
   const socket = new FakeSocket();
   let socketURL = "";

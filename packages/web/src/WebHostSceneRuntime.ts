@@ -181,6 +181,8 @@ export class WebHostSceneRuntime {
   private rows = 24;
   private cellWidth = 8;
   private cellHeight = 18;
+  private surfaceCSSWidth?: number;
+  private surfaceCSSHeight?: number;
   private activePointerButton: PointerButton = "primary";
   private hasCapturedPointer = false;
   private readonly onOpenHyperlink?: (url: string) => void;
@@ -519,6 +521,11 @@ export class WebHostSceneRuntime {
     style: WebHostTerminalStyle
   ): void {
     applyWebHostTerminalStyle(this.element, style);
+    this.element.style.boxSizing = "border-box";
+    this.element.style.width = "100%";
+    this.element.style.height = "100%";
+    this.element.style.minWidth = "0";
+    this.element.style.minHeight = "0";
     this.element.style.padding = "0.75rem";
     this.element.style.borderRadius = "16px";
     this.element.style.boxShadow = "0 20px 50px rgba(0, 0, 0, 0.28)";
@@ -527,6 +534,11 @@ export class WebHostSceneRuntime {
     this.element.style.gridTemplateRows = "auto 1fr";
 
     this.terminalMount.style.position = "relative";
+    this.terminalMount.style.boxSizing = "border-box";
+    this.terminalMount.style.width = "100%";
+    this.terminalMount.style.height = "100%";
+    this.terminalMount.style.minWidth = "0";
+    this.terminalMount.style.minHeight = "0";
     this.terminalMount.style.overflow = "hidden";
     // `contain` suppresses native ancestor scroll chaining even when the wheel
     // handler does not call preventDefault(). Only the explicit capture mode
@@ -536,7 +548,6 @@ export class WebHostSceneRuntime {
       this.wheelMode === "capture" ? "contain" : "auto";
     this.terminalMount.style.outline = "none";
     this.terminalMount.style.background = webTUITerminalBackgroundColor(this.currentStyle);
-    this.terminalMount.style.minHeight = `${this.cellHeight * 8}px`;
 
     if (this.canvas) {
       this.canvas.style.display = "block";
@@ -718,6 +729,8 @@ export class WebHostSceneRuntime {
     const rect = this.terminalMount.getBoundingClientRect?.();
     const width = rect?.width && rect.width > 0 ? rect.width : this.columns * this.cellWidth;
     const height = rect?.height && rect.height > 0 ? rect.height : this.rows * this.cellHeight;
+    this.surfaceCSSWidth = width;
+    this.surfaceCSSHeight = height;
     const nextColumns = Math.max(1, Math.floor(width / this.cellWidth));
     const nextRows = Math.max(1, Math.floor(height / this.cellHeight));
 
@@ -748,17 +761,17 @@ export class WebHostSceneRuntime {
   }
 
   private resizeSurface(): boolean {
-    const cssWidth = Math.max(1, this.columns * this.cellWidth);
-    const cssHeight = Math.max(1, this.rows * this.cellHeight);
+    const gridCSSWidth = Math.max(1, this.columns * this.cellWidth);
+    const gridCSSHeight = Math.max(1, this.rows * this.cellHeight);
 
     if (this.domSurfaceRoot) {
       const last = this.lastDomSurfaceSize;
-      if (last && last.width === cssWidth && last.height === cssHeight) {
+      if (last && last.width === gridCSSWidth && last.height === gridCSSHeight) {
         return false;
       }
-      this.lastDomSurfaceSize = { width: cssWidth, height: cssHeight };
-      this.domSurfaceRoot.style.width = `${cssWidth}px`;
-      this.domSurfaceRoot.style.height = `${cssHeight}px`;
+      this.lastDomSurfaceSize = { width: gridCSSWidth, height: gridCSSHeight };
+      this.domSurfaceRoot.style.width = `${gridCSSWidth}px`;
+      this.domSurfaceRoot.style.height = `${gridCSSHeight}px`;
       return true;
     }
 
@@ -767,10 +780,12 @@ export class WebHostSceneRuntime {
     }
 
     const scale = globalThis.window?.devicePixelRatio || 1;
+    const cssWidth = Math.max(1, this.surfaceCSSWidth ?? gridCSSWidth);
+    const cssHeight = Math.max(1, this.surfaceCSSHeight ?? gridCSSHeight);
     const width = Math.ceil(cssWidth * scale);
     const height = Math.ceil(cssHeight * scale);
-    const styleWidth = `${cssWidth}px`;
-    const styleHeight = `${cssHeight}px`;
+    const styleWidth = "100%";
+    const styleHeight = "100%";
     if (this.canvas.width === width
       && this.canvas.height === height
       && this.canvas.style.width === styleWidth

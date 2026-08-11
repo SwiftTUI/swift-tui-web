@@ -161,6 +161,12 @@ class InternalWebHostAppController implements WebHostAppController {
 
     this.sceneRoot = (options.createElement ?? defaultCreateElement)("div");
     this.sceneRoot.className = "webhost-scene-root";
+    this.sceneRoot.style.boxSizing = "border-box";
+    this.sceneRoot.style.width = "100%";
+    this.sceneRoot.style.height = "100%";
+    this.sceneRoot.style.minWidth = "0";
+    this.sceneRoot.style.minHeight = "0";
+    this.sceneRoot.style.overflow = "hidden";
     this.mount.replaceChildren(this.sceneRoot);
     this.applyHostFrameStyle();
   }
@@ -298,7 +304,12 @@ class InternalWebHostAppController implements WebHostAppController {
 
   private applyHostFrameStyle(): void {
     this.mount.style.background = "linear-gradient(180deg, #0f172a 0%, #111827 100%)";
-    this.mount.style.minHeight = "100%";
+    this.mount.style.boxSizing = "border-box";
+    this.mount.style.width = "100%";
+    this.mount.style.height = "100%";
+    this.mount.style.minWidth = "0";
+    this.mount.style.minHeight = "0";
+    this.mount.style.overflow = "hidden";
     this.mount.style.display = "block";
     this.mount.style.padding = "1rem";
   }
