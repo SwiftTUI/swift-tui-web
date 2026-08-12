@@ -180,6 +180,9 @@ test("app host frame contains padding within its mount", async () => {
   expect(sceneStyle.width).toBe("100%");
   expect(sceneStyle.height).toBe("100%");
   expect(sceneStyle.overflow).toBe("hidden");
+  expect(sceneStyle.display).toBe("flex");
+  expect(sceneStyle.justifyContent).toBe("center");
+  expect(sceneStyle.alignItems).toBe("flex-start");
 
   await controller.dispose();
 });

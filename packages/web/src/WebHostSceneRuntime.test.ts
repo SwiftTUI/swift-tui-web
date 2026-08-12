@@ -188,13 +188,18 @@ test("canvas and scene wrappers fill a non-cell-aligned mount without overflow",
     await runtime.mount();
 
     expect(runtime.element.style.boxSizing).toBe("border-box");
-    expect(runtime.element.style.width).toBe("100%");
-    expect(runtime.element.style.height).toBe("100%");
+    expect(runtime.element.style.width).toBe("80%");
+    expect(runtime.element.style.height).toBe("80%");
+    expect(runtime.element.style.maxWidth).toBe("100%");
+    expect(runtime.element.style.maxHeight).toBe("100%");
     expect(runtime.element.style.overflow).toBe("hidden");
+    expect(runtime.element.style.resize).toBe("both");
+    expect(runtime.element.style.gridTemplateRows).toBe("auto minmax(0, 1fr)");
     expect(terminalMount.style.boxSizing).toBe("border-box");
     expect(terminalMount.style.width).toBe("100%");
-    expect(terminalMount.style.height).toBe("100%");
+    expect(terminalMount.style.height).toBe("auto");
     expect(terminalMount.style.minHeight).toBe("0");
+    expect(terminalMount.style.alignSelf).toBe("stretch");
     expect(terminalMount.style.overflow).toBe("hidden");
 
     const canvas = dom.canvases[0]!;
@@ -212,6 +217,66 @@ test("canvas and scene wrappers fill a non-cell-aligned mount without overflow",
       fillStyle: "rgba(30, 34, 42, 1)",
       globalAlpha: 1,
     });
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a container resize immediately repaints the retained frame at the new full size", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 10, rows: 4 });
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20, fontFamily: "Test Mono" },
+      bridge,
+      onInput: () => {},
+    });
+    const terminalMount = runtime.terminalMount as unknown as FakeElement;
+    terminalMount.rect = {
+      left: 0,
+      top: 0,
+      width: 103,
+      height: 109,
+      right: 103,
+      bottom: 109,
+    };
+    await runtime.mount();
+    bridge.stdout.write(encoder.encode(surfaceRecord({
+      version: 1,
+      width: 10,
+      height: 4,
+      styles: [null],
+      rows: [[[0, "A", 1, 0]], [], [], []],
+      images: [],
+    })));
+
+    const canvas = dom.canvases[0]!;
+    canvas.context.operations = [];
+    terminalMount.rect = {
+      left: 0,
+      top: 0,
+      width: 137,
+      height: 143,
+      right: 137,
+      bottom: 143,
+    };
+    dom.triggerResize();
+
+    expect(canvas.width).toBe(137);
+    expect(canvas.height).toBe(143);
+    expect(canvas.context.operations).toContainEqual({
+      type: "fillRect",
+      x: 0,
+      y: 0,
+      width: 137,
+      height: 143,
+      fillStyle: "rgba(30, 34, 42, 1)",
+      globalAlpha: 1,
+    });
+    expect(fillTextOperations(canvas.context, "A")).toHaveLength(1);
   } finally {
     dom.restore();
   }
@@ -2579,6 +2644,7 @@ function installFakeDOM(
   options: FakeDOMOptions = {}
 ): {
   canvases: FakeCanvasElement[];
+  triggerResize(): void;
   restore(): void;
 } {
   const previousDocument = globalThis.document;
@@ -2587,6 +2653,7 @@ function installFakeDOM(
   const previousCreateImageBitmap = globalThis.createImageBitmap;
   const previousMatchMedia = globalThis.matchMedia;
   const canvases: FakeCanvasElement[] = [];
+  const resizeObservers: FakeResizeObserver[] = [];
 
   globalThis.document = {
     createElement: (tagName: string) => {
@@ -2601,7 +2668,12 @@ function installFakeDOM(
   globalThis.window = {
     devicePixelRatio: options.devicePixelRatio ?? 1,
   } as unknown as Window & typeof globalThis;
-  globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
+  globalThis.ResizeObserver = class extends FakeResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      super(callback);
+      resizeObservers.push(this);
+    }
+  } as unknown as typeof ResizeObserver;
   if (options.createImageBitmap) {
     globalThis.createImageBitmap = options.createImageBitmap as typeof createImageBitmap;
   }
@@ -2615,6 +2687,11 @@ function installFakeDOM(
 
   return {
     canvases,
+    triggerResize: () => {
+      for (const observer of resizeObservers) {
+        observer.trigger();
+      }
+    },
     restore: () => {
       globalThis.document = previousDocument;
       globalThis.window = previousWindow;
@@ -2626,8 +2703,14 @@ function installFakeDOM(
 }
 
 class FakeResizeObserver {
+  constructor(private readonly callback: ResizeObserverCallback) {}
+
   observe(): void {}
   disconnect(): void {}
+
+  trigger(): void {
+    this.callback([], this as unknown as ResizeObserver);
+  }
 }
 
 class FakeStyle {

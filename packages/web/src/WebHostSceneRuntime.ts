@@ -522,23 +522,28 @@ export class WebHostSceneRuntime {
   ): void {
     applyWebHostTerminalStyle(this.element, style);
     this.element.style.boxSizing = "border-box";
-    this.element.style.width = "100%";
-    this.element.style.height = "100%";
+    this.element.style.width = "80%";
+    this.element.style.height = "80%";
+    this.element.style.maxWidth = "100%";
+    this.element.style.maxHeight = "100%";
     this.element.style.minWidth = "0";
     this.element.style.minHeight = "0";
     this.element.style.padding = "0.75rem";
     this.element.style.borderRadius = "16px";
     this.element.style.boxShadow = "0 20px 50px rgba(0, 0, 0, 0.28)";
     this.element.style.overflow = "hidden";
+    this.element.style.resize = "both";
+    this.element.style.flex = "0 0 auto";
     this.element.style.gap = "0.5rem";
-    this.element.style.gridTemplateRows = "auto 1fr";
+    this.element.style.gridTemplateRows = "auto minmax(0, 1fr)";
 
     this.terminalMount.style.position = "relative";
     this.terminalMount.style.boxSizing = "border-box";
     this.terminalMount.style.width = "100%";
-    this.terminalMount.style.height = "100%";
+    this.terminalMount.style.height = "auto";
     this.terminalMount.style.minWidth = "0";
     this.terminalMount.style.minHeight = "0";
+    this.terminalMount.style.alignSelf = "stretch";
     this.terminalMount.style.overflow = "hidden";
     // `contain` suppresses native ancestor scroll chaining even when the wheel
     // handler does not call preventDefault(). Only the explicit capture mode
@@ -738,6 +743,11 @@ export class WebHostSceneRuntime {
     this.rows = nextRows;
     this.sendResizeIfNeeded();
     this.resizeSurface();
+    // Changing a canvas's backing dimensions clears every pixel. Repaint the
+    // retained frame synchronously so a CSS resize never leaves the terminal
+    // blank while the app is producing its next frame for the new cell grid.
+    this.draw();
+    this.syncAccessibilityTree();
   }
 
   private sendResizeIfNeeded(): void {

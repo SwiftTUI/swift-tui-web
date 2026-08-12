@@ -167,6 +167,9 @@ class InternalWebHostAppController implements WebHostAppController {
     this.sceneRoot.style.minWidth = "0";
     this.sceneRoot.style.minHeight = "0";
     this.sceneRoot.style.overflow = "hidden";
+    this.sceneRoot.style.display = "flex";
+    this.sceneRoot.style.justifyContent = "center";
+    this.sceneRoot.style.alignItems = "flex-start";
     this.mount.replaceChildren(this.sceneRoot);
     this.applyHostFrameStyle();
   }
