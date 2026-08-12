@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { encodeRenderStyleControlMessage } from "./WebHostSurfaceTransport.ts";
 import {
   WebSocketSceneBridge,
   webSocketSceneURL,
@@ -74,6 +75,13 @@ class FakeWebSocket implements WebSocketSceneSocket {
     data: unknown
   ): void {
     this.emit("message", { data });
+  }
+
+  serverClose(
+    code: number
+  ): void {
+    this.readyState = 3;
+    this.emit("close", { code });
   }
 
   private emit(
@@ -469,6 +477,136 @@ test("websocket queued send failure retains the request and preserves FIFO", () 
     '\u001Eresync:{"scope":"images","ids":["png:queued"]}\n',
     "\u001Ekey:return:0\n",
   ]);
+  bridge.dispose();
+});
+
+test("abnormal close reconnects with the handshake ahead of queued input", async () => {
+  const sockets: FakeWebSocket[] = [];
+  const bridge = new WebSocketSceneBridge({
+    sceneId: "main",
+    token: "test-token",
+    baseURL: "http://127.0.0.1:9123/",
+    webSocketFactory: () => {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    },
+    reconnectDelayMilliseconds: () => 0,
+  });
+  const frames: unknown[] = [];
+  bridge.bindOutput({ presentSurface: (frame) => frames.push(frame) });
+
+  sockets[0]!.open();
+  bridge.updateRenderStyle({ fontSize: 20 });
+  bridge.resize(100, 32, 9, 18);
+  // Unsent input from the dead connection's epoch must be dropped, matching
+  // the server's own refusal of stale-token bytes.
+  sockets[0]!.readyState = 3;
+  bridge.sendInput(encoder.encode("key:escape:0\n"));
+  sockets[0]!.serverClose(1006);
+  // Input arriving while disconnected belongs to the new epoch and flushes
+  // after the handshake.
+  bridge.sendInput(encoder.encode("key:return:0\n"));
+  await new Promise((resolve) => setTimeout(resolve, 1));
+
+  expect(sockets).toHaveLength(2);
+  sockets[1]!.open();
+  expect(sockets[1]!.sent.map((chunk) => decoder.decode(chunk))).toEqual([
+    'caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    decoder.decode(encodeRenderStyleControlMessage({ fontSize: 20 })),
+    "resize:100:32:9:18\n",
+    "key:return:0\n",
+  ]);
+
+  // Output from the new connection flows into the bound sink.
+  sockets[1]!.message(encoder.encode(
+    'surface:{"version":1,"width":3,"height":1,"styles":[null],"rows":[[]]}\n'
+  ));
+  await Promise.resolve();
+  expect(frames).toHaveLength(1);
+
+  bridge.dispose();
+});
+
+test("a normal closure is deliberate and does not reconnect", async () => {
+  const sockets: FakeWebSocket[] = [];
+  const bridge = new WebSocketSceneBridge({
+    sceneId: "main",
+    token: "test-token",
+    baseURL: "http://127.0.0.1:9123/",
+    webSocketFactory: () => {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    },
+    reconnectDelayMilliseconds: () => 0,
+  });
+
+  sockets[0]!.open();
+  // The channel closes a superseded client (another tab attached) and a
+  // shut-down server with code 1000; reconnecting would steal the session
+  // back and ping-pong it between clients.
+  sockets[0]!.serverClose(1000);
+  await new Promise((resolve) => setTimeout(resolve, 1));
+
+  expect(sockets).toHaveLength(1);
+  bridge.dispose();
+});
+
+test("dispose cancels a pending reconnect", async () => {
+  const sockets: FakeWebSocket[] = [];
+  const bridge = new WebSocketSceneBridge({
+    sceneId: "main",
+    token: "test-token",
+    baseURL: "http://127.0.0.1:9123/",
+    webSocketFactory: () => {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    },
+    reconnectDelayMilliseconds: () => 0,
+  });
+
+  sockets[0]!.open();
+  sockets[0]!.serverClose(1006);
+  bridge.dispose();
+  await new Promise((resolve) => setTimeout(resolve, 1));
+
+  expect(sockets).toHaveLength(1);
+});
+
+test("repeated abnormal closes keep reconnecting with fresh handshakes", async () => {
+  const sockets: FakeWebSocket[] = [];
+  const bridge = new WebSocketSceneBridge({
+    sceneId: "main",
+    token: "test-token",
+    baseURL: "http://127.0.0.1:9123/",
+    webSocketFactory: () => {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    },
+    reconnectDelayMilliseconds: () => 0,
+  });
+
+  sockets[0]!.open();
+  sockets[0]!.serverClose(1006);
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  // The replacement socket dies before it ever opens (server still down).
+  sockets[1]!.serverClose(1006);
+  await new Promise((resolve) => setTimeout(resolve, 1));
+
+  expect(sockets).toHaveLength(3);
+  sockets[2]!.open();
+  expect(decoder.decode(sockets[2]!.sent[0])).toBe(
+    'caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n'
+  );
+  // Exactly one capability declaration: each reconnect's handshake replaces
+  // the previous attempt's queued one rather than stacking duplicates.
+  expect(sockets[2]!.sent.map((chunk) => decoder.decode(chunk)).filter(
+    (message) => message.startsWith("caps:")
+  )).toHaveLength(1);
+
   bridge.dispose();
 });
 

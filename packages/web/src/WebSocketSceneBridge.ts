@@ -17,6 +17,13 @@ export interface WebSocketSceneBridgeOptions {
   baseURL?: string | URL;
   webSocketURL?: string | URL;
   webSocketFactory?: WebSocketSceneBridgeFactory;
+  /**
+   * Delay in milliseconds before reconnect attempt `attempt` (1-based) after
+   * an abnormal socket close. Defaults to capped exponential backoff
+   * (250 ms doubling to an 8 s ceiling). The counter resets when a
+   * connection opens.
+   */
+  reconnectDelayMilliseconds?: (attempt: number) => number;
 }
 
 export type WebSocketSceneBridgeFactory = (url: string | URL) => WebSocketSceneSocket;
@@ -37,19 +44,37 @@ export interface WebSocketSceneSocket {
 }
 
 const socketOpenState = 1;
+const normalClosureCode = 1000;
 const textEncoder = new TextEncoder();
+
+function defaultReconnectDelayMilliseconds(attempt: number): number {
+  return Math.min(250 * 2 ** (attempt - 1), 8_000);
+}
 
 export class WebSocketSceneBridge implements WebHostSceneBridge {
   readonly url: URL;
 
-  private readonly socket: WebSocketSceneSocket;
+  private socket: WebSocketSceneSocket;
+  private readonly createSocket: WebSocketSceneBridgeFactory;
+  private readonly reconnectDelayMilliseconds: (attempt: number) => number;
   private readonly decoder = new WebHostOutputDecoder();
   private readonly queuedInput: Uint8Array[] = [];
   private readonly queuedOutput: WebHostOutputRecord[] = [];
   private sink?: WebHostOutputSink;
   private disposed = false;
+  private reconnectAttempts = 0;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  // The host state the runtime last declared, replayed after a reconnect.
+  // The runtime dedupes its own declarations (`lastSentResize` and friends),
+  // so without the replay a size or style that changed while disconnected —
+  // or a server that restarted and lost its transport state — would never
+  // be re-announced.
+  private lastRenderStyleMessage?: Uint8Array;
+  private lastResizeMessage?: Uint8Array;
+  private lastPointerCapabilitiesMessage?: Uint8Array;
 
   private readonly handleOpen = () => {
+    this.reconnectAttempts = 0;
     this.flushQueuedInput();
   };
 
@@ -57,22 +82,33 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     void this.receive(event.data);
   };
 
-  private readonly handleClose = () => {
+  private readonly handleClose = (event: CloseEvent) => {
     for (const record of this.decoder.flush()) {
       this.deliver(record);
     }
+    // A normal closure (1000) is deliberate: the server shut down, or a new
+    // client attached and the channel closed this one as superseded.
+    // Auto-reconnecting after a supersession would steal the session back
+    // and ping-pong it between clients, so only abnormal closes (network
+    // loss, protocol failure) are repaired.
+    if (this.disposed || event.code === normalClosureCode) {
+      return;
+    }
+    // Input queued for the dead connection belongs to its epoch; the server
+    // refuses stale-token bytes for the same reason (blank beats stale).
+    this.queuedInput.length = 0;
+    this.scheduleReconnect();
   };
 
   private readonly handleError = () => {};
 
   constructor(options: WebSocketSceneBridgeOptions) {
     this.url = webSocketSceneURL(options);
-    this.socket = (options.webSocketFactory ?? defaultWebSocketFactory)(this.url);
-    this.socket.binaryType = "arraybuffer";
-    this.socket.addEventListener("open", this.handleOpen);
-    this.socket.addEventListener("message", this.handleMessage);
-    this.socket.addEventListener("close", this.handleClose);
-    this.socket.addEventListener("error", this.handleError);
+    this.createSocket = options.webSocketFactory ?? defaultWebSocketFactory;
+    this.reconnectDelayMilliseconds =
+      options.reconnectDelayMilliseconds ?? defaultReconnectDelayMilliseconds;
+    this.socket = this.createSocket(this.url);
+    this.attachSocket(this.socket);
     // Declare wire capabilities first: queued input flushes in order on
     // open, so the declaration reaches the server ahead of any
     // resize/style/input record.
@@ -94,19 +130,25 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     cellWidth?: number,
     cellHeight?: number
   ): void {
-    this.sendInput(encodeResizeControlMessage(columns, rows, cellWidth, cellHeight));
+    const message = encodeResizeControlMessage(columns, rows, cellWidth, cellHeight);
+    this.lastResizeMessage = message;
+    this.sendInput(message);
   }
 
   updateRenderStyle(
     style: WebHostTerminalStyle
   ): void {
-    this.sendInput(encodeRenderStyleControlMessage(style));
+    const message = encodeRenderStyleControlMessage(style);
+    this.lastRenderStyleMessage = message;
+    this.sendInput(message);
   }
 
   updatePointerCapabilities(
     supportsScrollPanning: boolean
   ): void {
-    this.sendInput(encodePointerCapabilitiesControlMessage(supportsScrollPanning));
+    const message = encodePointerCapabilitiesControlMessage(supportsScrollPanning);
+    this.lastPointerCapabilitiesMessage = message;
+    this.sendInput(message);
   }
 
   sendInput(
@@ -139,13 +181,82 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
       return;
     }
     this.disposed = true;
-    this.socket.removeEventListener("open", this.handleOpen);
-    this.socket.removeEventListener("message", this.handleMessage);
-    this.socket.removeEventListener("close", this.handleClose);
-    this.socket.removeEventListener("error", this.handleError);
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    this.detachSocket(this.socket);
     this.queuedInput.length = 0;
     this.queuedOutput.length = 0;
     this.socket.close(1000, "WebHost scene disposed");
+  }
+
+  private attachSocket(
+    socket: WebSocketSceneSocket
+  ): void {
+    socket.binaryType = "arraybuffer";
+    socket.addEventListener("open", this.handleOpen);
+    socket.addEventListener("message", this.handleMessage);
+    socket.addEventListener("close", this.handleClose);
+    socket.addEventListener("error", this.handleError);
+  }
+
+  private detachSocket(
+    socket: WebSocketSceneSocket
+  ): void {
+    socket.removeEventListener("open", this.handleOpen);
+    socket.removeEventListener("message", this.handleMessage);
+    socket.removeEventListener("close", this.handleClose);
+    socket.removeEventListener("error", this.handleError);
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== undefined) {
+      return;
+    }
+    this.reconnectAttempts += 1;
+    const delay = Math.max(0, this.reconnectDelayMilliseconds(this.reconnectAttempts));
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.reconnect();
+    }, delay);
+  }
+
+  private reconnect(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.detachSocket(this.socket);
+    let socket: WebSocketSceneSocket;
+    try {
+      socket = this.createSocket(this.url);
+    } catch {
+      // The factory itself failed (e.g. WebSocket unavailable mid-teardown);
+      // keep backing off rather than surfacing an exception from a timer.
+      this.scheduleReconnect();
+      return;
+    }
+    this.socket = socket;
+    this.attachSocket(socket);
+    // A fresh connection is pre-capabilities on the server: the declaration
+    // must reach it first (it answers with a keyframe refresh), followed by
+    // the last-declared host state. Prepend the handshake so input queued
+    // while disconnected flushes after it, preserving the declare-first
+    // ordering the constructor establishes.
+    const handshake = [encodeCapabilitiesControlMessage()];
+    if (this.lastRenderStyleMessage) {
+      handshake.push(this.lastRenderStyleMessage);
+    }
+    if (this.lastResizeMessage) {
+      handshake.push(this.lastResizeMessage);
+    }
+    if (this.lastPointerCapabilitiesMessage) {
+      handshake.push(this.lastPointerCapabilitiesMessage);
+    }
+    this.queuedInput.unshift(...handshake.map((chunk) => new Uint8Array(chunk)));
+    if (this.socket.readyState === socketOpenState) {
+      this.flushQueuedInput();
+    }
   }
 
   private async receive(
