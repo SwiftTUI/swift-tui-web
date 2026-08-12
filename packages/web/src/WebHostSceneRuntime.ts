@@ -106,9 +106,28 @@ export interface WebHostSceneRuntimeOptions {
    * pointer input to the app. See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
+  /**
+   * How the scene element occupies the mount. `"fill"` (default) stretches
+   * to 100% of the mount in both directions with no resize handle;
+   * `"resizable"` is the standalone page's user-resizable frame. See
+   * {@link WebHostSceneFrameMode}.
+   */
+  sceneFrame?: WebHostSceneFrameMode;
 }
 
 export type WheelMode = "capture" | "chain" | "passive";
+
+/**
+ * How the scene element occupies its mount.
+ * - `"fill"` (default): the scene stretches to 100% of the mount in both
+ *   directions with no user-resize affordance — the embedding contract, where
+ *   the host page owns sizing and the scene follows its container.
+ * - `"resizable"`: the standalone WebHost page's frame — a user-resizable
+ *   card (`resize: both`) that starts at 80% of the mount, capped at 100%.
+ *   The packaged local-server page (`browser.ts`) opts into this; embedders
+ *   normally should not.
+ */
+export type WebHostSceneFrameMode = "fill" | "resizable";
 
 /**
  * Resolves the legacy `captureWheelInput` flag to a {@link WheelMode}. When the
@@ -166,6 +185,7 @@ export class WebHostSceneRuntime {
   private readonly synchronizeAccessibilityFocus: boolean;
   private readonly wheelMode: WheelMode;
   private readonly rendererKind: WebHostSurfaceRendererKind;
+  private readonly sceneFrame: WebHostSceneFrameMode;
   private readonly painter: CanvasSurfacePainter | DomSurfacePainter;
   private readonly inputEncoder = new InputEventEncoder();
   private currentStyle: ResolvedWebHostTerminalStyle;
@@ -215,6 +235,7 @@ export class WebHostSceneRuntime {
     this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
     this.wheelMode = options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
     this.rendererKind = options.renderer ?? "canvas";
+    this.sceneFrame = options.sceneFrame ?? "fill";
     const onImagePayloadMiss = (
       ids: readonly string[]
     ): readonly string[] | void => {
@@ -522,28 +543,40 @@ export class WebHostSceneRuntime {
   ): void {
     applyWebHostTerminalStyle(this.element, style);
     this.element.style.boxSizing = "border-box";
-    this.element.style.width = "80%";
-    this.element.style.height = "80%";
-    this.element.style.maxWidth = "100%";
-    this.element.style.maxHeight = "100%";
+    // The resizable frame geometry is standalone-page chrome. Embedders keep
+    // the fill contract: the scene follows its container, and only the host
+    // page decides its size.
+    if (this.sceneFrame === "resizable") {
+      this.element.style.width = "80%";
+      this.element.style.height = "80%";
+      this.element.style.maxWidth = "100%";
+      this.element.style.maxHeight = "100%";
+      this.element.style.resize = "both";
+      this.element.style.flex = "0 0 auto";
+    } else {
+      this.element.style.width = "100%";
+      this.element.style.height = "100%";
+    }
     this.element.style.minWidth = "0";
     this.element.style.minHeight = "0";
     this.element.style.padding = "0.75rem";
     this.element.style.borderRadius = "16px";
     this.element.style.boxShadow = "0 20px 50px rgba(0, 0, 0, 0.28)";
     this.element.style.overflow = "hidden";
-    this.element.style.resize = "both";
-    this.element.style.flex = "0 0 auto";
     this.element.style.gap = "0.5rem";
     this.element.style.gridTemplateRows = "auto minmax(0, 1fr)";
 
     this.terminalMount.style.position = "relative";
     this.terminalMount.style.boxSizing = "border-box";
     this.terminalMount.style.width = "100%";
-    this.terminalMount.style.height = "auto";
+    if (this.sceneFrame === "resizable") {
+      this.terminalMount.style.height = "auto";
+      this.terminalMount.style.alignSelf = "stretch";
+    } else {
+      this.terminalMount.style.height = "100%";
+    }
     this.terminalMount.style.minWidth = "0";
     this.terminalMount.style.minHeight = "0";
-    this.terminalMount.style.alignSelf = "stretch";
     this.terminalMount.style.overflow = "hidden";
     // `contain` suppresses native ancestor scroll chaining even when the wheel
     // handler does not call preventDefault(). Only the explicit capture mode

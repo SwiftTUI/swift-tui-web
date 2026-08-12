@@ -1,5 +1,6 @@
 import { createWebHostApp, type WebHostTerminalStyle } from "./WebHostApp.ts";
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
+import type { WebHostSceneFrameMode } from "./WebHostSceneRuntime.ts";
 
 declare global {
   interface Window {
@@ -8,6 +9,7 @@ declare global {
       initialSceneId?: string;
       style?: WebHostTerminalStyle;
       renderer?: WebHostSurfaceRendererKind;
+      sceneFrame?: WebHostSceneFrameMode;
       embeddedHost?: {
         token?: string;
         webSocketBaseURL?: string;
@@ -36,6 +38,10 @@ async function bootstrap(): Promise<void> {
     initialSceneId: config.initialSceneId,
     style: config.style,
     renderer: config.renderer ?? rendererFromQuery(pageURL),
+    // The standalone local-server page is the one experience that wants the
+    // user-resizable scene frame; embedders calling createWebHostApp directly
+    // default to "fill".
+    sceneFrame: config.sceneFrame ?? "resizable",
     embeddedHost: embeddedToken
       ? {
           token: embeddedToken,

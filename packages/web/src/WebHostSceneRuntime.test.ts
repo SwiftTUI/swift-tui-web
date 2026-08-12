@@ -188,18 +188,15 @@ test("canvas and scene wrappers fill a non-cell-aligned mount without overflow",
     await runtime.mount();
 
     expect(runtime.element.style.boxSizing).toBe("border-box");
-    expect(runtime.element.style.width).toBe("80%");
-    expect(runtime.element.style.height).toBe("80%");
-    expect(runtime.element.style.maxWidth).toBe("100%");
-    expect(runtime.element.style.maxHeight).toBe("100%");
+    expect(runtime.element.style.width).toBe("100%");
+    expect(runtime.element.style.height).toBe("100%");
+    expect(runtime.element.style.resize).toBeUndefined();
     expect(runtime.element.style.overflow).toBe("hidden");
-    expect(runtime.element.style.resize).toBe("both");
     expect(runtime.element.style.gridTemplateRows).toBe("auto minmax(0, 1fr)");
     expect(terminalMount.style.boxSizing).toBe("border-box");
     expect(terminalMount.style.width).toBe("100%");
-    expect(terminalMount.style.height).toBe("auto");
+    expect(terminalMount.style.height).toBe("100%");
     expect(terminalMount.style.minHeight).toBe("0");
-    expect(terminalMount.style.alignSelf).toBe("stretch");
     expect(terminalMount.style.overflow).toBe("hidden");
 
     const canvas = dom.canvases[0]!;
@@ -217,6 +214,34 @@ test("canvas and scene wrappers fill a non-cell-aligned mount without overflow",
       fillStyle: "rgba(30, 34, 42, 1)",
       globalAlpha: 1,
     });
+  } finally {
+    dom.restore();
+  }
+});
+
+test("the resizable scene frame applies the standalone geometry", async () => {
+  const dom = installFakeDOM();
+  try {
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      onInput: () => {},
+      sceneFrame: "resizable",
+    });
+    const terminalMount = runtime.terminalMount as unknown as FakeElement;
+
+    await runtime.mount();
+
+    expect(runtime.element.style.width).toBe("80%");
+    expect(runtime.element.style.height).toBe("80%");
+    expect(runtime.element.style.maxWidth).toBe("100%");
+    expect(runtime.element.style.maxHeight).toBe("100%");
+    expect(runtime.element.style.resize).toBe("both");
+    expect(runtime.element.style.flex).toBe("0 0 auto");
+    expect(terminalMount.style.height).toBe("auto");
+    expect(terminalMount.style.alignSelf).toBe("stretch");
   } finally {
     dom.restore();
   }

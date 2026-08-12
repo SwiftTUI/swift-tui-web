@@ -1,34 +1,24 @@
-.webhost-scene-root {
+/* Embedder companion stylesheet: matches the default "fill" scene frame,
+   where the scene stretches over 100% of its mount with no resize handle.
+   The standalone local-server page carries its own resizable-frame styles
+   in index.html and opts in via sceneFrame: "resizable". */
+
+.webhost-scene-root,
+.webhost-scene {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-}
-
-.webhost-scene {
-  box-sizing: border-box;
-  width: 80%;
-  height: 80%;
-  max-width: 100%;
-  max-height: 100%;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  resize: both;
 }
 
 .webhost-scene__terminal {
   box-sizing: border-box;
   width: 100%;
-  height: auto;
+  height: 100%;
   min-width: 0;
   min-height: 0;
-  align-self: stretch;
   overflow: hidden;
 }
 

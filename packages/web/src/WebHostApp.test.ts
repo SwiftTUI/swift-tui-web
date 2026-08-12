@@ -180,9 +180,38 @@ test("app host frame contains padding within its mount", async () => {
   expect(sceneStyle.width).toBe("100%");
   expect(sceneStyle.height).toBe("100%");
   expect(sceneStyle.overflow).toBe("hidden");
+  expect(sceneStyle.display).toBe("block");
+  expect(sceneStyle.justifyContent).toBeUndefined();
+
+  await controller.dispose();
+});
+
+test("the resizable scene frame centers the scene root and reaches each runtime", async () => {
+  const mount = makeElement("main");
+  let sceneRoot: ReturnType<typeof makeElement> | undefined;
+  let runtimeOptions: WebHostSceneRuntimeOptions | undefined;
+  const controller = await createWebHostApp({
+    mount: mount as unknown as HTMLElement,
+    manifest: {
+      defaultSceneId: "main",
+      scenes: [{ id: "main", title: "Main", isDefault: true }],
+    },
+    sceneFrame: "resizable",
+    createElement: (tagName: string) => {
+      sceneRoot = makeElement(tagName);
+      return sceneRoot as unknown as HTMLElement;
+    },
+    sceneRuntimeFactory: (options) => {
+      runtimeOptions = options;
+      return new FakeRuntime(options.descriptor.id) as unknown as never;
+    },
+  });
+
+  const sceneStyle = sceneRoot?.style as Record<string, string>;
   expect(sceneStyle.display).toBe("flex");
   expect(sceneStyle.justifyContent).toBe("center");
   expect(sceneStyle.alignItems).toBe("flex-start");
+  expect(runtimeOptions?.sceneFrame).toBe("resizable");
 
   await controller.dispose();
 });

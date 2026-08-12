@@ -19,6 +19,7 @@ import {
 import {
   WebHostSceneRuntime,
   type WebHostSceneBridge,
+  type WebHostSceneFrameMode,
   type WebHostSceneRuntimeOptions,
 } from "./WebHostSceneRuntime.ts";
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
@@ -76,6 +77,15 @@ export interface WebHostAppOptions {
    * See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
+  /**
+   * How scene elements occupy the mount. `"fill"` (default) keeps the
+   * embedding contract — every scene stretches to 100% of the mount in both
+   * directions with no resize affordance. `"resizable"` renders the
+   * standalone WebHost page's frame instead: a centered, user-resizable card
+   * that starts at 80% of the mount. Forwarded to each scene runtime as
+   * `sceneFrame`. See {@link WebHostSceneFrameMode}.
+   */
+  sceneFrame?: WebHostSceneFrameMode;
 }
 
 export interface WebHostAppController {
@@ -105,6 +115,7 @@ export async function createWebHostApp(
     suspendHiddenScenes: options.suspendHiddenScenes,
     visibilityDocument: options.visibilityDocument ?? defaultVisibilityDocument(),
     renderer: options.renderer,
+    sceneFrame: options.sceneFrame,
   });
   await controller.initialize();
   return controller;
@@ -125,6 +136,7 @@ class InternalWebHostAppController implements WebHostAppController {
   private readonly bridges = new Map<string, WebHostSceneBridge>();
   private readonly suspendHiddenScenes?: boolean;
   private readonly renderer?: WebHostSurfaceRendererKind;
+  private readonly sceneFrame: WebHostSceneFrameMode;
   private readonly visibilityDocument?: WebHostVisibilityDocument;
   private detachVisibilityListener?: () => void;
 
@@ -141,6 +153,7 @@ class InternalWebHostAppController implements WebHostAppController {
     suspendHiddenScenes?: boolean;
     visibilityDocument?: WebHostVisibilityDocument;
     renderer?: WebHostSurfaceRendererKind;
+    sceneFrame?: WebHostSceneFrameMode;
   }) {
     this.mount = options.mount;
     this.style = normalizeWebHostTerminalStyle(options.style ?? {});
@@ -150,6 +163,7 @@ class InternalWebHostAppController implements WebHostAppController {
     this.sceneRuntimeFactory = options.sceneRuntimeFactory;
     this.suspendHiddenScenes = options.suspendHiddenScenes;
     this.renderer = options.renderer;
+    this.sceneFrame = options.sceneFrame ?? "fill";
     this.visibilityDocument = options.visibilityDocument;
     this.scenes = options.manifest.scenes;
     this.selectedSceneId =
@@ -167,9 +181,15 @@ class InternalWebHostAppController implements WebHostAppController {
     this.sceneRoot.style.minWidth = "0";
     this.sceneRoot.style.minHeight = "0";
     this.sceneRoot.style.overflow = "hidden";
-    this.sceneRoot.style.display = "flex";
-    this.sceneRoot.style.justifyContent = "center";
-    this.sceneRoot.style.alignItems = "flex-start";
+    // Flex centering only frames the standalone resizable card; embedded
+    // fill scenes stretch over the whole root, so block flow suffices.
+    if (this.sceneFrame === "resizable") {
+      this.sceneRoot.style.display = "flex";
+      this.sceneRoot.style.justifyContent = "center";
+      this.sceneRoot.style.alignItems = "flex-start";
+    } else {
+      this.sceneRoot.style.display = "block";
+    }
     this.mount.replaceChildren(this.sceneRoot);
     this.applyHostFrameStyle();
   }
@@ -262,6 +282,7 @@ class InternalWebHostAppController implements WebHostAppController {
       onInput: (chunk) => bridge.sendInput(chunk),
       suspendWhenHidden: this.suspendHiddenScenes,
       renderer: this.renderer,
+      sceneFrame: this.sceneFrame,
     });
 
     this.bridges.set(id, bridge);
