@@ -14,6 +14,10 @@ terminal emulator such as `xterm.js`.
 A SwiftTUI app compiles to `wasm32-wasi` and streams a structured raster surface.
 `@swifttui/web` paints that surface into the page through its DOM or canvas
 engine and mounts a real ARIA accessibility tree.
+The ARIA tree is a one-way semantic presentation preview: reading order,
+names, roles, hidden state, announcements, and runtime-origin focus are
+presented, but assistive-origin focus, activation, adjustment, and editing do
+not route back into SwiftTUI in 0.9.
 Thus, the same `App` and `Scene` run in a terminal and on a web page. These two
 packages deliver two of SwiftTUI's five hosts: a **static WASI bundle** and a
 **localhost WebHost**. The framework itself lives in

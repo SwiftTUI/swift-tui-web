@@ -212,6 +212,7 @@ test("surface images render as clipped elements and reconcile by id", () => {
           bounds: [1, 0, 4, 2] as [number, number, number, number],
           visibleBounds: [2, 0, 3, 2] as [number, number, number, number],
           scalingMode: "stretch" as const,
+          opacity: 0.25,
           dataBase64: "QUJD",
         },
       ],
@@ -225,6 +226,7 @@ test("surface images render as clipped elements and reconcile by id", () => {
     expect(container?.style.width).toBe("24px");
     expect(container?.style.overflow).toBe("hidden");
     const image = container?.children[0];
+    expect(image?.style.opacity).toBe("0.25");
     expect(image?.style.left).toBe("-8px");
     expect(image?.style.width).toBe("32px");
     expect(image?.getAttribute("src")).toBe("data:image/png;base64,QUJD");
@@ -273,6 +275,7 @@ test("payload-less repeats preserve a known image while updating its geometry", 
           bounds: [2, 1, 5, 3] as [number, number, number, number],
           visibleBounds: [3, 1, 2, 1] as [number, number, number, number],
           scalingMode: "stretch" as const,
+          opacity: 0.75,
         },
       ],
     }));
@@ -289,6 +292,7 @@ test("payload-less repeats preserve a known image while updating its geometry", 
     expect(image?.style.width).toBe("40px");
     expect(image?.style.height).toBe("54px");
     expect(image?.getAttribute("src")).toBe("data:image/png;base64,QUJD");
+    expect(image?.style.opacity).toBe("0.75");
   } finally {
     dom.restore();
   }

@@ -49,6 +49,28 @@ test("transient image decode failures retry on later paints up to three total at
   expect(context.drawnImages).toEqual([decodedImage]);
 });
 
+test("alpha-only updates reuse decoded image bytes and apply placement opacity", async () => {
+  const context = new RecordingCanvasContext();
+  const decodedImage = { decoded: true } as unknown as CanvasImageSource;
+  let decodeAttempts = 0;
+  const painter = new CanvasSurfacePainter({
+    decodeImage: async () => {
+      decodeAttempts += 1;
+      return decodedImage;
+    },
+  });
+  painter.attach(fakeCanvas(context), () => {});
+
+  painter.paint(metrics, imageFrame(image({ dataBase64: "QUJD", opacity: 0.25 })));
+  await flushPromises();
+  painter.paint(metrics, imageFrame(image({ opacity: 0.25 })));
+  painter.paint(metrics, imageFrame(image({ opacity: 0.75 })));
+
+  expect(decodeAttempts).toBe(1);
+  expect(context.drawnImages).toEqual([decodedImage, decodedImage]);
+  expect(context.drawnImageOpacities).toEqual([0.25, 0.75]);
+});
+
 test("permanent image decode failure requests exactly that image after three total attempts", async () => {
   const context = new RecordingCanvasContext();
   const misses: string[][] = [];
@@ -438,6 +460,7 @@ class RecordingCanvasContext {
   textBaseline: CanvasTextBaseline = "alphabetic";
   globalAlpha = 1;
   readonly drawnImages: CanvasImageSource[] = [];
+  readonly drawnImageOpacities: number[] = [];
 
   setTransform(): void {}
   clearRect(): void {}
@@ -457,6 +480,7 @@ class RecordingCanvasContext {
     image: CanvasImageSource
   ): void {
     this.drawnImages.push(image);
+    this.drawnImageOpacities.push(this.globalAlpha);
   }
 }
 

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SwiftTUI browser preview-readiness journey</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #e2e8f0;
+      }
+
+      body {
+        padding: 24px;
+        font-family: system-ui, sans-serif;
+      }
+
+      #journey-mount {
+        width: 720px;
+        height: 400px;
+      }
+
+      #page-tail {
+        height: 1400px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="journey-mount"></div>
+      <div id="page-tail" aria-hidden="true"></div>
+    </main>
+    <script type="module" src="/preview-readiness.js"></script>
+  </body>
+</html>

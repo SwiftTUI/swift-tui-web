@@ -114,6 +114,8 @@ export interface WebHostSurfaceImage {
   bounds: WebHostSurfaceRect;
   visibleBounds: WebHostSurfaceRect;
   scalingMode: string;
+  /** Effective placement alpha. Absent on legacy records and therefore 1. */
+  opacity?: number;
   pixelSize?: WebHostSurfaceSize;
   dataBase64?: string;
 }
@@ -1158,6 +1160,10 @@ function isWebHostSurfaceImage(
     && isWebHostSurfaceRect(image.bounds)
     && isWebHostSurfaceRect(image.visibleBounds)
     && isWebHostSurfaceScalingMode(image.scalingMode)
+    && (
+      image.opacity === undefined
+        || (typeof image.opacity === "number" && Number.isFinite(image.opacity))
+    )
     && (image.pixelSize === undefined || isWebHostSurfaceSize(image.pixelSize))
     && (image.dataBase64 === undefined || typeof image.dataBase64 === "string");
 }

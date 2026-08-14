@@ -28,6 +28,9 @@ manifest and body hashes match. It rejects missing or extra bodies. It also
 sends each active Canvas and DOM scenario through the real decoder and painter
 paths. If a fixture names a different host, keep the copy complete. The
 organization fixture gate makes sure that the repositories contain equal bytes.
+Image opacity is wire placement state: both painters apply it on every replay,
+while decoded payloads remain cached by image id so alpha-only updates do not
+repeat or re-decode `dataBase64` bytes.
 
 Per-package development commands live in `packages/web/AGENTS.md` and
 `packages/build/AGENTS.md`.

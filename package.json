@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "test": "bun test packages/web packages/build",
+    "test:browser": "bun run build:packages && bun run typecheck:browser && playwright test --config packages/web/e2e/playwright.config.ts",
+    "typecheck:browser": "tsc -p packages/web/e2e/tsconfig.json",
     "build": "bun run build:packages",
     "build:packages": "bun run --cwd packages/web build && bun run --cwd packages/build build",
     "build:web": "bun run --cwd packages/web build:web",
@@ -17,6 +19,7 @@
     "pack:build": "cd packages/build && bun pm pack"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.0",
     "@types/node": "^25.9.1",
     "tsdown": "^0.22.1",
     "typescript": "5.7.3"

@@ -325,6 +325,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       entry.image.style.top = `${(boundsY - clipY) * metrics.cellHeight}px`;
       entry.image.style.width = `${boundsWidth * metrics.cellWidth}px`;
       entry.image.style.height = `${boundsHeight * metrics.cellHeight}px`;
+      entry.image.style.opacity = String(normalizedImageOpacity(image.opacity));
 
       if (image.dataBase64) {
         const source = `data:image/${image.format};base64,${image.dataBase64}`;
@@ -364,6 +365,15 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       }
     }
   }
+}
+
+function normalizedImageOpacity(
+  opacity: number | undefined
+): number {
+  if (opacity === undefined || !Number.isFinite(opacity)) {
+    return 1;
+  }
+  return Math.max(0, Math.min(1, opacity));
 }
 
 /**

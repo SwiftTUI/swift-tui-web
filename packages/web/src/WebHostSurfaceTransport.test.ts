@@ -54,7 +54,8 @@ test("decoder preserves typed image records", () => {
   const records = decoder.feed(encoder.encode(
     '\u001Esurface:{"version":1,"width":2,"height":1,"styles":[null],"rows":[[]],'
       + '"images":[{"id":"png:test","format":"png","bounds":[0,0,1,1],'
-      + '"visibleBounds":[0,0,1,1],"scalingMode":"stretch","pixelSize":[1,1],'
+      + '"visibleBounds":[0,0,1,1],"scalingMode":"stretch","opacity":0.4,'
+      + '"pixelSize":[1,1],'
       + '"dataBase64":"iVBORw=="}]}\n'
   ));
 
@@ -66,6 +67,7 @@ test("decoder preserves typed image records", () => {
       bounds: [0, 0, 1, 1],
       visibleBounds: [0, 0, 1, 1],
       scalingMode: "stretch",
+      opacity: 0.4,
       pixelSize: [1, 1],
       dataBase64: "iVBORw==",
     },
@@ -292,6 +294,24 @@ test("decoder materializes delta surface frames from a full baseline", () => {
       requiresFullGraphicsReplay: false,
     },
   });
+});
+
+test("delta frames update image opacity without repeating payload bytes", () => {
+  const decoder = new WebHostOutputDecoder();
+  const records = decoder.feed(encoder.encode(
+    '\u001Esurface:{"version":2,"width":1,"height":1,"styles":[null],'
+      + '"rows":[[[0," ",1,0]]],"images":[{"id":"png:same","format":"png",'
+      + '"bounds":[0,0,1,1],"visibleBounds":[0,0,1,1],'
+      + '"scalingMode":"stretch","opacity":0.2,"dataBase64":"eA=="}]}\n'
+      + '\u001Esurface:{"version":3,"encoding":"delta","width":1,"height":1,'
+      + '"styles":[null],"deltaRows":[],"images":[{"id":"png:same",'
+      + '"format":"png","bounds":[0,0,1,1],"visibleBounds":[0,0,1,1],'
+      + '"scalingMode":"stretch","opacity":0.8}]}\n'
+  ));
+
+  const image = surfaceFrame(records[1]).images?.[0];
+  expect(image?.opacity).toBe(0.8);
+  expect(image?.dataBase64).toBeUndefined();
 });
 
 test("decoder splices an appended style table onto its retained one", () => {

@@ -311,6 +311,10 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       clipHeight * metrics.cellHeight
     );
     context.clip();
+    // Opacity is placement state, not image-content identity. Keep the decoded
+    // payload cached by id and apply alpha for every replay so alpha-only frame
+    // updates neither decode nor retransmit the image bytes.
+    context.globalAlpha = normalizedImageOpacity(image.opacity);
     context.drawImage(
       decodedImage,
       boundsX * metrics.cellWidth,
@@ -641,6 +645,15 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     context.stroke();
     context.setLineDash([]);
   }
+}
+
+function normalizedImageOpacity(
+  opacity: number | undefined
+): number {
+  if (opacity === undefined || !Number.isFinite(opacity)) {
+    return 1;
+  }
+  return Math.max(0, Math.min(1, opacity));
 }
 
 function isPaintableSurfaceImage(
