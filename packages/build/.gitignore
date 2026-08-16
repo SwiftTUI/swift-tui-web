@@ -6,6 +6,9 @@ out
 dist
 *.tgz
 
+# tsc emits declarations beside the sources it compiles; none are authored.
+*.d.ts
+
 # code coverage
 coverage
 *.lcov
