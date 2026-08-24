@@ -37,7 +37,7 @@ browser-safe runtime. Thus, any bundler can import the runtime.
 **Run the demo:** a live SwiftTUI app compiled to `wasm32-wasi` and mounted via
 `@swifttui/web` runs at <https://swifttui.sh/webexample>. The reference template
 that produces it is
-[`swift-tui-examples/WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample).
+[`swift-tui-counter-demo/WebExample`](https://github.com/SwiftTUI/swift-tui-counter-demo/tree/main/WebExample).
 
 ## Installation
 

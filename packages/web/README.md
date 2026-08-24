@@ -18,7 +18,7 @@ lives in the sibling
 [`@swifttui/build`](https://www.npmjs.com/package/@swifttui/build) package.
 
 - **Live demo:** <https://swifttui.sh/webexample>
-- **Reference template:** [`swift-tui-examples/WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample)
+- **Reference template:** [`swift-tui-counter-demo/WebExample`](https://github.com/SwiftTUI/swift-tui-counter-demo/tree/main/WebExample)
   (≈60 lines of embedding code)
 - **The framework:** [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui)
 

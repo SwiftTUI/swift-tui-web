@@ -15,7 +15,7 @@ filesystem APIs, or wasm packaging helpers.
 
 - **Runtime counterpart:** [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web),
   which mounts the artifacts this package produces.
-- **Reference template:** [`swift-tui-examples/WebExample`](https://github.com/SwiftTUI/swift-tui-examples/tree/main/WebExample)
+- **Reference template:** [`swift-tui-counter-demo/WebExample`](https://github.com/SwiftTUI/swift-tui-counter-demo/tree/main/WebExample)
 - **The framework:** [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui)
 
 ## Installation
