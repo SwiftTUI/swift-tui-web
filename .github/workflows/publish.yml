@@ -20,7 +20,9 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # 20, not 15: the verify step may now wait up to ~7 minutes for npm and
+    # GitHub release propagation on top of the ~5-minute build.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -162,13 +164,51 @@ jobs:
             npm publish "${{ steps.pack.outputs.build_tarball }}" --access public --provenance
           fi
 
+      # Poll rather than assert once. npm's registry read path lags a fresh
+      # publish by up to a few minutes, and a single `npm view` right after
+      # `npm publish` failed on attempt 1 of 19/19 release tags — every one
+      # passed on a manual rerun with no change (swift-tui-org plan
+      # 2026-08-25-001 §2 item 10). The GitHub release download can lag its
+      # upload the same way, so it gets a shorter poll. Success costs nothing
+      # extra; only a genuinely missing artifact waits out the deadline.
       - name: Verify published artifacts
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME}"
-          for f in "swifttui-web-$version.tgz" "swifttui-build-$version.tgz"; do
+          poll_interval_seconds=15
+
+          wait_for() {
+            label=$1
+            deadline_seconds=$2
+            shift 2
+            waited=0
+            until "$@"; do
+              if [ "$waited" -ge "$deadline_seconds" ]; then
+                echo "::error::$label still not visible after ${deadline_seconds}s"
+                return 1
+              fi
+              echo "$label not visible yet (${waited}s elapsed); retrying in ${poll_interval_seconds}s"
+              sleep "$poll_interval_seconds"
+              waited=$((waited + poll_interval_seconds))
+            done
+            echo "$label visible after ${waited}s"
+          }
+
+          release_asset_visible() {
             curl -fsSL -o /dev/null \
-              "https://github.com/SwiftTUI/swift-tui-web/releases/download/$version/$f"
+              "https://github.com/SwiftTUI/swift-tui-web/releases/download/$version/$1"
+          }
+
+          npm_version_visible() {
+            published="$(npm view "$1@$version" version --json 2>/dev/null | tr -d '\"' || true)"
+            [ "$published" = "$version" ]
+          }
+
+          npm_packages_visible() {
+            npm_version_visible "@swifttui/web" && npm_version_visible "@swifttui/build"
+          }
+
+          for f in "swifttui-web-$version.tgz" "swifttui-build-$version.tgz"; do
+            wait_for "release asset $f" 60 release_asset_visible "$f"
           done
-          test "$(npm view "@swifttui/web@$version" version --json | tr -d '\"')" = "$version"
-          test "$(npm view "@swifttui/build@$version" version --json | tr -d '\"')" = "$version"
+          wait_for "@swifttui/web@$version and @swifttui/build@$version on npm" 300 npm_packages_visible
