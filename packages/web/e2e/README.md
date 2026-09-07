@@ -52,3 +52,14 @@ Swift `TabView` archive behavior remains owned and tested in `swift-tui`.
 | Hidden content | Presented | Inactive panel is absent from the ARIA tree |
 | Text cursor anchoring | Wire-only | `cursorAnchor` is transported but has no browser DOM projection |
 | Assistive activation, adjustment, editing, value/state, and assistive-origin focus | Not supported | Not recorded as passing by this journey |
+
+## Incremental Canvas pixel oracle
+
+`CanvasDamage.browser.ts` imports the production Canvas painter through its own
+fixture and compares actual Chrome pixel buffers after repeated partial paints
+against a full repaint. Cases include translucent overlapping images, disjoint
+damage, nonzero placement/clip origins, and device scales 1 and 2. It verifies
+composition and clipping independently of the unit tests' recording contexts.
+It also checks adding, changing, and removing italic glyphs at measured
+monospace cell dimensions: full and partial paints produce the same pixels,
+and glyph ink stays inside its declared span.

@@ -182,6 +182,17 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     this.hasRenderedFrame = true;
   }
 
+  dispose(): void {
+    this.root?.replaceChildren();
+    this.root = undefined;
+    this.rowsLayer = undefined;
+    this.imagesLayer = undefined;
+    this.rowElements = [];
+    this.renderedImages.clear();
+    this.reportedMissingImageIds.clear();
+    this.lastImageRecoveryFrame = undefined;
+  }
+
   private rebuildRow(
     y: number,
     frame: WebHostSurfaceFrame,

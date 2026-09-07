@@ -37,6 +37,7 @@ export type CanvasSurfaceMetrics = SurfaceMetrics;
 
 interface CachedWebHostImage {
   image?: CanvasImageSource;
+  decodedBytes?: number;
   promise?: Promise<CanvasImageSource>;
   payload?: string;
   /** Total decode attempts already started; bounded by MAX_IMAGE_DECODE_ATTEMPTS. */
@@ -47,9 +48,15 @@ interface CachedWebHostImage {
 export const MAX_IMAGE_DECODE_ATTEMPTS = 3;
 export const MAX_UNRESOLVED_IMAGE_CACHE_ENTRIES = 256;
 export const MAX_UNRESOLVED_IMAGE_PAYLOAD_CHARACTERS = 64 * 1024 * 1024;
+export const MAX_DECODED_IMAGE_CACHE_ENTRIES = 256;
+export const MAX_DECODED_IMAGE_CACHE_BYTES = 64 * 1024 * 1024;
 
 export interface CanvasSurfacePainterOptions {
-  /** Injectable decode seam for browser hosts and deterministic failure tests. */
+  /**
+   * Transfers ownership of each decoded result to the painter. Results must
+   * not be shared with another owner: closable images are closed on eviction,
+   * disposal, or when an obsolete decode completes.
+   */
   decodeImage?: (
     dataBase64: string,
     format: NormalizedSurfaceImageFormat,
@@ -61,6 +68,9 @@ export interface CanvasSurfacePainterOptions {
    * later paint; `void` preserves legacy all-accepted behavior.
    */
   onImagePayloadMiss?: WebHostImagePayloadRequestHandler;
+  /** Soft retention limits; the current paintable working set stays pinned. */
+  maxDecodedImageCacheEntries?: number;
+  maxDecodedImageCacheBytes?: number;
 }
 
 interface DirtyRect {
@@ -98,6 +108,13 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   private unresolvedImagePayloadCharacters = 0;
   private readonly imageDecoder: NonNullable<CanvasSurfacePainterOptions["decodeImage"]>;
   private readonly onImagePayloadMiss: WebHostImagePayloadRequestHandler;
+  private readonly maxDecodedImageCacheEntries: number;
+  private readonly maxDecodedImageCacheBytes: number;
+  private decodedImageCount = 0;
+  private decodedImageBytes = 0;
+  private visibleImageIds = new Set<string>();
+  private readonly inactiveDecodedImageIds = new Set<string>();
+  private disposed = false;
   private canvas?: HTMLCanvasElement;
   private requestRedraw: () => void = () => {};
   private lastEpoch?: number;
@@ -107,12 +124,16 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   constructor(options: CanvasSurfacePainterOptions = {}) {
     this.imageDecoder = options.decodeImage ?? decodeImage;
     this.onImagePayloadMiss = options.onImagePayloadMiss ?? (() => {});
+    this.maxDecodedImageCacheEntries = cacheLimit(
+      options.maxDecodedImageCacheEntries, MAX_DECODED_IMAGE_CACHE_ENTRIES
+    );
+    this.maxDecodedImageCacheBytes = cacheLimit(
+      options.maxDecodedImageCacheBytes, MAX_DECODED_IMAGE_CACHE_BYTES
+    );
     registerCanvasSurfacePainterConformanceControl(this, {
       evictImages: (ids) => {
         for (const id of ids) {
-          this.removeUnresolvedImage(id);
-          this.imageCache.delete(id);
-          this.pendingImagePayloadMissIds.delete(id);
+          this.removeCachedImage(id);
         }
       },
       visibleImageIDs: (images) => [...new Set(
@@ -132,6 +153,9 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     canvas: HTMLCanvasElement,
     requestRedraw: () => void
   ): void {
+    if (this.disposed) {
+      return;
+    }
     this.canvas = canvas;
     this.requestRedraw = requestRedraw;
   }
@@ -142,6 +166,9 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     damage?: WebHostSurfaceDamage,
     recoveredImagePayloadIds: readonly string[] = []
   ): void {
+    if (this.disposed) {
+      return;
+    }
     const canvas = this.canvas;
     const context = canvas?.getContext("2d");
     if (!canvas || !context) {
@@ -157,6 +184,16 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       }
     }
     this.sweepUnresolvedImages(frame?.images);
+    this.visibleImageIds = new Set(
+      (frame?.images ?? []).filter(isPaintableSurfaceImage).map((image) => image.id)
+    );
+    this.inactiveDecodedImageIds.clear();
+    for (const [id, cached] of this.imageCache) {
+      if (cached.image && !this.visibleImageIds.has(id)) {
+        this.inactiveDecodedImageIds.add(id);
+      }
+    }
+    this.trimDecodedImages();
 
     const dirtyRegion = frame
       ? this.dirtyRegionForDamage(damage, frame, metrics)
@@ -186,14 +223,39 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       return;
     }
 
-    this.drawRows(context, frame, metrics, dirtyRegion);
-    this.drawImages(
-      context,
-      frame.images ?? [],
-      metrics,
-      dirtyRegion,
-      recoveredPayloadIds
-    );
+    if (dirtyRegion) {
+      context.save();
+      context.beginPath();
+      for (const rect of dirtyRegion.rects) {
+        context.rect(rect.x, rect.y, rect.width, rect.height);
+      }
+      context.clip();
+    }
+    try {
+      this.drawRows(context, frame, metrics, dirtyRegion);
+      this.drawImages(
+        context, frame.images ?? [], metrics, dirtyRegion, recoveredPayloadIds
+      );
+    } finally {
+      if (dirtyRegion) {
+        context.restore();
+      }
+    }
+  }
+
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.canvas = undefined;
+    this.requestRedraw = () => {};
+    for (const id of this.imageCache.keys()) {
+      this.removeCachedImage(id);
+    }
+    this.visibleImageIds.clear();
+    this.inactiveDecodedImageIds.clear();
+    this.pendingImagePayloadMissIds.clear();
   }
 
   private drawRows(
@@ -330,8 +392,14 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     missingPayloadIds: Set<string>,
     recoveredPayloadIds: Set<string>
   ): CanvasImageSource | undefined {
+    if (!isSupportedImageFormat(image.format)) {
+      return undefined;
+    }
     let cached = this.imageCache.get(image.id);
     if (cached?.image) {
+      // Map insertion order records last use without another LRU structure.
+      this.imageCache.delete(image.id);
+      this.imageCache.set(image.id, cached);
       return cached.image;
     }
 
@@ -386,10 +454,16 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       void promise.then((decodedImage) => {
         const latest = this.imageCache.get(image.id);
         if (latest?.promise !== promise) {
+          closeDecodedImage(decodedImage);
           return;
         }
         this.removeUnresolvedImage(image.id);
-        this.imageCache.set(image.id, { image: decodedImage });
+        const decodedBytes = estimatedDecodedImageBytes(decodedImage);
+        this.imageCache.delete(image.id);
+        this.imageCache.set(image.id, { image: decodedImage, decodedBytes });
+        this.decodedImageCount += 1;
+        this.decodedImageBytes += decodedBytes;
+        this.trimDecodedImages();
         this.requestRedraw();
       }).catch(() => {
         const latest = this.imageCache.get(image.id);
@@ -429,6 +503,33 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
         || this.unresolvedImageIds.size < MAX_UNRESOLVED_IMAGE_CACHE_ENTRIES)
       && nextPayloadCharacters <= MAX_UNRESOLVED_IMAGE_PAYLOAD_CHARACTERS
     );
+  }
+
+  private removeCachedImage(id: string): void {
+    const cached = this.imageCache.get(id);
+    if (cached?.image) {
+      this.decodedImageCount -= 1;
+      this.decodedImageBytes -= cached.decodedBytes ?? 0;
+      closeDecodedImage(cached.image);
+    }
+    this.removeUnresolvedImage(id);
+    this.imageCache.delete(id);
+    this.inactiveDecodedImageIds.delete(id);
+    this.pendingImagePayloadMissIds.delete(id);
+  }
+
+  private trimDecodedImages(): void {
+    // The candidate set follows LRU order, rebuilt when the visible set
+    // changes. Completion of many pinned decodes never rescans that set.
+    for (const id of this.inactiveDecodedImageIds) {
+      if (this.decodedImageCount <= this.maxDecodedImageCacheEntries
+        && this.decodedImageBytes <= this.maxDecodedImageCacheBytes) {
+        break;
+      }
+      // Never evict the visible working set into a decode/resync/redraw loop.
+      // It may exceed either soft limit until those images leave the frame.
+      this.removeCachedImage(id);
+    }
   }
 
   private setUnresolvedImage(
@@ -500,6 +601,9 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     this.imagePayloadMissScheduled = true;
     queueMicrotask(() => {
       this.imagePayloadMissScheduled = false;
+      if (this.disposed) {
+        return;
+      }
       const ids = [...this.pendingImagePayloadMissIds].sort();
       this.pendingImagePayloadMissIds.clear();
       if (ids.length > 0) {
@@ -550,27 +654,39 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       context.fillRect(rectX, rectY, width, metrics.cellHeight);
     }
 
-    if (text !== " ") {
-      context.globalAlpha = opacity;
-      context.fillStyle = foreground;
-      context.strokeStyle = foreground;
-      if (!canRenderBoxDrawing(text) || !drawBoxDrawing(context, text, {
-        x: rectX,
-        y: rectY,
-        width,
-        height: metrics.cellHeight,
-      })) {
-        context.font = fontForStyle(metrics.style, style);
-        context.fillText(
-          text,
-          rectX,
-          rectY + Math.floor((metrics.cellHeight + metrics.style.fontSize) / 2) - 2
-        );
+    if (text !== " " || style?.underline || style?.strikethrough) {
+      // A cell's declared span owns its ink on every paint. Font overhang
+      // (notably italic glyphs) must not escape only on full paints, because
+      // later damage for that cell cannot erase ink outside its span.
+      context.save();
+      context.beginPath();
+      context.rect(rectX, rectY, width, metrics.cellHeight);
+      context.clip();
+      try {
+        context.globalAlpha = opacity;
+        if (text !== " ") {
+          context.fillStyle = foreground;
+          context.strokeStyle = foreground;
+          if (!canRenderBoxDrawing(text) || !drawBoxDrawing(context, text, {
+            x: rectX,
+            y: rectY,
+            width,
+            height: metrics.cellHeight,
+          })) {
+            context.font = fontForStyle(metrics.style, style);
+            context.fillText(
+              text,
+              rectX,
+              rectY + Math.floor((metrics.cellHeight + metrics.style.fontSize) / 2) - 2
+            );
+          }
+        }
+        this.drawTextLine(context, metrics, rectX, rectY, width, style?.underline, "underline", foreground);
+        this.drawTextLine(context, metrics, rectX, rectY, width, style?.strikethrough, "strike", foreground);
+      } finally {
+        context.restore();
       }
     }
-
-    this.drawTextLine(context, metrics, rectX, rectY, width, style?.underline, "underline", foreground);
-    this.drawTextLine(context, metrics, rectX, rectY, width, style?.strikethrough, "strike", foreground);
     context.globalAlpha = 1;
   }
 
@@ -645,6 +761,32 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     context.stroke();
     context.setLineDash([]);
   }
+}
+
+function cacheLimit(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+function estimatedDecodedImageBytes(image: CanvasImageSource): number {
+  const dimensions = image as {
+    naturalWidth?: number;
+    naturalHeight?: number;
+    width?: unknown;
+    height?: unknown;
+  };
+  const width = dimensions.naturalWidth ?? dimensions.width;
+  const height = dimensions.naturalHeight ?? dimensions.height;
+  if (typeof width !== "number" || typeof height !== "number"
+    || !Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0) {
+    return 0;
+  }
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(width) * Math.ceil(height) * 4);
+}
+
+function closeDecodedImage(image: CanvasImageSource): void {
+  const closable = image as { close?: () => void };
+  closable.close?.();
 }
 
 function normalizedImageOpacity(
@@ -728,7 +870,7 @@ async function decodeImage(
 
 function decodeBase64Bytes(
   value: string
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   if (typeof atob === "function") {
     const binary = atob(value);
     const bytes = new Uint8Array(binary.length);

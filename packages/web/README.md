@@ -98,7 +98,12 @@ await createWebHostApp({
 ```
 
 - **`"canvas"`** (default) paints cells on one 2D `<canvas>` DOM node. It draws
-  exact box seams and decoration patterns.
+  exact box seams and decoration patterns. Each declared cell span owns its
+  glyph and decoration pixels: ink is clipped to that span on both full and
+  incremental paints. Italic or fallback-font overhang that previously escaped
+  a span on full paints is now clipped, so changing or removing a cell leaves
+  no stale pixels in its neighbors. This is a rendering behavior change;
+  authored spans and public API signatures are unchanged.
 - **`"dom"`** renders cells as absolutely positioned text elements. It uses
   browser font shaping and fallback for emoji and CJK. Text stays sharp at each
   page zoom, and the element tree is inspectable. Hold Alt/Option and drag to
@@ -155,3 +160,24 @@ Full SwiftTUI API reference: <https://swifttui.sh/docs/documentation/>.
 ## License
 
 MIT; see [LICENSE](LICENSE).
+
+## Canvas image ownership and retention
+
+Each scene's Canvas painter owns its decoded images. It retains up to 256
+entries and approximately 64 MiB of decoded RGBA pixels, evicting inactive
+images in least-recently-used order. The current paintable image set stays
+pinned: it may exceed these soft limits until images leave the frame. This
+avoids repeated decoding and payload recovery when the visible set exceeds the
+cache budget. The estimate excludes browser-specific overhead and is not a
+hard process-memory limit. Revisited evicted images use the existing image
+payload recovery protocol.
+
+Scene disposal closes retained images and any obsolete decode that finishes
+later. Custom `CanvasSurfacePainter` decoders transfer ownership of each result
+and must not share a closable result with another owner. The painter supports
+`maxDecodedImageCacheEntries` and `maxDecodedImageCacheBytes` for custom hosts.
+
+Surface records require nonnegative integer grid dimensions no larger than
+2,147,483,647, matching the Android host's grid representation. Malformed full
+or delta records cannot replace the retained decoder baseline. This structural
+constraint is separate from practical canvas-allocation and record-size limits.

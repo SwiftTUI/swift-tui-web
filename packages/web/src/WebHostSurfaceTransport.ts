@@ -924,8 +924,8 @@ function isWebHostSurfaceFrame(
       frame.sequence === undefined
         || (Number.isSafeInteger(frame.sequence) && frame.sequence >= 0)
     )
-    && typeof frame.width === "number"
-    && typeof frame.height === "number"
+    && isSurfaceGridDimension(frame.width)
+    && isSurfaceGridDimension(frame.height)
     && Array.isArray(frame.styles)
     && Array.isArray(frame.rows)
     && frame.rows.every(isWebHostSurfaceRow)
@@ -956,8 +956,8 @@ function isWebHostSurfaceDeltaFrame(
       frame.sequence === undefined
         || (Number.isSafeInteger(frame.sequence) && frame.sequence >= 0)
     )
-    && typeof frame.width === "number"
-    && typeof frame.height === "number"
+    && isSurfaceGridDimension(frame.width)
+    && isSurfaceGridDimension(frame.height)
     && Array.isArray(frame.styles)
     && Array.isArray(frame.deltaRows)
     && frame.deltaRows.every(isWebHostSurfaceDeltaRow)
@@ -975,6 +975,13 @@ function isWebHostSurfaceDeltaFrame(
     )
     && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions))
     && hasValidAdditiveFrameFields(frame);
+}
+
+function isSurfaceGridDimension(value: unknown): value is number {
+  // Structural interoperability with Android's Int grid. This does not set a
+  // practical canvas allocation or wire-record byte budget.
+  return typeof value === "number" && Number.isInteger(value)
+    && value >= 0 && value <= 2_147_483_647;
 }
 
 /**

@@ -40,6 +40,8 @@ export interface SurfaceMetrics {
  * payload IDs that answered an outstanding recovery request in this frame.
  */
 export interface WebHostSurfacePainter {
+  /** Releases owned resources and prevents late asynchronous work from painting. */
+  dispose?(): void;
   paint(
     metrics: SurfaceMetrics,
     frame: WebHostSurfaceFrame | undefined,

@@ -428,6 +428,7 @@ export class WebHostSceneRuntime {
   }
 
   dispose(): void {
+    this.painter.dispose();
     this.detachInputHandlers?.();
     this.detachPointerParadigmObserver?.();
     this.resizeObserver?.disconnect();

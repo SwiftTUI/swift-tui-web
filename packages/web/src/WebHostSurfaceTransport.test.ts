@@ -1148,3 +1148,26 @@ function surfaceFrame(
   }
   return record.frame;
 }
+
+test("grid dimensions reject malformed full and delta frames without replacing the baseline", () => {
+  for (const invalid of [-1, 1.5, 2_147_483_648, 1e100, null, "1"]) {
+    for (const axis of ["width", "height"]) {
+      const output = new WebHostOutputDecoder();
+      const baseline = { version: 2, epoch: 7, gen: 1, width: 1, height: 1,
+        styles: [null], rows: [[[0, "a", 1, 0]]] };
+      const encode = (value: unknown) => encoder.encode(`\u001esurface:${JSON.stringify(value)}\n`);
+      expect(output.feed(encode(baseline))[0]?.type).toBe("surface");
+      expect(output.feed(encode({ ...baseline, [axis]: invalid }))[0]?.type).toBe("text");
+      const delta = { version: 3, encoding: "delta", epoch: 7, gen: 2, baselineGen: 1,
+        width: 1, height: 1, styles: [null], deltaRows: [[0, [[0, "b", 1, 0]]]] };
+      expect(output.feed(encode({ ...delta, [axis]: invalid }))[0]?.type).toBe("text");
+      const repaired = surfaceFrame(output.feed(encode(delta))[0]);
+      expect(repaired.rows).toEqual([[[0, "b", 1, 0]]]);
+    }
+  }
+});
+
+test("zero-sized grid is structurally valid", () => {
+  const output = new WebHostOutputDecoder();
+  expect(output.feed(encoder.encode('\u001esurface:{"version":2,"width":0,"height":0,"styles":[],"rows":[]}\n'))[0]?.type).toBe("surface");
+});

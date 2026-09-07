@@ -1168,10 +1168,11 @@ test("unknown accessibility tokens preserve rendering and apply consumer default
 
 test("runtime decodes surface images once and reuses the cached image", async () => {
   const decodedBlobs: Blob[] = [];
+  let closedImages = 0;
   const dom = installFakeDOM({
     createImageBitmap: async (blob) => {
       decodedBlobs.push(blob);
-      return { imageId: `decoded-${decodedBlobs.length}` };
+      return { imageId: `decoded-${decodedBlobs.length}`, close: () => { closedImages++; } };
     },
   });
   try {
@@ -1295,6 +1296,9 @@ test("runtime decodes surface images once and reuses the cached image", async ()
         height: 27,
       },
     ]);
+    runtime.dispose();
+    runtime.dispose();
+    expect(closedImages).toBe(1);
   } finally {
     dom.restore();
   }
