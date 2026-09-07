@@ -170,7 +170,9 @@ pinned: it may exceed these soft limits until images leave the frame. This
 avoids repeated decoding and payload recovery when the visible set exceeds the
 cache budget. The estimate excludes browser-specific overhead and is not a
 hard process-memory limit. Revisited evicted images use the existing image
-payload recovery protocol.
+payload recovery protocol. Images whose identifiers exceed the recovery limit
+are never evicted: they stay retained until they are replaced or the scene is
+disposed.
 
 Scene disposal closes retained images and any obsolete decode that finishes
 later. Custom `CanvasSurfacePainter` decoders transfer ownership of each result

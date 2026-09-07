@@ -18,7 +18,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -32,3 +32,9 @@ jobs:
       - run: bun run build:packages
       - run: bun run --cwd packages/web typecheck:image-recovery
       - run: bun run build:web
+      # The browser journeys are the only executed pixel oracle for the
+      # Canvas painter; unit tests use recording contexts.
+      - name: Install Chrome for the browser journeys
+        run: bunx playwright install --with-deps chrome
+      - name: Run the browser journeys and Canvas pixel oracle
+        run: bun run test:browser

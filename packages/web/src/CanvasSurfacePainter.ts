@@ -189,7 +189,9 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     );
     this.inactiveDecodedImageIds.clear();
     for (const [id, cached] of this.imageCache) {
-      if (cached.image && !this.visibleImageIds.has(id)) {
+      // An image whose id exceeds the recovery limit cannot be requested
+      // again after eviction, so it stays retained like the visible set.
+      if (cached.image && !this.visibleImageIds.has(id) && isWebHostImageRecoveryId(id)) {
         this.inactiveDecodedImageIds.add(id);
       }
     }

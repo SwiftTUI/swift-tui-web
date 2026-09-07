@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { CanvasSurfacePainter } from "./CanvasSurfacePainter.ts";
 import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
-import type { WebHostSurfaceFrame, WebHostSurfaceImage } from "./WebHostSurfaceTransport.ts";
+import {
+  MAX_IMAGE_RECOVERY_ID_BYTES,
+  type WebHostSurfaceFrame,
+  type WebHostSurfaceImage,
+} from "./WebHostSurfaceTransport.ts";
 
 const metrics = { columns: 2, rows: 1, cellWidth: 1, cellHeight: 1,
   style: normalizeWebHostTerminalStyle({}) };
@@ -112,4 +116,23 @@ test("a decode completing after its image disappeared releases its result", asyn
   resolvePending(decoded("departed", closed)); await flush();
   expect(closed).toEqual(["departed"]);
   expect(redraws).toBe(0);
+});
+
+test("images whose ids exceed the recovery limit are retained rather than evicted", async () => {
+  const closed: string[] = [];
+  const longId = "x".repeat(MAX_IMAGE_RECOVERY_ID_BYTES + 1);
+  const painter = new CanvasSurfacePainter({
+    maxDecodedImageCacheBytes: 1,
+    decodeImage: async (_payload, _format, id) => decoded(id, closed),
+  });
+  painter.attach(canvas, () => {});
+  for (const id of [longId, "b", "c"]) { painter.paint(metrics, frame(image(id))); await flush(); }
+  // "b" is inactive and recoverable, so the byte budget evicts it; the long id
+  // could never be requested again, so it stays decoded past the budget.
+  expect(closed).toEqual(["b"]);
+  painter.paint(metrics, frame(image(longId, false)));
+  // "c" leaves the frame and is evicted; the long id is visible and cached.
+  expect(closed).toEqual(["b", "c"]);
+  painter.dispose();
+  expect(closed).toEqual(["b", "c", longId]);
 });
