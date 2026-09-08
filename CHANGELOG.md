@@ -208,7 +208,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.7.1...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.12.0...HEAD
+[0.12.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.12.0
 [0.7.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.7.0
 [0.1.15]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.15
 [0.1.14]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.14
