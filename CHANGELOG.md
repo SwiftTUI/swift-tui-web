@@ -9,6 +9,15 @@ releases may include source-breaking changes.
 Additional lockstep release notes are available on
 [GitHub Releases](https://github.com/SwiftTUI/swift-tui-web/releases).
 
+## [Unreleased]
+
+## [0.12.1] - 2026-09-09
+
+### Changed
+
+- Publish both browser packages at the corrected coordinated 0.12.1 version.
+  Package behavior is unchanged from 0.12.0.
+
 ## [0.12.0] - 2026-09-08
 
 ### Changed
@@ -208,7 +217,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.12.0...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.12.1...HEAD
+[0.12.1]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.12.1
 [0.12.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.12.0
 [0.7.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.7.0
 [0.1.15]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.1.15
