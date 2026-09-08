@@ -6,10 +6,16 @@ documented here. The format is based on
 follows pre-1.0 semantics: while the public surface is being proven, minor
 releases may include source-breaking changes.
 
-> **Note:** entries after `0.1.15` are recorded in the org-wide lockstep
-> release notes on
-> [GitHub Releases](https://github.com/SwiftTUI/swift-tui-web/releases); the
-> packages currently ship at the lockstep version (`0.7.1`).
+Additional lockstep release notes are available on
+[GitHub Releases](https://github.com/SwiftTUI/swift-tui-web/releases).
+
+## [0.12.0] - 2026-09-08
+
+### Changed
+
+- Publish `@swifttui/web` and `@swifttui/build` at the coordinated 0.12.0
+  version. Browser package behavior is unchanged from 0.11.3; the updated
+  framework supplies the style, input, layout, animation, and lifecycle fixes.
 
 ## [0.7.0] - 2026-08-06
 
