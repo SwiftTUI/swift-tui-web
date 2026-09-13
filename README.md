@@ -4,7 +4,7 @@
 
 The browser-host packages for [SwiftTUI](https://swifttui.sh). Author your `App`
 once and ship the same `View` tree, `@State`, and `@FocusState` to the browser,
-rendered to the DOM with a real accessibility tree, without a rewrite or a
+rendered through Canvas or DOM with a semantic accessibility tree, without a rewrite or a
 terminal emulator such as `xterm.js`.
 
 [![npm @swifttui/web](https://img.shields.io/npm/v/@swifttui/web?label=%40swifttui%2Fweb)](https://www.npmjs.com/package/@swifttui/web)
@@ -17,14 +17,14 @@ engine and mounts a real ARIA accessibility tree.
 The ARIA tree is a one-way semantic presentation preview: reading order,
 names, roles, hidden state, announcements, and runtime-origin focus are
 presented, but assistive-origin focus, activation, adjustment, and editing do
-not route back into SwiftTUI in 0.9.
+not route back into SwiftTUI.
 Thus, the same `App` and `Scene` run in a terminal and on a web page. These two
 packages deliver two of SwiftTUI's five hosts: a **static WASI bundle** and a
 **localhost WebHost**. The framework itself lives in
 [`SwiftTUI/swift-tui`](https://github.com/SwiftTUI/swift-tui). This repository
 contains the browser deployment packages.
 
-> Status: `0.13.2` beta. Source-breaking changes can occur before 1.0.
+> Status: beta. The public API can change as the framework develops.
 
 | Package | Role |
 | --- | --- |
