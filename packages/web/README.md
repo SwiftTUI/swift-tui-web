@@ -104,6 +104,11 @@ await createWebHostApp({
   a span on full paints is now clipped, so changing or removing a cell leaves
   no stale pixels in its neighbors. This is a rendering behavior change;
   authored spans and public API signatures are unchanged.
+  Canvas preserves the selected font's glyph size and hard-clips oversized
+  fallback glyphs; it does not scale them to fit. This differs from the Apple
+  host's scale-to-fit fallback. If a browser font makes a declared single-cell
+  glyph wider than one cell, its excess ink is truncated. Select a font whose
+  fallback metrics fit the grid when that distinction matters.
 - **`"dom"`** renders cells as absolutely positioned text elements. It uses
   browser font shaping and fallback for emoji and CJK. Text stays sharp at each
   page zoom, and the element tree is inspectable. Hold Alt/Option and drag to

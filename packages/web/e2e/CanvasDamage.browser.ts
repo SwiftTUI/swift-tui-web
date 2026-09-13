@@ -33,3 +33,13 @@ for (const scale of [1, 2]) {
     }
   });
 }
+
+test("STUI-320: qualify full-grid clipping cost and oversized-glyph pixel ownership", async ({ page }) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/canvas-damage.js", type: "module" });
+  await page.waitForFunction(() => typeof window.runCanvasClipQualification === "function");
+  const result = await page.evaluate(() => window.runCanvasClipQualification());
+  expect(result.clips).toBe(9600);
+  expect(result.pixelDifferences).toBeGreaterThan(0);
+  console.log("CLIP-QUALIFICATION", JSON.stringify(result));
+});

@@ -17,8 +17,56 @@ declare global {
       full: number[];
       outsideSpanInk: number;
     };
+    runCanvasClipQualification(): { clippedMs: number; unclippedMs: number; clips: number; pixelDifferences: number };
   }
 }
+
+// Qualification-only counterfactual: disable the per-cell save/clip/restore
+// calls on a full, image-free paint. Production clipping is unchanged.
+window.runCanvasClipQualification = () => {
+  const canvas = document.createElement("canvas");
+  const style = normalizeWebHostTerminalStyle({ fontSize: 20, fontFamily: "monospace" });
+  const metrics = { columns: 160, rows: 60, cellWidth: 10, cellHeight: 24, style };
+  canvas.width = 1600 * window.devicePixelRatio;
+  canvas.height = 1440 * window.devicePixelRatio;
+  const context = canvas.getContext("2d", { willReadFrequently: true })!;
+  const frame: WebHostSurfaceFrame = { version: 2, width: 160, height: 60, styles: [null],
+    rows: Array.from({ length: 60 }, () => Array.from({ length: 160 }, (_, x) => [x, "W", 1, 0])) };
+  const painter = new CanvasSurfacePainter();
+  painter.attach(canvas, () => {});
+  const save = context.save.bind(context), restore = context.restore.bind(context), clip = context.clip.bind(context);
+  let enabled = true, clips = 0;
+  context.save = () => { if (enabled) save(); };
+  context.restore = () => { if (enabled) restore(); };
+  context.clip = () => { clips++; if (enabled) clip(); };
+  function measure(clipped: boolean) {
+    enabled = clipped;
+    const samples: number[] = [];
+    for (let index = 0; index < 25; index++) {
+      clips = 0;
+      const start = performance.now();
+      painter.paint(metrics, frame);
+      context.getImageData(0, 0, 1, 1); // include completion of the paint
+      if (index >= 5) samples.push(performance.now() - start);
+    }
+    return samples.sort((a, b) => a - b)[Math.floor(samples.length / 2)];
+  }
+  try {
+    const clippedMs = measure(true);
+    const clipped = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const unclippedMs = measure(false);
+    const unclipped = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let pixelDifferences = 0;
+    for (let index = 0; index < clipped.length; index += 4) {
+      if (clipped[index] !== unclipped[index] || clipped[index + 1] !== unclipped[index + 1]
+        || clipped[index + 2] !== unclipped[index + 2] || clipped[index + 3] !== unclipped[index + 3]) pixelDifferences++;
+    }
+    return { clippedMs, unclippedMs, clips, pixelDifferences };
+  } finally {
+    context.save = save; context.restore = restore; context.clip = clip;
+    painter.dispose();
+  }
+};
 
 window.runCanvasDamageAudit = async (overlapping) => {
   const scale = window.devicePixelRatio;
