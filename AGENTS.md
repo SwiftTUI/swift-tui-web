@@ -19,7 +19,7 @@ an `AGENTS.md` file with package-specific instructions.
 ## Toolchains
 
 - Use **Bun** for development, bundling, and tests.
-- Use **`swiftly`** Swift 6.3.3 for each Swift command that the build starts
+- Use **`swiftly`** Swift 6.4.0 for each Swift command that the build starts
   (`swiftly run swift --version`). Do not use bare `swift` or `xcrun swift`.
 
 Run `bun install` from this root. One root `bun.lock` covers both packages.

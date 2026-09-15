@@ -17,7 +17,7 @@ one root `bun.lock`.
 ## Toolchains
 
 - Use **Bun** for development, bundling, and the test runner.
-- Use **`swiftly`** Swift 6.3.3 for each Swift command that the build starts
+- Use **`swiftly`** Swift 6.4.0 for each Swift command that the build starts
   (`swiftly run swift --version`). Do not use bare `swift`/`xcrun swift`.
 
 ## Commands

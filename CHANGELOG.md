@@ -11,6 +11,12 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-09-15
+
+### Changed
+
+- Build browser applications with Swift 6.4.0 and its matching WebAssembly SDK.
+
 ## [0.13.3] - 2026-09-14
 
 ### Changed
@@ -245,7 +251,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.13.3...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.13.4...HEAD
+[0.13.4]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.4
 [0.13.3]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.3
 [0.13.2]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.2
 [0.12.1]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.12.1

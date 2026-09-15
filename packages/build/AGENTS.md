@@ -17,7 +17,7 @@ in `@swifttui/web`. This package depends on `@swifttui/web`.
 ## Toolchains
 
 - Use **Bun** for the CLI, bundling, and tests.
-- Use **`swiftly`** Swift 6.3.3 for the wasm build
+- Use **`swiftly`** Swift 6.4.0 for the wasm build
   (`swiftly run swift ...`). Do not use bare `swift`.
 
 ## Commands

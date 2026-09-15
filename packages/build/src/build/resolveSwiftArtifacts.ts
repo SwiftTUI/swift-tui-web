@@ -38,7 +38,7 @@ export const requiredWasmSwiftFlags = [
 // fails to resolve on a clean runner while still working on any machine that
 // still has the older SDK installed. `resolveSwiftArtifacts.test.ts` pins the
 // two together.
-export const defaultWasmSwiftSDK = "swift-6.3.3-RELEASE_wasm";
+export const defaultWasmSwiftSDK = "swift-6.4.0-RELEASE_wasm";
 export const defaultInitialMemory = "536870912";
 export const defaultMaxMemory = "4294967296";
 // 16 MiB: the resolve descent's linear-memory (shadow) stack usage scales
