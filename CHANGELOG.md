@@ -11,6 +11,13 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.13.5] - 2026-09-16
+
+### Changed
+
+- Publish both browser packages for coordinated Swift 6.4 release 0.13.5.
+  Browser APIs and behavior are unchanged from 0.13.4.
+
 ## [0.13.4] - 2026-09-15
 
 ### Changed
@@ -251,7 +258,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.13.4...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.13.5...HEAD
+[0.13.5]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.5
 [0.13.4]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.4
 [0.13.3]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.3
 [0.13.2]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.2
