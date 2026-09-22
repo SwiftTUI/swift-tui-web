@@ -1,22 +1,22 @@
+import {
+  encodePointerCapabilitiesControlMessage,
+  encodeRenderStyleControlMessage,
+  encodeResizeControlMessage,
+  encodeResyncControlMessage,
+  WebHostOutputDecoder,
+  type WebHostOutputSink,
+} from "../WebHostSurfaceTransport.ts";
+import {
+  encodeWebHostTerminalRenderStyleBase64,
+  type WebHostTerminalStyle,
+} from "../WebHostTerminalStyle.ts";
+import { sharedInputQueueDefaultCapacity } from "./SharedInputQueue.ts";
 import { StdIOPipe } from "./StdIOPipe.ts";
 import {
   resolveWasmEngineCapabilities,
   stackProfileEnvironmentDefaults,
   type WasmEngineCapabilities,
 } from "./WasmEngineCapabilities.ts";
-import {
-  encodeWebHostTerminalRenderStyleBase64,
-  type WebHostTerminalStyle,
-} from "../WebHostTerminalStyle.ts";
-import {
-  WebHostOutputDecoder,
-  encodePointerCapabilitiesControlMessage,
-  encodeResyncControlMessage,
-  encodeRenderStyleControlMessage,
-  encodeResizeControlMessage,
-  type WebHostOutputSink,
-} from "../WebHostSurfaceTransport.ts";
-import { sharedInputQueueDefaultCapacity } from "./SharedInputQueue.ts";
 
 const maximumWASIResyncControlBytes = sharedInputQueueDefaultCapacity - 1;
 
@@ -46,12 +46,14 @@ export class BrowserWASIBridge {
   private detachStdout?: () => void;
   private detachStderr?: () => void;
   private decoder = new WebHostOutputDecoder();
-  private readonly resizeListeners = new Set<(
-    columns: number,
-    rows: number,
-    cellWidth?: number,
-    cellHeight?: number
-  ) => void>();
+  private readonly resizeListeners = new Set<
+    (
+      columns: number,
+      rows: number,
+      cellWidth?: number,
+      cellHeight?: number,
+    ) => void
+  >();
   private latestResize: {
     columns: number;
     rows: number;
@@ -81,13 +83,13 @@ export class BrowserWASIBridge {
       // `options.environment`; rollback is this one line.
       SWIFTTUI_RENDER_MODE: "async-no-cancel",
       ...stackProfileEnvironmentDefaults(
-        options.engineCapabilities ?? resolveWasmEngineCapabilities()
+        options.engineCapabilities ?? resolveWasmEngineCapabilities(),
       ),
       ...options.environment,
       ...(options.renderStyle
         ? {
             SWIFTTUI_RENDER_STYLE: encodeWebHostTerminalRenderStyleBase64(
-              options.renderStyle
+              options.renderStyle,
             ),
           }
         : {}),
@@ -98,35 +100,33 @@ export class BrowserWASIBridge {
     };
   }
 
-  bindOutput(
-    sink: BrowserWASIOutputSink
-  ): void {
+  bindOutput(sink: BrowserWASIOutputSink): void {
     this.detachStdout?.();
     this.detachStderr?.();
     this.decoder = new WebHostOutputDecoder();
     this.detachStdout = this.stdout.subscribe((chunk) => {
       for (const record of this.decoder.feed(chunk)) {
         switch (record.type) {
-        case "surface":
-          sink.presentSurface(
-            record.frame,
-            this.decoder.prepareToPresentSurface(record.frame)
-          );
-          break;
-        case "clipboard":
-          void sink.writeClipboard?.(record.text);
-          break;
-        case "runtimeIssue":
-          sink.notifyRuntimeIssue?.(record.issue);
-          break;
-        case "frameDiagnostic":
-          sink.recordFrameDiagnostic?.(record.diagnostic);
-          break;
-        case "surfaceDropped":
-          break;
-        case "text":
-          sink.writeOutput?.(record.text);
-          break;
+          case "surface":
+            sink.presentSurface(
+              record.frame,
+              this.decoder.prepareToPresentSurface(record.frame),
+            );
+            break;
+          case "clipboard":
+            void sink.writeClipboard?.(record.text);
+            break;
+          case "runtimeIssue":
+            sink.notifyRuntimeIssue?.(record.issue);
+            break;
+          case "frameDiagnostic":
+            sink.recordFrameDiagnostic?.(record.diagnostic);
+            break;
+          case "surfaceDropped":
+            break;
+          case "text":
+            sink.writeOutput?.(record.text);
+            break;
         }
       }
       this.sendPendingResyncRequests();
@@ -140,7 +140,7 @@ export class BrowserWASIBridge {
     columns: number,
     rows: number,
     cellWidth?: number,
-    cellHeight?: number
+    cellHeight?: number,
   ): void {
     const normalizedColumns = Math.max(1, columns);
     const normalizedRows = Math.max(1, rows);
@@ -152,34 +152,31 @@ export class BrowserWASIBridge {
       cellWidth,
       cellHeight,
     };
-    this.stdin.write(encodeResizeControlMessage(columns, rows, cellWidth, cellHeight));
+    this.stdin.write(
+      encodeResizeControlMessage(columns, rows, cellWidth, cellHeight),
+    );
     for (const listener of this.resizeListeners) {
       listener(normalizedColumns, normalizedRows, cellWidth, cellHeight);
     }
   }
 
-  updateRenderStyle(
-    style: WebHostTerminalStyle
-  ): void {
-    this.environment.SWIFTTUI_RENDER_STYLE = encodeWebHostTerminalRenderStyleBase64(style);
+  updateRenderStyle(style: WebHostTerminalStyle): void {
+    this.environment.SWIFTTUI_RENDER_STYLE =
+      encodeWebHostTerminalRenderStyleBase64(style);
     this.stdin.write(encodeRenderStyleControlMessage(style));
   }
 
-  updatePointerCapabilities(
-    supportsScrollPanning: boolean
-  ): void {
-    this.stdin.write(encodePointerCapabilitiesControlMessage(supportsScrollPanning));
+  updatePointerCapabilities(supportsScrollPanning: boolean): void {
+    this.stdin.write(
+      encodePointerCapabilitiesControlMessage(supportsScrollPanning),
+    );
   }
 
-  sendInput(
-    chunk: Uint8Array
-  ): void {
+  sendInput(chunk: Uint8Array): void {
     this.stdin.write(chunk);
   }
 
-  requestImagePayloads(
-    ids: readonly string[]
-  ): readonly string[] {
+  requestImagePayloads(ids: readonly string[]): readonly string[] {
     const acceptedIds = this.decoder.requestImagePayloads(ids);
     this.sendPendingResyncRequests();
     return acceptedIds;
@@ -198,15 +195,15 @@ export class BrowserWASIBridge {
       columns: number,
       rows: number,
       cellWidth?: number,
-      cellHeight?: number
-    ) => void
+      cellHeight?: number,
+    ) => void,
   ): () => void {
     this.resizeListeners.add(listener);
     listener(
       this.latestResize.columns,
       this.latestResize.rows,
       this.latestResize.cellWidth,
-      this.latestResize.cellHeight
+      this.latestResize.cellHeight,
     );
     return () => {
       this.resizeListeners.delete(listener);
@@ -216,7 +213,7 @@ export class BrowserWASIBridge {
   private sendPendingResyncRequests(): void {
     while (true) {
       const request = this.decoder.takeResyncRequest(
-        maximumWASIResyncControlBytes
+        maximumWASIResyncControlBytes,
       );
       if (!request) {
         return;
@@ -239,7 +236,4 @@ export class BrowserWASIBridge {
   }
 }
 
-export {
-  encodeRenderStyleControlMessage,
-  encodeResizeControlMessage,
-};
+export { encodeRenderStyleControlMessage, encodeResizeControlMessage };

@@ -23,7 +23,7 @@ test("scene manifests preserve declaration order and default scene", () => {
         { id: "dashboard", title: "Dashboard", isDefault: true },
         { id: "controls", title: "Controls", isDefault: false },
       ],
-    })
+    }),
   );
 });
 

@@ -5,6 +5,10 @@
 # Hooks run against the staged change being committed (prek's default
 # scope), so biome's in-place rewrites only touch the files in the commit.
 # biome runs via `bunx` at a pinned version so no global install is needed.
+# It runs once with every staged filename (`require_serial`): prek otherwise
+# splits a large commit into concurrent invocations, and parallel `bunx`
+# launches race to link the package into bun's cache and fail with EEXIST.
+# One biome invocation checks the whole tree in well under a second.
 
 default_install_hook_types = ["pre-commit", "commit-msg"]
 
@@ -24,6 +28,7 @@ hooks = [
     entry = "bunx @biomejs/biome@2.5.8 check --write --files-ignore-unknown=true",
     language = "system",
     files = '\.(js|jsx|ts|tsx|mjs|cjs)$',
-    pass_filenames = true
+    pass_filenames = true,
+    require_serial = true
   },
 ]

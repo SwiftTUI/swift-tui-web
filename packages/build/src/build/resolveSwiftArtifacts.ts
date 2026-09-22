@@ -48,13 +48,15 @@ export const defaultMaxMemory = "4294967296";
 export const defaultStackSize = "16777216";
 
 export async function resolveSwiftArtifacts(
-  options: ResolveSwiftArtifactsOptions
+  options: ResolveSwiftArtifactsOptions,
 ): Promise<SwiftArtifactPaths> {
   const configuration = options.configuration ?? "release";
-  const swiftlyWorkingDirectory = await resolveSwiftlyWorkingDirectory(options.packagePath);
+  const swiftlyWorkingDirectory = await resolveSwiftlyWorkingDirectory(
+    options.packagePath,
+  );
   const swiftCommand = [...(options.swiftCommand ?? swiftCommandPrefix())];
   const environment = {
-    ...process.env
+    ...process.env,
   };
 
   // The browser WebAssembly API rejects function types with more than 1000
@@ -145,11 +147,13 @@ function confirmRequiredWasmFlags(args: readonly string[]): void {
   }
 
   throw new Error(
-    `missing required wasm Swift flags: ${requiredWasmSwiftFlags.join(" ")}`
+    `missing required wasm Swift flags: ${requiredWasmSwiftFlags.join(" ")}`,
   );
 }
 
-function requiredSwiftFlags(configuration: WasmBuildConfiguration): readonly string[] {
+function requiredSwiftFlags(
+  configuration: WasmBuildConfiguration,
+): readonly string[] {
   switch (configuration) {
     case "debug":
       return [];
@@ -173,7 +177,7 @@ function logWasmBuildConfiguration(config: WasmBuildConfigurationLog): void {
 }
 
 export function wasmBuildConfigurationLogLines(
-  config: WasmBuildConfigurationLog
+  config: WasmBuildConfigurationLog,
 ): string[] {
   const configuration = config.configuration ?? "release";
   return [
@@ -203,15 +207,19 @@ export function formatCommandForLogs(args: readonly string[]): string {
 
 function containsSubsequence(
   args: readonly string[],
-  expected: readonly string[]
+  expected: readonly string[],
 ): boolean {
-  if (expected.length == 0) {
+  if (expected.length === 0) {
     return true;
   }
 
   for (let index = 0; index <= args.length - expected.length; index += 1) {
     let matches = true;
-    for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex += 1) {
+    for (
+      let expectedIndex = 0;
+      expectedIndex < expected.length;
+      expectedIndex += 1
+    ) {
       if (args[index + expectedIndex] !== expected[expectedIndex]) {
         matches = false;
         break;
@@ -234,7 +242,7 @@ function shellQuote(arg: string): string {
 }
 
 async function resolveSwiftlyWorkingDirectory(
-  startPath: string
+  startPath: string,
 ): Promise<string> {
   let currentPath = resolve(startPath);
 

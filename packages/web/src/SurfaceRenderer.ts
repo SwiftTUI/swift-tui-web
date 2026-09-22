@@ -1,9 +1,9 @@
-import type { ResolvedWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 import type {
   WebHostSurfaceDamage,
   WebHostSurfaceFrame,
   WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
+import type { ResolvedWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
 /**
  * Which presenter draws surface frames into the scene mount.
@@ -48,7 +48,7 @@ export interface WebHostSurfacePainter {
     metrics: SurfaceMetrics,
     frame: WebHostSurfaceFrame | undefined,
     damage?: WebHostSurfaceDamage,
-    recoveredImagePayloadIds?: readonly string[]
+    recoveredImagePayloadIds?: readonly string[],
   ): void;
 }
 
@@ -58,7 +58,7 @@ export interface WebHostSurfacePainter {
  */
 export function resolvedSurfaceForeground(
   style: WebHostSurfaceStyle | null | undefined,
-  terminalStyle: ResolvedWebHostTerminalStyle
+  terminalStyle: ResolvedWebHostTerminalStyle,
 ): string {
   if ((style?.em ?? 0) & 16) {
     return style?.bg ?? terminalStyle.theme.background;
@@ -72,7 +72,7 @@ export function resolvedSurfaceForeground(
  */
 export function resolvedSurfaceBackground(
   style: WebHostSurfaceStyle | null | undefined,
-  terminalStyle: ResolvedWebHostTerminalStyle
+  terminalStyle: ResolvedWebHostTerminalStyle,
 ): string | undefined {
   if ((style?.em ?? 0) & 16) {
     return style?.fg ?? terminalStyle.theme.foreground;

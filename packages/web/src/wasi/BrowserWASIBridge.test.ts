@@ -1,18 +1,17 @@
 import { expect, test } from "bun:test";
-
 import {
-  BrowserWASIBridge,
-  encodeRenderStyleControlMessage,
-  encodeResizeControlMessage,
-} from "./BrowserWASIBridge.ts";
+  MAX_IMAGE_RECOVERY_ID_BYTES,
+  MAX_OUTSTANDING_IMAGE_RECOVERY_IDS,
+} from "../WebHostSurfaceTransport.ts";
 import {
   decodeWebHostTerminalRenderStyleBase64,
   encodeWebHostTerminalRenderStyleBase64,
 } from "../WebHostTerminalStyle.ts";
 import {
-  MAX_IMAGE_RECOVERY_ID_BYTES,
-  MAX_OUTSTANDING_IMAGE_RECOVERY_IDS,
-} from "../WebHostSurfaceTransport.ts";
+  BrowserWASIBridge,
+  encodeRenderStyleControlMessage,
+  encodeResizeControlMessage,
+} from "./BrowserWASIBridge.ts";
 import { sharedInputQueueDefaultCapacity } from "./SharedInputQueue.ts";
 
 test("bridge seeds initial render style and emits runtime style updates", async () => {
@@ -43,19 +42,20 @@ test("bridge seeds initial render style and emits runtime style updates", async 
   });
 
   expect(
-    decodeWebHostTerminalRenderStyleBase64(bridge.environment.SWIFTTUI_RENDER_STYLE ?? "")
-      ?.appearance.backgroundColor
+    decodeWebHostTerminalRenderStyleBase64(
+      bridge.environment.SWIFTTUI_RENDER_STYLE ?? "",
+    )?.appearance.backgroundColor,
   ).toBe("#111111");
-  expect(
-    bridge.environment.SWIFTTUI_RENDER_STYLE
-  ).toBe(encodeWebHostTerminalRenderStyleBase64(style));
+  expect(bridge.environment.SWIFTTUI_RENDER_STYLE).toBe(
+    encodeWebHostTerminalRenderStyleBase64(style),
+  );
   expect(bridge.environment.SWIFTTUI_TRANSPORT).toBe("surface");
   expect(bridge.environment.SWIFTTUI_SURFACE_DELTA).toBe("1");
 
   bridge.updateRenderStyle(style);
   const input = await bridge.stdin.read();
   expect(Array.from(input ?? [])).toEqual(
-    Array.from(encodeRenderStyleControlMessage(style))
+    Array.from(encodeRenderStyleControlMessage(style)),
   );
 });
 
@@ -99,10 +99,13 @@ test("bridge resize updates environment, emits control input, and notifies liste
     columns: 80,
     rows: 24,
   });
-  const seen: Array<[number, number, number | undefined, number | undefined]> = [];
-  const unsubscribe = bridge.subscribeResize((columns, rows, cellWidth, cellHeight) => {
-    seen.push([columns, rows, cellWidth, cellHeight]);
-  });
+  const seen: Array<[number, number, number | undefined, number | undefined]> =
+    [];
+  const unsubscribe = bridge.subscribeResize(
+    (columns, rows, cellWidth, cellHeight) => {
+      seen.push([columns, rows, cellWidth, cellHeight]);
+    },
+  );
 
   expect(seen).toEqual([[80, 24, undefined, undefined]]);
 
@@ -116,7 +119,9 @@ test("bridge resize updates environment, emits control input, and notifies liste
   ]);
 
   const input = await bridge.stdin.read();
-  expect(Array.from(input ?? [])).toEqual(Array.from(encodeResizeControlMessage(132, 41, 9, 18)));
+  expect(Array.from(input ?? [])).toEqual(
+    Array.from(encodeResizeControlMessage(132, 41, 9, 18)),
+  );
 
   unsubscribe();
   bridge.resize(90, 30);
@@ -125,7 +130,9 @@ test("bridge resize updates environment, emits control input, and notifies liste
     [132, 41, 9, 18],
   ]);
 
-  const replayed: Array<[number, number, number | undefined, number | undefined]> = [];
+  const replayed: Array<
+    [number, number, number | undefined, number | undefined]
+  > = [];
   bridge.subscribeResize((columns, rows, cellWidth, cellHeight) => {
     replayed.push([columns, rows, cellWidth, cellHeight]);
   })();
@@ -145,7 +152,9 @@ test("bridge delivers typed clipboard output to sinks", () => {
     writeClipboard: (text) => clipboard.push(text),
   });
 
-  bridge.stdout.write(new TextEncoder().encode('\u001Eclipboard:{"text":"copied text"}\n'));
+  bridge.stdout.write(
+    new TextEncoder().encode('\u001Eclipboard:{"text":"copied text"}\n'),
+  );
 
   expect(clipboard).toEqual(["copied text"]);
 });
@@ -164,10 +173,12 @@ test("bridge consumes a delta without a baseline as a silent no-op", () => {
     writeOutput: (chunk) => text.push(chunk),
   });
 
-  bridge.stdout.write(new TextEncoder().encode(
-    '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,'
-      + '"styles":[null],"deltaRows":[[0,[]]]}\n'
-  ));
+  bridge.stdout.write(
+    new TextEncoder().encode(
+      '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,' +
+        '"styles":[null],"deltaRows":[[0,[]]]}\n',
+    ),
+  );
 
   expect(frames).toEqual([]);
   expect(text).toEqual([]);
@@ -195,88 +206,108 @@ test("bridge dedupes keyframe resync while a stamped dimension repair is outstan
     presentSurface: (frame) => frames.push(frame),
   });
 
-  bridge.stdout.write(new TextEncoder().encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 2,
-      epoch: 41,
-      gen: 1,
-      width: 2,
-      height: 1,
-      styles: [null],
-      rows: [[[0, "A", 1, 0]]],
-    }) + "\n"
-      + "\u001Esurface:" + JSON.stringify({
-        version: 3,
-        encoding: "delta",
-        epoch: 41,
-        gen: 2,
-        baselineGen: 1,
-        width: 3,
-        height: 1,
-        styles: [null],
-        deltaRows: [[0, [[0, "wrong-size", 1, 0]]]],
-      }) + "\n"
-  ));
+  bridge.stdout.write(
+    new TextEncoder().encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 2,
+          epoch: 41,
+          gen: 1,
+          width: 2,
+          height: 1,
+          styles: [null],
+          rows: [[[0, "A", 1, 0]]],
+        }) +
+        "\n" +
+        "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 41,
+          gen: 2,
+          baselineGen: 1,
+          width: 3,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "wrong-size", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
 
   expect(frames).toHaveLength(1);
   expect(deliveryAttempts).toBe(1);
   expect(input).toEqual([]);
 
   acceptsInput = true;
-  bridge.stdout.write(new TextEncoder().encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 3,
-      encoding: "delta",
-      epoch: 41,
-      gen: 2,
-      baselineGen: 1,
-      width: 3,
-      height: 1,
-      styles: [null],
-      deltaRows: [[0, [[0, "still-wrong-size", 1, 0]]]],
-    }) + "\n"
-  ));
+  bridge.stdout.write(
+    new TextEncoder().encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 41,
+          gen: 2,
+          baselineGen: 1,
+          width: 3,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "still-wrong-size", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
   expect(deliveryAttempts).toBe(2);
   expect(input).toEqual(['\u001Eresync:{"scope":"keyframe"}\n']);
 
-  bridge.stdout.write(new TextEncoder().encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 3,
-      encoding: "delta",
-      epoch: 41,
-      gen: 2,
-      baselineGen: 1,
-      width: 3,
-      height: 1,
-      styles: [null],
-      deltaRows: [[0, [[0, "still-outstanding", 1, 0]]]],
-    }) + "\n"
-  ));
+  bridge.stdout.write(
+    new TextEncoder().encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 41,
+          gen: 2,
+          baselineGen: 1,
+          width: 3,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "still-outstanding", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
   expect(deliveryAttempts).toBe(2);
   expect(input).toHaveLength(1);
 
-  bridge.stdout.write(new TextEncoder().encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 2,
-      epoch: 41,
-      gen: 3,
-      width: 3,
-      height: 1,
-      styles: [null],
-      rows: [[[0, "B", 1, 0]]],
-    }) + "\n"
-      + "\u001Esurface:" + JSON.stringify({
-        version: 3,
-        encoding: "delta",
-        epoch: 41,
-        gen: 4,
-        baselineGen: 3,
-        width: 3,
-        height: 1,
-        styles: [null],
-        deltaRows: [[0, [[0, "C", 1, 0]]]],
-      }) + "\n"
-  ));
+  bridge.stdout.write(
+    new TextEncoder().encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 2,
+          epoch: 41,
+          gen: 3,
+          width: 3,
+          height: 1,
+          styles: [null],
+          rows: [[[0, "B", 1, 0]]],
+        }) +
+        "\n" +
+        "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 41,
+          gen: 4,
+          baselineGen: 3,
+          width: 3,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "C", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
 
   expect(frames).toHaveLength(3);
   expect(frames.at(-1)).toMatchObject({
@@ -285,19 +316,23 @@ test("bridge dedupes keyframe resync while a stamped dimension repair is outstan
     rows: [[[0, "C", 1, 0]]],
   });
 
-  bridge.stdout.write(new TextEncoder().encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 3,
-      encoding: "delta",
-      epoch: 41,
-      gen: 6,
-      baselineGen: 5,
-      width: 3,
-      height: 1,
-      styles: [null],
-      deltaRows: [[0, [[0, "new-loss", 1, 0]]]],
-    }) + "\n"
-  ));
+  bridge.stdout.write(
+    new TextEncoder().encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 41,
+          gen: 6,
+          baselineGen: 5,
+          width: 3,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "new-loss", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
   expect(input).toEqual([
     '\u001Eresync:{"scope":"keyframe"}\n',
     '\u001Eresync:{"scope":"keyframe"}\n',
@@ -355,21 +390,21 @@ test("WASI splits deterministic image recovery below shared queue capacity", () 
   });
   const ids = Array.from(
     { length: MAX_OUTSTANDING_IMAGE_RECOVERY_IDS },
-    (_, index) =>
-      `png:${String(index).padStart(4, "0")}:${"x".repeat(72)}`
+    (_, index) => `png:${String(index).padStart(4, "0")}:${"x".repeat(72)}`,
   );
 
   bridge.requestImagePayloads(ids);
 
   expect(chunks.length).toBeGreaterThan(1);
-  expect(chunks.every(
-    (chunk) => chunk.byteLength < sharedInputQueueDefaultCapacity
-  )).toBe(true);
+  expect(
+    chunks.every((chunk) => chunk.byteLength < sharedInputQueueDefaultCapacity),
+  ).toBe(true);
   const deliveredIds = chunks.flatMap((chunk) => {
     const message = new TextDecoder().decode(chunk);
-    const payload = JSON.parse(
-      message.slice("\u001Eresync:".length, -1)
-    ) as { scope: string; ids: string[] };
+    const payload = JSON.parse(message.slice("\u001Eresync:".length, -1)) as {
+      scope: string;
+      ids: string[];
+    };
     expect(payload.scope).toBe("images");
     return payload.ids;
   });
@@ -398,7 +433,7 @@ test("WASI rejects one oversized image ID without blocking the following valid I
   expect(chunks).toHaveLength(1);
   expect(chunks[0]!.byteLength).toBeLessThan(sharedInputQueueDefaultCapacity);
   expect(new TextDecoder().decode(chunks[0])).toBe(
-    '\u001Eresync:{"scope":"images","ids":["png:valid"]}\n'
+    '\u001Eresync:{"scope":"images","ids":["png:valid"]}\n',
   );
   unsubscribe();
 });
@@ -420,20 +455,23 @@ test("bridge delivers typed runtime issues and frame diagnostics to sinks", () =
     writeOutput: (chunk) => text.push(chunk),
   });
 
-  bridge.stdout.write(new TextEncoder().encode(
-    '\u001EruntimeIssue:{"severity":"warning","code":"toolbar.unhostedItems",'
-      + '"message":"Toolbar item was not rendered",'
-      + '"description":"SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered"}\n'
-      + '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",'
-      + '"header":["frame","total_ms"],"fields":["7","14.20"]}\n'
-  ));
+  bridge.stdout.write(
+    new TextEncoder().encode(
+      '\u001EruntimeIssue:{"severity":"warning","code":"toolbar.unhostedItems",' +
+        '"message":"Toolbar item was not rendered",' +
+        '"description":"SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered"}\n' +
+        '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",' +
+        '"header":["frame","total_ms"],"fields":["7","14.20"]}\n',
+    ),
+  );
 
   expect(runtimeIssues).toEqual([
     {
       severity: "warning",
       code: "toolbar.unhostedItems",
       message: "Toolbar item was not rendered",
-      description: "SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered",
+      description:
+        "SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered",
     },
   ]);
   expect(frameDiagnostics).toEqual([

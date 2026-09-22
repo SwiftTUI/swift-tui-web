@@ -1,6 +1,6 @@
+import { spawn } from "node:child_process";
 import { accessSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { spawn } from "node:child_process";
 
 export interface RunCommandOptions {
   cwd?: string;
@@ -9,7 +9,7 @@ export interface RunCommandOptions {
 
 export async function runCommand(
   cmd: string[],
-  options: RunCommandOptions = {}
+  options: RunCommandOptions = {},
 ): Promise<string> {
   const executable = cmd[0];
   if (!executable) {
@@ -39,7 +39,10 @@ export async function runCommand(
   const stderr = Buffer.concat(stderrChunks).toString();
 
   if (exitCode !== 0) {
-    throw new Error([stdout, stderr].filter(Boolean).join("\n").trim() || `command failed: ${cmd.join(" ")}`);
+    throw new Error(
+      [stdout, stderr].filter(Boolean).join("\n").trim() ||
+        `command failed: ${cmd.join(" ")}`,
+    );
   }
 
   return stdout;
@@ -47,7 +50,7 @@ export async function runCommand(
 
 export function findExecutable(
   name: string,
-  pathValue: string | undefined = process.env.PATH
+  pathValue: string | undefined = process.env.PATH,
 ): string | undefined {
   for (const directory of pathValue?.split(delimiter) ?? []) {
     if (!directory) {
@@ -57,15 +60,13 @@ export function findExecutable(
     try {
       accessSync(candidate);
       return candidate;
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   return undefined;
 }
 
 function normalizeEnvironment(
-  env: Record<string, string | undefined> | undefined
+  env: Record<string, string | undefined> | undefined,
 ): NodeJS.ProcessEnv | undefined {
   if (!env) {
     return undefined;

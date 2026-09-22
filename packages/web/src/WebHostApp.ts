@@ -1,8 +1,5 @@
-import { BrowserWASIBridge } from "./wasi/BrowserWASIBridge.ts";
-import {
-  WebSocketSceneBridge,
-  type WebSocketSceneBridgeOptions,
-} from "./WebSocketSceneBridge.ts";
+import type { WebHostPaintScheduling } from "./SurfacePaintScheduler.ts";
+import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
 import {
   loadWebHostSceneManifest,
   normalizeWebHostSceneManifest,
@@ -11,19 +8,22 @@ import {
   type WebHostSceneManifestSource,
 } from "./WebHostSceneManifest.ts";
 import {
+  type WebHostSceneBridge,
+  type WebHostSceneFrameMode,
+  WebHostSceneRuntime,
+  type WebHostSceneRuntimeOptions,
+} from "./WebHostSceneRuntime.ts";
+import {
   mergeWebHostTerminalStyle,
   normalizeWebHostTerminalStyle,
   type ResolvedWebHostTerminalStyle,
   type WebHostTerminalStyle,
 } from "./WebHostTerminalStyle.ts";
 import {
-  WebHostSceneRuntime,
-  type WebHostSceneBridge,
-  type WebHostSceneFrameMode,
-  type WebHostSceneRuntimeOptions,
-} from "./WebHostSceneRuntime.ts";
-import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
-import type { WebHostPaintScheduling } from "./SurfacePaintScheduler.ts";
+  WebSocketSceneBridge,
+  type WebSocketSceneBridgeOptions,
+} from "./WebSocketSceneBridge.ts";
+import { BrowserWASIBridge } from "./wasi/BrowserWASIBridge.ts";
 
 export interface WebHostEmbeddedHostConfig {
   token: string;
@@ -38,7 +38,9 @@ export interface WebHostBridgeFactoryOptions {
   environment?: Record<string, string>;
 }
 
-export type WebHostBridgeFactory = (options: WebHostBridgeFactoryOptions) => WebHostSceneBridge;
+export type WebHostBridgeFactory = (
+  options: WebHostBridgeFactoryOptions,
+) => WebHostSceneBridge;
 
 /**
  * The slice of `Document` the app controller needs to track page visibility.
@@ -61,7 +63,9 @@ export interface WebHostAppOptions {
   embeddedHost?: WebHostEmbeddedHostConfig;
   bridgeFactory?: WebHostBridgeFactory;
   createElement?: (tagName: string) => HTMLElement;
-  sceneRuntimeFactory?: (options: WebHostSceneRuntimeOptions) => WebHostSceneRuntime;
+  sceneRuntimeFactory?: (
+    options: WebHostSceneRuntimeOptions,
+  ) => WebHostSceneRuntime;
   /**
    * Whether scenes that cannot be seen — background scenes after a switch,
    * or every scene while the document is hidden — suspend their apps (run
@@ -105,10 +109,12 @@ export interface WebHostAppController {
   dispose(): Promise<void>;
 }
 
-type RuntimeFactory = (options: WebHostSceneRuntimeOptions) => WebHostSceneRuntime;
+type RuntimeFactory = (
+  options: WebHostSceneRuntimeOptions,
+) => WebHostSceneRuntime;
 
 export async function createWebHostApp(
-  options: WebHostAppOptions
+  options: WebHostAppOptions,
 ): Promise<WebHostAppController> {
   const manifest = await resolveManifest(options);
   const controller = new InternalWebHostAppController({
@@ -120,9 +126,12 @@ export async function createWebHostApp(
     bridgeFactory: options.bridgeFactory,
     initialSceneId: options.initialSceneId,
     createElement: options.createElement,
-    sceneRuntimeFactory: options.sceneRuntimeFactory ?? ((runtimeOptions) => new WebHostSceneRuntime(runtimeOptions)),
+    sceneRuntimeFactory:
+      options.sceneRuntimeFactory ??
+      ((runtimeOptions) => new WebHostSceneRuntime(runtimeOptions)),
     suspendHiddenScenes: options.suspendHiddenScenes,
-    visibilityDocument: options.visibilityDocument ?? defaultVisibilityDocument(),
+    visibilityDocument:
+      options.visibilityDocument ?? defaultVisibilityDocument(),
     renderer: options.renderer,
     sceneFrame: options.sceneFrame,
     paintScheduling: options.paintScheduling,
@@ -181,10 +190,13 @@ class InternalWebHostAppController implements WebHostAppController {
     this.scenes = options.manifest.scenes;
     this.selectedSceneId =
       options.initialSceneId &&
-      options.manifest.scenes.some((scene) => scene.id === options.initialSceneId)
+      options.manifest.scenes.some(
+        (scene) => scene.id === options.initialSceneId,
+      )
         ? options.initialSceneId
-        : options.manifest.scenes.find((scene) => scene.id === options.manifest.defaultSceneId)?.id ??
-          options.manifest.defaultSceneId;
+        : (options.manifest.scenes.find(
+            (scene) => scene.id === options.manifest.defaultSceneId,
+          )?.id ?? options.manifest.defaultSceneId);
 
     this.sceneRoot = (options.createElement ?? defaultCreateElement)("div");
     this.sceneRoot.className = "webhost-scene-root";
@@ -213,9 +225,7 @@ class InternalWebHostAppController implements WebHostAppController {
     await this.switchScene(this.selectedSceneId);
   }
 
-  async switchScene(
-    id: string
-  ): Promise<void> {
+  async switchScene(id: string): Promise<void> {
     const descriptor = this.scenes.find((scene) => scene.id === id);
     if (!descriptor) {
       throw new Error(`Unknown scene: ${id}`);
@@ -230,9 +240,7 @@ class InternalWebHostAppController implements WebHostAppController {
     this.selectedSceneId = id;
   }
 
-  setStyle(
-    style: WebHostTerminalStyle
-  ): void {
+  setStyle(style: WebHostTerminalStyle): void {
     const merged = mergeWebHostTerminalStyle(this.style, style);
     this.style = merged;
 
@@ -273,9 +281,7 @@ class InternalWebHostAppController implements WebHostAppController {
     };
   }
 
-  private async ensureRuntime(
-    id: string
-  ): Promise<WebHostSceneRuntime> {
+  private async ensureRuntime(id: string): Promise<WebHostSceneRuntime> {
     const existing = this.runtimes.get(id);
     if (existing) {
       return existing;
@@ -311,7 +317,7 @@ class InternalWebHostAppController implements WebHostAppController {
 
   private makeBridge(
     sceneId: string,
-    descriptor: WebHostSceneDescriptor
+    descriptor: WebHostSceneDescriptor,
   ): WebHostSceneBridge {
     if (this.bridgeFactory) {
       return this.bridgeFactory({
@@ -341,7 +347,8 @@ class InternalWebHostAppController implements WebHostAppController {
   }
 
   private applyHostFrameStyle(): void {
-    this.mount.style.background = "linear-gradient(180deg, #0f172a 0%, #111827 100%)";
+    this.mount.style.background =
+      "linear-gradient(180deg, #0f172a 0%, #111827 100%)";
     this.mount.style.boxSizing = "border-box";
     this.mount.style.width = "100%";
     this.mount.style.height = "100%";
@@ -360,9 +367,7 @@ function defaultVisibilityDocument(): WebHostVisibilityDocument | undefined {
   return document;
 }
 
-function defaultCreateElement(
-  tagName: string
-): HTMLElement {
+function defaultCreateElement(tagName: string): HTMLElement {
   if (typeof document === "undefined") {
     throw new Error("document is not available");
   }
@@ -371,7 +376,7 @@ function defaultCreateElement(
 }
 
 async function resolveManifest(
-  options: WebHostAppOptions
+  options: WebHostAppOptions,
 ): Promise<WebHostSceneManifest> {
   if (options.manifest) {
     return loadWebHostSceneManifest(options.manifest);

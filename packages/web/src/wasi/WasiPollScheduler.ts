@@ -30,8 +30,11 @@ export interface WasiPollReadableSource extends WasiPollReadableState {
   waitForReadable(timeoutMilliseconds?: number): SharedInputReadiness;
 }
 
-export interface SuspendingWasiPollReadableSource extends WasiPollReadableState {
-  waitForReadableAsync(timeoutMilliseconds?: number): Promise<SharedInputReadiness>;
+export interface SuspendingWasiPollReadableSource
+  extends WasiPollReadableState {
+  waitForReadableAsync(
+    timeoutMilliseconds?: number,
+  ): Promise<SharedInputReadiness>;
 }
 
 /**
@@ -57,7 +60,7 @@ export interface WasiPollSchedulerOptions {
     inPtr: number,
     outPtr: number,
     nsubscriptions: number,
-    neventsPtr?: number
+    neventsPtr?: number,
   ): number;
   nowMilliseconds?(): number;
   pauseGate?: WasiPollPauseGate;
@@ -70,7 +73,7 @@ export class WasiPollScheduler {
   private readonly nowMilliseconds: () => number;
   private readonly pauseGate?: WasiPollPauseGate;
   private readonly waitBuffer = new Int32Array(
-    new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)
+    new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
   );
 
   constructor(options: WasiPollSchedulerOptions) {
@@ -85,7 +88,7 @@ export class WasiPollScheduler {
     inPtr: number,
     outPtr: number,
     nsubscriptions: number,
-    neventsPtr?: number
+    neventsPtr?: number,
   ): number {
     const memory = this.memory();
     if (!memory || nsubscriptions <= 0) {
@@ -97,7 +100,7 @@ export class WasiPollScheduler {
       view,
       inPtr,
       nsubscriptions,
-      this.nowMilliseconds()
+      this.nowMilliseconds(),
     );
     if (subscriptions === undefined) {
       return this.fallbackPoll(inPtr, outPtr, nsubscriptions, neventsPtr);
@@ -105,7 +108,11 @@ export class WasiPollScheduler {
 
     while (true) {
       this.pauseGate?.blockWhilePaused();
-      const ready = readySubscriptions(subscriptions, this.stdin, this.nowMilliseconds());
+      const ready = readySubscriptions(
+        subscriptions,
+        this.stdin,
+        this.nowMilliseconds(),
+      );
       if (ready.length > 0) {
         writeEvents(view, outPtr, ready, this.stdin);
         if (neventsPtr !== undefined) {
@@ -116,7 +123,7 @@ export class WasiPollScheduler {
 
       const timeoutMilliseconds = shortestClockTimeoutMilliseconds(
         subscriptions,
-        this.nowMilliseconds()
+        this.nowMilliseconds(),
       );
       if (hasFdReadSubscription(subscriptions)) {
         this.stdin.waitForReadable(timeoutMilliseconds);
@@ -125,7 +132,7 @@ export class WasiPollScheduler {
           this.waitBuffer,
           0,
           0,
-          Math.min(timeoutMilliseconds, maximumAtomicsWaitMilliseconds)
+          Math.min(timeoutMilliseconds, maximumAtomicsWaitMilliseconds),
         );
       } else {
         return this.fallbackPoll(inPtr, outPtr, nsubscriptions, neventsPtr);
@@ -141,7 +148,7 @@ export interface SuspendingWasiPollSchedulerOptions {
     inPtr: number,
     outPtr: number,
     nsubscriptions: number,
-    neventsPtr?: number
+    neventsPtr?: number,
   ): number;
   nowMilliseconds?(): number;
   pauseGate?: SuspendingWasiPollPauseGate;
@@ -172,7 +179,7 @@ export class SuspendingWasiPollScheduler {
     inPtr: number,
     outPtr: number,
     nsubscriptions: number,
-    neventsPtr?: number
+    neventsPtr?: number,
   ): Promise<number> {
     const memory = this.memory();
     if (!memory || nsubscriptions <= 0) {
@@ -183,7 +190,7 @@ export class SuspendingWasiPollScheduler {
       new DataView(memory.buffer),
       inPtr,
       nsubscriptions,
-      this.nowMilliseconds()
+      this.nowMilliseconds(),
     );
     if (subscriptions === undefined) {
       return this.fallbackPoll(inPtr, outPtr, nsubscriptions, neventsPtr);
@@ -191,7 +198,11 @@ export class SuspendingWasiPollScheduler {
 
     while (true) {
       await this.pauseGate?.waitWhilePaused();
-      const ready = readySubscriptions(subscriptions, this.stdin, this.nowMilliseconds());
+      const ready = readySubscriptions(
+        subscriptions,
+        this.stdin,
+        this.nowMilliseconds(),
+      );
       if (ready.length > 0) {
         // Re-derive the view each pass: memory.buffer detaches when the wasm
         // grows memory while we were suspended.
@@ -205,13 +216,16 @@ export class SuspendingWasiPollScheduler {
 
       const timeoutMilliseconds = shortestClockTimeoutMilliseconds(
         subscriptions,
-        this.nowMilliseconds()
+        this.nowMilliseconds(),
       );
       if (hasFdReadSubscription(subscriptions)) {
         await this.stdin.waitForReadableAsync(timeoutMilliseconds);
       } else if (timeoutMilliseconds !== undefined) {
         await new Promise((resolve) =>
-          setTimeout(resolve, Math.min(timeoutMilliseconds, maximumAtomicsWaitMilliseconds))
+          setTimeout(
+            resolve,
+            Math.min(timeoutMilliseconds, maximumAtomicsWaitMilliseconds),
+          ),
         );
       } else {
         return this.fallbackPoll(inPtr, outPtr, nsubscriptions, neventsPtr);
@@ -224,52 +238,55 @@ function readSubscriptions(
   view: DataView,
   inPtr: number,
   nsubscriptions: number,
-  nowMilliseconds: number
+  nowMilliseconds: number,
 ): SupportedSubscription[] | undefined {
   const subscriptions: SupportedSubscription[] = [];
   for (let index = 0; index < nsubscriptions; index += 1) {
     const subscription = wasi.Subscription.read_bytes(
       view,
-      inPtr + index * subscriptionByteLength
+      inPtr + index * subscriptionByteLength,
     );
     switch (subscription.eventtype) {
-    case wasi.EVENTTYPE_CLOCK:
-      if (!isSupportedClockId(subscription.clockid)) {
+      case wasi.EVENTTYPE_CLOCK:
+        if (!isSupportedClockId(subscription.clockid)) {
+          return undefined;
+        }
+        subscriptions.push({
+          type: "clock",
+          userdata: subscription.userdata,
+          clockid: subscription.clockid,
+          deadlineMilliseconds: clockDeadlineMilliseconds(
+            subscription,
+            nowMilliseconds,
+          ),
+        });
+        break;
+      case wasi.EVENTTYPE_FD_READ:
+        if (subscription.clockid !== wasi.FD_STDIN) {
+          return undefined;
+        }
+        subscriptions.push({
+          type: "fdRead",
+          userdata: subscription.userdata,
+          fd: subscription.clockid,
+        });
+        break;
+      default:
         return undefined;
-      }
-      subscriptions.push({
-        type: "clock",
-        userdata: subscription.userdata,
-        clockid: subscription.clockid,
-        deadlineMilliseconds: clockDeadlineMilliseconds(subscription, nowMilliseconds),
-      });
-      break;
-    case wasi.EVENTTYPE_FD_READ:
-      if (subscription.clockid !== wasi.FD_STDIN) {
-        return undefined;
-      }
-      subscriptions.push({
-        type: "fdRead",
-        userdata: subscription.userdata,
-        fd: subscription.clockid,
-      });
-      break;
-    default:
-      return undefined;
     }
   }
   return subscriptions;
 }
 
-function isSupportedClockId(
-  clockid: number
-): boolean {
-  return clockid === wasi.CLOCKID_MONOTONIC || clockid === wasi.CLOCKID_REALTIME;
+function isSupportedClockId(clockid: number): boolean {
+  return (
+    clockid === wasi.CLOCKID_MONOTONIC || clockid === wasi.CLOCKID_REALTIME
+  );
 }
 
 function shortestClockTimeoutMilliseconds(
   subscriptions: readonly SupportedSubscription[],
-  nowMilliseconds: number
+  nowMilliseconds: number,
 ): number | undefined {
   let timeoutMilliseconds: number | undefined;
   for (const subscription of subscriptions) {
@@ -277,9 +294,10 @@ function shortestClockTimeoutMilliseconds(
       continue;
     }
     const remaining = clockRemainingMilliseconds(subscription, nowMilliseconds);
-    timeoutMilliseconds = timeoutMilliseconds === undefined
-      ? remaining
-      : Math.min(timeoutMilliseconds, remaining);
+    timeoutMilliseconds =
+      timeoutMilliseconds === undefined
+        ? remaining
+        : Math.min(timeoutMilliseconds, remaining);
   }
   return timeoutMilliseconds;
 }
@@ -287,48 +305,51 @@ function shortestClockTimeoutMilliseconds(
 function readySubscriptions(
   subscriptions: readonly SupportedSubscription[],
   stdin: WasiPollReadableState,
-  nowMilliseconds: number
+  nowMilliseconds: number,
 ): SupportedSubscription[] {
-  return subscriptions.filter((subscription) => {
-    switch (subscription.type) {
-    case "clock":
-      return clockRemainingMilliseconds(subscription, nowMilliseconds) <= 0;
-    case "fdRead":
-      return stdin.availableBytes() > 0 || stdin.isClosed();
-    }
-  });
+  return subscriptions.filter((subscription) =>
+    subscription.type === "clock"
+      ? clockRemainingMilliseconds(subscription, nowMilliseconds) <= 0
+      : stdin.availableBytes() > 0 || stdin.isClosed(),
+  );
 }
 
 function hasFdReadSubscription(
-  subscriptions: readonly SupportedSubscription[]
+  subscriptions: readonly SupportedSubscription[],
 ): boolean {
   return subscriptions.some((subscription) => subscription.type === "fdRead");
 }
 
 function clockRemainingMilliseconds(
   subscription: ClockSubscription,
-  nowMilliseconds: number
+  nowMilliseconds: number,
 ): number {
-  return Math.max(0, subscription.deadlineMilliseconds - nowMillisecondsForClock(
-    subscription.clockid,
-    nowMilliseconds
-  ));
+  return Math.max(
+    0,
+    subscription.deadlineMilliseconds -
+      nowMillisecondsForClock(subscription.clockid, nowMilliseconds),
+  );
 }
 
 function clockDeadlineMilliseconds(
   subscription: wasi.Subscription,
-  nowMilliseconds: number
+  nowMilliseconds: number,
 ): number {
-  if ((subscription.flags & wasi.SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME) !== 0) {
+  if (
+    (subscription.flags & wasi.SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME) !==
+    0
+  ) {
     return Number(subscription.timeout) / 1_000_000;
   }
-  return nowMillisecondsForClock(subscription.clockid, nowMilliseconds)
-    + Number(subscription.timeout) / 1_000_000;
+  return (
+    nowMillisecondsForClock(subscription.clockid, nowMilliseconds) +
+    Number(subscription.timeout) / 1_000_000
+  );
 }
 
 function nowMillisecondsForClock(
   clockid: number,
-  nowMilliseconds: number
+  nowMilliseconds: number,
 ): number {
   if (clockid === wasi.CLOCKID_REALTIME) {
     return Date.now();
@@ -340,23 +361,28 @@ function writeEvents(
   view: DataView,
   outPtr: number,
   subscriptions: readonly SupportedSubscription[],
-  stdin: WasiPollReadableSource
+  stdin: WasiPollReadableSource,
 ): void {
   subscriptions.forEach((subscription, index) => {
-    const eventtype = subscription.type === "clock"
-      ? wasi.EVENTTYPE_CLOCK
-      : wasi.EVENTTYPE_FD_READ;
+    const eventtype =
+      subscription.type === "clock"
+        ? wasi.EVENTTYPE_CLOCK
+        : wasi.EVENTTYPE_FD_READ;
     const offset = outPtr + index * eventByteLength;
     new wasi.Event(
       subscription.userdata,
       wasi.ERRNO_SUCCESS,
-      eventtype
+      eventtype,
     ).write_bytes(view, offset);
     if (subscription.type === "fdRead") {
       const availableBytes = Math.max(0, stdin.availableBytes());
       view.setBigUint64(offset + 16, BigInt(availableBytes), true);
       if (availableBytes === 0 && stdin.isClosed()) {
-        view.setUint16(offset + 24, wasi.EVENTRWFLAGS_FD_READWRITE_HANGUP, true);
+        view.setUint16(
+          offset + 24,
+          wasi.EVENTRWFLAGS_FD_READWRITE_HANGUP,
+          true,
+        );
       }
     }
   });
@@ -370,12 +396,16 @@ export function writeClockSubscriptionForTesting(
     timeoutNanoseconds: bigint;
     clockid?: number;
     flags?: number;
-  }
+  },
 ): void {
   clearRecord(view, offset, subscriptionByteLength);
   view.setBigUint64(offset, subscription.userdata, true);
   view.setUint8(offset + 8, wasi.EVENTTYPE_CLOCK);
-  view.setUint32(offset + 16, subscription.clockid ?? wasi.CLOCKID_MONOTONIC, true);
+  view.setUint32(
+    offset + 16,
+    subscription.clockid ?? wasi.CLOCKID_MONOTONIC,
+    true,
+  );
   view.setBigUint64(offset + 24, subscription.timeoutNanoseconds, true);
   view.setUint16(offset + 36, subscription.flags ?? 0, true);
 }
@@ -386,7 +416,7 @@ export function writeFdReadSubscriptionForTesting(
   subscription: {
     userdata: bigint;
     fd: number;
-  }
+  },
 ): void {
   clearRecord(view, offset, subscriptionByteLength);
   view.setBigUint64(offset, subscription.userdata, true);
@@ -397,7 +427,7 @@ export function writeFdReadSubscriptionForTesting(
 export function readPollEventsForTesting(
   view: DataView,
   offset: number,
-  count: number
+  count: number,
 ): Array<{ userdata: bigint; errno: number; eventtype: number }> {
   return Array.from({ length: count }, (_, index) => {
     const eventOffset = offset + index * eventByteLength;
@@ -409,10 +439,6 @@ export function readPollEventsForTesting(
   });
 }
 
-function clearRecord(
-  view: DataView,
-  offset: number,
-  byteLength: number
-): void {
+function clearRecord(view: DataView, offset: number, byteLength: number): void {
   new Uint8Array(view.buffer, offset, byteLength).fill(0);
 }

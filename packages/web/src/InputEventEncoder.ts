@@ -33,9 +33,7 @@ export class InputEventEncoder {
    * does not map to a forwarded key (e.g. a multi-codepoint composed string).
    * Returning `undefined` lets the host leave the event unhandled.
    */
-  encodeKey(
-    event: KeyboardEvent
-  ): Uint8Array | undefined {
+  encodeKey(event: KeyboardEvent): Uint8Array | undefined {
     const key = keyInputFromKeyboardEvent(event);
     if (!key) {
       return undefined;
@@ -46,16 +44,14 @@ export class InputEventEncoder {
     });
   }
 
-  encodePaste(
-    text: string
-  ): Uint8Array {
+  encodePaste(text: string): Uint8Array {
     return encodePasteInputMessage(text);
   }
 
   encodePointerDown(
     location: CellLocation,
     button: PointerButton,
-    event: PointerEvent
+    event: PointerEvent,
   ): Uint8Array {
     return encodeMouseInputMessage({
       kind: "down",
@@ -69,7 +65,7 @@ export class InputEventEncoder {
   encodePointerUp(
     location: CellLocation,
     button: PointerButton,
-    event: PointerEvent
+    event: PointerEvent,
   ): Uint8Array {
     return encodeMouseInputMessage({
       kind: "up",
@@ -83,7 +79,7 @@ export class InputEventEncoder {
   encodePointerMove(
     location: CellLocation,
     button: PointerButton,
-    event: PointerEvent
+    event: PointerEvent,
   ): Uint8Array {
     return encodeMouseInputMessage({
       kind: event.buttons ? "dragged" : "moved",
@@ -94,10 +90,7 @@ export class InputEventEncoder {
     });
   }
 
-  encodeWheel(
-    location: CellLocation,
-    event: WheelEvent
-  ): Uint8Array {
+  encodeWheel(location: CellLocation, event: WheelEvent): Uint8Array {
     return encodeMouseInputMessage({
       kind: "scrolled",
       x: location.x,
@@ -109,41 +102,38 @@ export class InputEventEncoder {
   }
 
   /** Translates a DOM `MouseEvent.button` index into the wire button identity. */
-  pointerButton(
-    button: number
-  ): PointerButton {
+  pointerButton(button: number): PointerButton {
     return pointerButton(button);
   }
 }
 
 function keyInputFromKeyboardEvent(
-  event: KeyboardEvent
+  event: KeyboardEvent,
 ): Pick<WebHostKeyInput, "key" | "character"> | undefined {
   switch (event.key) {
-  case "Enter":
-    return { key: "return" };
-  case " ":
-    return { key: "space" };
-  case "Tab":
-    return { key: "tab" };
-  case "ArrowLeft":
-    return { key: "arrowLeft" };
-  case "ArrowRight":
-    return { key: "arrowRight" };
-  case "ArrowUp":
-    return { key: "arrowUp" };
-  case "ArrowDown":
-    return { key: "arrowDown" };
-  case "Backspace":
-    return { key: "backspace" };
-  case "Escape":
-    return { key: "escape" };
-  case "Home":
-    return { key: "home" };
-  case "End":
-    return { key: "end" };
-  default:
-    {
+    case "Enter":
+      return { key: "return" };
+    case " ":
+      return { key: "space" };
+    case "Tab":
+      return { key: "tab" };
+    case "ArrowLeft":
+      return { key: "arrowLeft" };
+    case "ArrowRight":
+      return { key: "arrowRight" };
+    case "ArrowUp":
+      return { key: "arrowUp" };
+    case "ArrowDown":
+      return { key: "arrowDown" };
+    case "Backspace":
+      return { key: "backspace" };
+    case "Escape":
+      return { key: "escape" };
+    case "Home":
+      return { key: "home" };
+    case "End":
+      return { key: "end" };
+    default: {
       const characters = Array.from(event.key);
       if (characters.length !== 1) {
         return undefined;
@@ -156,22 +146,18 @@ function keyInputFromKeyboardEvent(
   }
 }
 
-function pointerButton(
-  button: number
-): PointerButton {
+function pointerButton(button: number): PointerButton {
   switch (button) {
-  case 1:
-    return "middle";
-  case 2:
-    return "secondary";
-  default:
-    return "primary";
+    case 1:
+      return "middle";
+    case 2:
+      return "secondary";
+    default:
+      return "primary";
   }
 }
 
-function modifierMask(
-  event: MouseEvent | KeyboardEvent
-): number {
+function modifierMask(event: MouseEvent | KeyboardEvent): number {
   let mask = 0;
   if (event.shiftKey) {
     mask |= 1;
@@ -185,9 +171,7 @@ function modifierMask(
   return mask;
 }
 
-function normalizedWheelDelta(
-  delta: number
-): number {
+function normalizedWheelDelta(delta: number): number {
   if (delta > 0) {
     return 1;
   }

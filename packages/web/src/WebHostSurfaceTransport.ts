@@ -3,11 +3,16 @@
  * contract lives upstream:
  * https://github.com/SwiftTUI/swift-tui/blob/main/docs/HOST-WIRE-CONTRACT.md
  */
+
+import {
+  fitsJSONDepth,
+  fitsSurfaceBudget,
+  HOST_WIRE_MAX_RECORD_BYTES,
+} from "./HostWireBudget.ts";
 import {
   encodeWebHostTerminalRenderStyleBase64,
   type WebHostTerminalStyle,
 } from "./WebHostTerminalStyle.ts";
-import { HOST_WIRE_MAX_RECORD_BYTES, fitsJSONDepth, fitsSurfaceBudget } from "./HostWireBudget.ts";
 
 export interface WebHostSurfaceStyle {
   fg?: string;
@@ -19,7 +24,14 @@ export interface WebHostSurfaceStyle {
 }
 
 export interface WebHostSurfaceLineStyle {
-  pattern: "solid" | "dot" | "dash" | "dashDot" | "dashDotDot" | "double" | "curly";
+  pattern:
+    | "solid"
+    | "dot"
+    | "dash"
+    | "dashDot"
+    | "dashDotDot"
+    | "double"
+    | "curly";
   color?: string;
 }
 
@@ -37,15 +49,9 @@ export type WebHostSurfaceRect = [
   height: number,
 ];
 
-export type WebHostSurfaceSize = [
-  width: number,
-  height: number,
-];
+export type WebHostSurfaceSize = [width: number, height: number];
 
-export type WebHostAccessibilityPoint = [
-  x: number,
-  y: number,
-];
+export type WebHostAccessibilityPoint = [x: number, y: number];
 
 export type WebHostAccessibilityLiveRegion = string;
 
@@ -121,10 +127,7 @@ export interface WebHostSurfaceImage {
   dataBase64?: string;
 }
 
-export type WebHostSurfaceDamageRange = [
-  start: number,
-  end: number,
-];
+export type WebHostSurfaceDamageRange = [start: number, end: number];
 
 export type WebHostSurfaceDamageTextRow = [
   row: number,
@@ -177,10 +180,7 @@ export interface WebHostSurfaceFrame {
   preferredGridHeight?: number;
 }
 
-export type WebHostSurfaceDeltaRow = [
-  row: number,
-  cells: WebHostSurfaceCell[],
-];
+export type WebHostSurfaceDeltaRow = [row: number, cells: WebHostSurfaceCell[]];
 
 export interface WebHostSurfaceDeltaFrame {
   version: 3;
@@ -237,7 +237,10 @@ export type WebHostOutputRecord =
   | { type: "clipboard"; text: string }
   | { type: "runtimeIssue"; issue: WebHostRuntimeIssue }
   | { type: "frameDiagnostic"; diagnostic: WebHostFrameDiagnosticRecord }
-  | { type: "surfaceDropped"; reason: "noBaseline" | "staleBaseline" | "budgetExceeded" }
+  | {
+      type: "surfaceDropped";
+      reason: "noBaseline" | "staleBaseline" | "budgetExceeded";
+    }
   | { type: "text"; text: string };
 
 export type WebHostResyncRequest =
@@ -247,7 +250,7 @@ export type WebHostResyncRequest =
 export interface WebHostOutputSink {
   presentSurface(
     frame: WebHostSurfaceFrame,
-    recoveredImagePayloadIds?: readonly string[]
+    recoveredImagePayloadIds?: readonly string[],
   ): void;
   writeClipboard?(text: string): void | Promise<void>;
   notifyRuntimeIssue?(issue: WebHostRuntimeIssue): void;
@@ -291,12 +294,12 @@ const textEncoder = new TextEncoder();
 export const MAX_IMAGE_RECOVERY_ID_BYTES = 1_024;
 export const MAX_OUTSTANDING_IMAGE_RECOVERY_IDS = 1_024;
 
-export function isWebHostImageRecoveryId(
-  id: string
-): boolean {
-  return id.length > 0
-    && id.length <= MAX_IMAGE_RECOVERY_ID_BYTES
-    && textEncoder.encode(id).byteLength <= MAX_IMAGE_RECOVERY_ID_BYTES;
+export function isWebHostImageRecoveryId(id: string): boolean {
+  return (
+    id.length > 0 &&
+    id.length <= MAX_IMAGE_RECOVERY_ID_BYTES &&
+    textEncoder.encode(id).byteLength <= MAX_IMAGE_RECOVERY_ID_BYTES
+  );
 }
 
 /**
@@ -323,9 +326,7 @@ export class WebHostOutputDecoder {
   private readonly imageResyncOutstandingIds = new Set<string>();
   private readonly imageResyncPendingIds = new Set<string>();
 
-  feed(
-    chunk: Uint8Array
-  ): WebHostOutputRecord[] {
+  feed(chunk: Uint8Array): WebHostOutputRecord[] {
     const records: WebHostOutputRecord[] = [];
     let offset = 0;
     while (offset < chunk.length) {
@@ -340,7 +341,10 @@ export class WebHostOutputDecoder {
           records.push(this.refuseBudget());
         } else {
           this.bufferedBytes += end - offset;
-          this.bufferedText += this.textDecoder.decode(chunk.subarray(offset, end), { stream: true });
+          this.bufferedText += this.textDecoder.decode(
+            chunk.subarray(offset, end),
+            { stream: true },
+          );
         }
       }
       if (newline >= 0) {
@@ -355,7 +359,10 @@ export class WebHostOutputDecoder {
       offset = end + 1;
     }
 
-    if (this.bufferedText.length > 4096 && !this.bufferedText.startsWith(recordPrefix)) {
+    if (
+      this.bufferedText.length > 4096 &&
+      !this.bufferedText.startsWith(recordPrefix)
+    ) {
       records.push({ type: "text", text: this.bufferedText });
       this.bufferedText = "";
       this.bufferedBytes = 0;
@@ -386,7 +393,7 @@ export class WebHostOutputDecoder {
   }
 
   takeResyncRequest(
-    maximumEncodedBytes?: number
+    maximumEncodedBytes?: number,
   ): WebHostResyncRequest | undefined {
     if (this.keyframeResyncPending) {
       this.keyframeResyncPending = false;
@@ -399,7 +406,7 @@ export class WebHostOutputDecoder {
     const sortedIds = [...this.imageResyncPendingIds].sort();
     const { ids, rejectedIds } = boundedImageResyncIds(
       sortedIds,
-      maximumEncodedBytes
+      maximumEncodedBytes,
     );
     for (const id of rejectedIds) {
       this.imageResyncPendingIds.delete(id);
@@ -421,9 +428,7 @@ export class WebHostOutputDecoder {
    * now tracked (new or already outstanding); callers should suppress repeats
    * only for this admitted subset.
    */
-  requestImagePayloads(
-    ids: Iterable<string>
-  ): readonly string[] {
+  requestImagePayloads(ids: Iterable<string>): readonly string[] {
     const acceptedIds = new Set<string>();
     for (const id of ids) {
       if (!isWebHostImageRecoveryId(id)) {
@@ -434,8 +439,8 @@ export class WebHostOutputDecoder {
         continue;
       }
       if (
-        this.imageResyncOutstandingIds.size
-        >= MAX_OUTSTANDING_IMAGE_RECOVERY_IDS
+        this.imageResyncOutstandingIds.size >=
+        MAX_OUTSTANDING_IMAGE_RECOVERY_IDS
       ) {
         continue;
       }
@@ -454,10 +459,10 @@ export class WebHostOutputDecoder {
    * so presenters can open exactly one fresh local decode generation even when
    * content-addressed retransmission uses identical bytes.
    */
-  prepareToPresentSurface(
-    frame: WebHostSurfaceFrame
-  ): readonly string[] {
-    const recoveredImagePayloadIds = this.recoveredImagePayloadIds(frame.images);
+  prepareToPresentSurface(frame: WebHostSurfaceFrame): readonly string[] {
+    const recoveredImagePayloadIds = this.recoveredImagePayloadIds(
+      frame.images,
+    );
     this.resetImageResyncForEpoch(frame.epoch);
     this.sweepImageResyncForPresentedImages(frame.images);
     this.clearArrivedImagePayloads(frame.images);
@@ -467,9 +472,7 @@ export class WebHostOutputDecoder {
     return recoveredImagePayloadIds;
   }
 
-  resyncRequestDeliveryFailed(
-    request: WebHostResyncRequest
-  ): void {
+  resyncRequestDeliveryFailed(request: WebHostResyncRequest): void {
     if (request.scope === "keyframe") {
       if (this.keyframeResyncOutstanding) {
         this.keyframeResyncPending = true;
@@ -484,15 +487,15 @@ export class WebHostOutputDecoder {
     }
   }
 
-  private decodeLine(
-    line: string
-  ): WebHostOutputRecord {
+  private decodeLine(line: string): WebHostOutputRecord {
     if (line.startsWith(recordPrefix) && !fitsJSONDepth(line)) {
       return this.refuseBudget();
     }
     if (line.startsWith(`${recordPrefix}clipboard:`)) {
       try {
-        const record = JSON.parse(line.slice(`${recordPrefix}clipboard:`.length));
+        const record = JSON.parse(
+          line.slice(`${recordPrefix}clipboard:`.length),
+        );
         if (isWebHostClipboardRecord(record)) {
           return { type: "clipboard", text: record.text };
         }
@@ -505,7 +508,9 @@ export class WebHostOutputDecoder {
 
     if (line.startsWith(`${recordPrefix}runtimeIssue:`)) {
       try {
-        const record = JSON.parse(line.slice(`${recordPrefix}runtimeIssue:`.length));
+        const record = JSON.parse(
+          line.slice(`${recordPrefix}runtimeIssue:`.length),
+        );
         if (isWebHostRuntimeIssue(record)) {
           return { type: "runtimeIssue", issue: record };
         }
@@ -518,7 +523,9 @@ export class WebHostOutputDecoder {
 
     if (line.startsWith(`${recordPrefix}frameDiagnostic:`)) {
       try {
-        const record = JSON.parse(line.slice(`${recordPrefix}frameDiagnostic:`.length));
+        const record = JSON.parse(
+          line.slice(`${recordPrefix}frameDiagnostic:`.length),
+        );
         if (isWebHostFrameDiagnosticRecord(record)) {
           return { type: "frameDiagnostic", diagnostic: record };
         }
@@ -542,10 +549,11 @@ export class WebHostOutputDecoder {
             severity: "error",
             code: "surface.unsupportedVersion",
             message: `SwiftTUI surface version ${frame.version} is newer than the supported ${SUPPORTED_SURFACE_VERSION}`,
-            description: "The app emitted a surface record with version "
-              + `${frame.version}, but this @swifttui/web runtime understands `
-              + `versions up to ${SUPPORTED_SURFACE_VERSION}. Update @swifttui/web `
-              + "to render it.",
+            description:
+              "The app emitted a surface record with version " +
+              `${frame.version}, but this @swifttui/web runtime understands ` +
+              `versions up to ${SUPPORTED_SURFACE_VERSION}. Update @swifttui/web ` +
+              "to render it.",
           },
         };
       }
@@ -560,13 +568,14 @@ export class WebHostOutputDecoder {
       }
       if (isWebHostSurfaceDeltaFrame(frame)) {
         if (!fitsSurfaceBudget(frame)) return this.refuseBudget();
-        const carriesDeliveryStamps = frame.epoch !== undefined
-          || frame.gen !== undefined
-          || frame.baselineGen !== undefined;
+        const carriesDeliveryStamps =
+          frame.epoch !== undefined ||
+          frame.gen !== undefined ||
+          frame.baselineGen !== undefined;
         if (
-          !this.lastSurfaceFrame
-          || this.lastSurfaceFrame.width !== frame.width
-          || this.lastSurfaceFrame.height !== frame.height
+          !this.lastSurfaceFrame ||
+          this.lastSurfaceFrame.width !== frame.width ||
+          this.lastSurfaceFrame.height !== frame.height
         ) {
           if (carriesDeliveryStamps) {
             this.requestKeyframeResync();
@@ -574,14 +583,12 @@ export class WebHostOutputDecoder {
           return { type: "surfaceDropped", reason: "noBaseline" };
         }
         if (
-          carriesDeliveryStamps
-          && (
-            frame.epoch === undefined
-            || frame.gen === undefined
-            || frame.baselineGen === undefined
-            || frame.epoch !== this.lastEpoch
-            || frame.baselineGen !== this.lastGen
-          )
+          carriesDeliveryStamps &&
+          (frame.epoch === undefined ||
+            frame.gen === undefined ||
+            frame.baselineGen === undefined ||
+            frame.epoch !== this.lastEpoch ||
+            frame.baselineGen !== this.lastGen)
         ) {
           this.requestKeyframeResync();
           return { type: "surfaceDropped", reason: "staleBaseline" };
@@ -615,9 +622,7 @@ export class WebHostOutputDecoder {
     return { type: "surfaceDropped", reason: "budgetExceeded" };
   }
 
-  private resetImageResyncForEpoch(
-    epoch: number | undefined
-  ): void {
+  private resetImageResyncForEpoch(epoch: number | undefined): void {
     if (epoch === undefined || epoch === this.lastPresentedEpoch) {
       return;
     }
@@ -626,7 +631,7 @@ export class WebHostOutputDecoder {
   }
 
   private clearArrivedImagePayloads(
-    images: WebHostSurfaceImage[] | undefined
+    images: WebHostSurfaceImage[] | undefined,
   ): void {
     for (const image of images ?? []) {
       if (image.dataBase64 === undefined) {
@@ -638,13 +643,13 @@ export class WebHostOutputDecoder {
   }
 
   private recoveredImagePayloadIds(
-    images: WebHostSurfaceImage[] | undefined
+    images: WebHostSurfaceImage[] | undefined,
   ): string[] {
     const recoveredIds = new Set<string>();
     for (const image of images ?? []) {
       if (
-        image.dataBase64 !== undefined
-        && this.imageResyncOutstandingIds.has(image.id)
+        image.dataBase64 !== undefined &&
+        this.imageResyncOutstandingIds.has(image.id)
       ) {
         recoveredIds.add(image.id);
       }
@@ -653,7 +658,7 @@ export class WebHostOutputDecoder {
   }
 
   private sweepImageResyncForPresentedImages(
-    images: WebHostSurfaceImage[] | undefined
+    images: WebHostSurfaceImage[] | undefined,
   ): void {
     const presentedIds = new Set<string>();
     for (const image of images ?? []) {
@@ -671,7 +676,7 @@ export class WebHostOutputDecoder {
   }
 
   private materializeDeltaFrame(
-    frame: WebHostSurfaceDeltaFrame
+    frame: WebHostSurfaceDeltaFrame,
   ): WebHostSurfaceFrame | undefined {
     const baseline = this.lastSurfaceFrame;
     if (!baseline) {
@@ -724,7 +729,7 @@ export class WebHostOutputDecoder {
    */
   private materializeDeltaStyles(
     frame: WebHostSurfaceDeltaFrame,
-    baseline: WebHostSurfaceFrame
+    baseline: WebHostSurfaceFrame,
   ): Array<WebHostSurfaceStyle | null> | undefined {
     if (frame.stylesBase === undefined) {
       return frame.styles;
@@ -738,14 +743,14 @@ export class WebHostOutputDecoder {
 
 function boundedImageResyncIds(
   sortedIds: string[],
-  maximumEncodedBytes: number | undefined
+  maximumEncodedBytes: number | undefined,
 ): {
   ids: string[];
   rejectedIds: string[];
 } {
   if (
-    maximumEncodedBytes === undefined
-    || !Number.isFinite(maximumEncodedBytes)
+    maximumEncodedBytes === undefined ||
+    !Number.isFinite(maximumEncodedBytes)
   ) {
     return { ids: sortedIds, rejectedIds: [] };
   }
@@ -778,71 +783,79 @@ function boundedImageResyncIds(
 }
 
 function declaresNewerSurfaceVersion(
-  value: unknown
+  value: unknown,
 ): value is { version: number } {
   if (!value || typeof value !== "object") {
     return false;
   }
   const version = (value as { version?: unknown }).version;
-  return typeof version === "number"
-    && Number.isSafeInteger(version)
-    && version > SUPPORTED_SURFACE_VERSION;
+  return (
+    typeof version === "number" &&
+    Number.isSafeInteger(version) &&
+    version > SUPPORTED_SURFACE_VERSION
+  );
 }
 
-function isWebHostClipboardRecord(
-  value: unknown
-): value is { text: string } {
-  return !!value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string";
+function isWebHostClipboardRecord(value: unknown): value is { text: string } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { text?: unknown }).text === "string"
+  );
 }
 
-function isWebHostRuntimeIssue(
-  value: unknown
-): value is WebHostRuntimeIssue {
+function isWebHostRuntimeIssue(value: unknown): value is WebHostRuntimeIssue {
   if (!value || typeof value !== "object") {
     return false;
   }
   const record = value as Partial<WebHostRuntimeIssue>;
-  return (record.severity === "warning" || record.severity === "error")
-    && typeof record.code === "string"
-    && typeof record.message === "string"
-    && typeof record.description === "string"
-    && (record.identity === undefined || typeof record.identity === "string")
-    && (record.source === undefined || typeof record.source === "string");
+  return (
+    (record.severity === "warning" || record.severity === "error") &&
+    typeof record.code === "string" &&
+    typeof record.message === "string" &&
+    typeof record.description === "string" &&
+    (record.identity === undefined || typeof record.identity === "string") &&
+    (record.source === undefined || typeof record.source === "string")
+  );
 }
 
 function isWebHostFrameDiagnosticRecord(
-  value: unknown
+  value: unknown,
 ): value is WebHostFrameDiagnosticRecord {
   if (!value || typeof value !== "object") {
     return false;
   }
   const record = value as Partial<WebHostFrameDiagnosticRecord>;
-  return record.format === "swift-tui-frame-diagnostics-v1"
-    && Array.isArray(record.header)
-    && record.header.every((field) => typeof field === "string")
-    && Array.isArray(record.fields)
-    && record.fields.every((field) => typeof field === "string");
+  return (
+    record.format === "swift-tui-frame-diagnostics-v1" &&
+    Array.isArray(record.header) &&
+    record.header.every((field) => typeof field === "string") &&
+    Array.isArray(record.fields) &&
+    record.fields.every((field) => typeof field === "string")
+  );
 }
 
 export function encodeResizeControlMessage(
   columns: number,
   rows: number,
   cellWidth?: number,
-  cellHeight?: number
+  cellHeight?: number,
 ): Uint8Array {
   const normalizedColumns = Math.max(1, Math.round(columns));
   const normalizedRows = Math.max(1, Math.round(rows));
   if (cellWidth && cellHeight) {
     return textEncoder.encode(
-      `${recordPrefix}resize:${normalizedColumns}:${normalizedRows}:${Math.max(1, Math.round(cellWidth))}:${Math.max(1, Math.round(cellHeight))}\n`
+      `${recordPrefix}resize:${normalizedColumns}:${normalizedRows}:${Math.max(1, Math.round(cellWidth))}:${Math.max(1, Math.round(cellHeight))}\n`,
     );
   }
 
-  return textEncoder.encode(`${recordPrefix}resize:${normalizedColumns}:${normalizedRows}\n`);
+  return textEncoder.encode(
+    `${recordPrefix}resize:${normalizedColumns}:${normalizedRows}\n`,
+  );
 }
 
 export function encodeRenderStyleControlMessage(
-  style: WebHostTerminalStyle
+  style: WebHostTerminalStyle,
 ): Uint8Array {
   const encoded = encodeWebHostTerminalRenderStyleBase64(style);
   return textEncoder.encode(`${recordPrefix}style:${encoded}\n`);
@@ -871,7 +884,7 @@ export function encodeCapabilitiesControlMessage(): Uint8Array {
   // the same release. Measured at Stage SV, the full retransmit it replaces was
   // 69.7% of late-record bytes in a style-churning epoch.
   return textEncoder.encode(
-    `${recordPrefix}caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n`
+    `${recordPrefix}caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n`,
   );
 }
 
@@ -892,137 +905,130 @@ export function encodeCapabilitiesControlMessage(): Uint8Array {
  * record drop it and keep the desktop paradigm.
  */
 export function encodePointerCapabilitiesControlMessage(
-  supportsScrollPanning: boolean
+  supportsScrollPanning: boolean,
 ): Uint8Array {
   return textEncoder.encode(
-    `${recordPrefix}pointer:panning=${supportsScrollPanning ? 1 : 0}\n`
+    `${recordPrefix}pointer:panning=${supportsScrollPanning ? 1 : 0}\n`,
   );
 }
 
 export function encodeResyncControlMessage(
-  request: WebHostResyncRequest
+  request: WebHostResyncRequest,
 ): Uint8Array {
-  const payload = request.scope === "keyframe"
-    ? { scope: "keyframe" }
-    : {
-        scope: "images",
-        ...(request.ids === undefined ? {} : { ids: request.ids }),
-      };
+  const payload =
+    request.scope === "keyframe"
+      ? { scope: "keyframe" }
+      : {
+          scope: "images",
+          ...(request.ids === undefined ? {} : { ids: request.ids }),
+        };
   return textEncoder.encode(
-    `${recordPrefix}resync:${JSON.stringify(payload)}\n`
+    `${recordPrefix}resync:${JSON.stringify(payload)}\n`,
   );
 }
 
-export function encodeKeyInputMessage(
-  input: WebHostKeyInput
-): Uint8Array {
+export function encodeKeyInputMessage(input: WebHostKeyInput): Uint8Array {
   const modifiers = Math.max(0, Math.round(input.modifiers ?? 0));
   if (input.key === "character") {
     return textEncoder.encode(
-      `${recordPrefix}key:character:${encodeURIComponent(input.character ?? "")}:${modifiers}\n`
+      `${recordPrefix}key:character:${encodeURIComponent(input.character ?? "")}:${modifiers}\n`,
     );
   }
   return textEncoder.encode(`${recordPrefix}key:${input.key}:${modifiers}\n`);
 }
 
-export function encodePasteInputMessage(
-  text: string
-): Uint8Array {
-  return textEncoder.encode(`${recordPrefix}paste:${encodeURIComponent(text)}\n`);
-}
-
-export function encodeMouseInputMessage(
-  input: WebHostMouseInput
-): Uint8Array {
+export function encodePasteInputMessage(text: string): Uint8Array {
   return textEncoder.encode(
-    recordPrefix + [
-      "mouse",
-      input.kind,
-      formatCellCoordinate(input.x),
-      formatCellCoordinate(input.y),
-      input.button ?? "none",
-      Math.round(input.deltaX ?? 0),
-      Math.round(input.deltaY ?? 0),
-      Math.max(0, Math.round(input.modifiers ?? 0)),
-    ].join(":") + "\n"
+    `${recordPrefix}paste:${encodeURIComponent(text)}\n`,
   );
 }
 
-function formatCellCoordinate(
-  value: number
-): string {
+export function encodeMouseInputMessage(input: WebHostMouseInput): Uint8Array {
+  return textEncoder.encode(
+    recordPrefix +
+      [
+        "mouse",
+        input.kind,
+        formatCellCoordinate(input.x),
+        formatCellCoordinate(input.y),
+        input.button ?? "none",
+        Math.round(input.deltaX ?? 0),
+        Math.round(input.deltaY ?? 0),
+        Math.max(0, Math.round(input.modifiers ?? 0)),
+      ].join(":") +
+      "\n",
+  );
+}
+
+function formatCellCoordinate(value: number): string {
   return Number.isFinite(value) ? String(value) : "0";
 }
 
-function isWebHostSurfaceFrame(
-  value: unknown
-): value is WebHostSurfaceFrame {
+function isWebHostSurfaceFrame(value: unknown): value is WebHostSurfaceFrame {
   if (!value || typeof value !== "object") {
     return false;
   }
   const frame = value as Partial<WebHostSurfaceFrame>;
-  return (frame.version === 1 || frame.version === 2)
-    && (
-      frame.sequence === undefined
-        || (Number.isSafeInteger(frame.sequence) && frame.sequence >= 0)
-    )
-    && isSurfaceGridDimension(frame.width)
-    && isSurfaceGridDimension(frame.height)
-    && Array.isArray(frame.styles)
-    && Array.isArray(frame.rows)
-    && frame.rows.every(isWebHostSurfaceRow)
-    && (frame.images === undefined || isWebHostSurfaceImages(frame.images))
-    && (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage))
-    && (
-      frame.accessibilityTree === undefined
-        || isWebHostAccessibilityNodes(frame.accessibilityTree)
-    )
-    && (
-      frame.accessibilityAnnouncements === undefined
-        || isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)
-    )
-    && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions))
-    && hasValidAdditiveFrameFields(frame);
+  return (
+    (frame.version === 1 || frame.version === 2) &&
+    (frame.sequence === undefined ||
+      (Number.isSafeInteger(frame.sequence) && frame.sequence >= 0)) &&
+    isSurfaceGridDimension(frame.width) &&
+    isSurfaceGridDimension(frame.height) &&
+    Array.isArray(frame.styles) &&
+    Array.isArray(frame.rows) &&
+    frame.rows.every(isWebHostSurfaceRow) &&
+    (frame.images === undefined || isWebHostSurfaceImages(frame.images)) &&
+    (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage)) &&
+    (frame.accessibilityTree === undefined ||
+      isWebHostAccessibilityNodes(frame.accessibilityTree)) &&
+    (frame.accessibilityAnnouncements === undefined ||
+      isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)) &&
+    (frame.scrollRegions === undefined ||
+      isWebHostScrollRegions(frame.scrollRegions)) &&
+    hasValidAdditiveFrameFields(frame)
+  );
 }
 
 function isWebHostSurfaceDeltaFrame(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceDeltaFrame {
   if (!value || typeof value !== "object") {
     return false;
   }
   const frame = value as Partial<WebHostSurfaceDeltaFrame>;
-  return frame.version === 3
-    && frame.encoding === "delta"
-    && (
-      frame.sequence === undefined
-        || (Number.isSafeInteger(frame.sequence) && frame.sequence >= 0)
-    )
-    && isSurfaceGridDimension(frame.width)
-    && isSurfaceGridDimension(frame.height)
-    && Array.isArray(frame.styles)
-    && Array.isArray(frame.deltaRows)
-    && frame.deltaRows.every(isWebHostSurfaceDeltaRow)
-    && isOptionalSafeInteger(frame.baselineGen)
-    && isOptionalSafeInteger(frame.stylesBase)
-    && (frame.images === undefined || isWebHostSurfaceImages(frame.images))
-    && (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage))
-    && (
-      frame.accessibilityTree === undefined
-        || isWebHostAccessibilityNodes(frame.accessibilityTree)
-    )
-    && (
-      frame.accessibilityAnnouncements === undefined
-        || isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)
-    )
-    && (frame.scrollRegions === undefined || isWebHostScrollRegions(frame.scrollRegions))
-    && hasValidAdditiveFrameFields(frame);
+  return (
+    frame.version === 3 &&
+    frame.encoding === "delta" &&
+    (frame.sequence === undefined ||
+      (Number.isSafeInteger(frame.sequence) && frame.sequence >= 0)) &&
+    isSurfaceGridDimension(frame.width) &&
+    isSurfaceGridDimension(frame.height) &&
+    Array.isArray(frame.styles) &&
+    Array.isArray(frame.deltaRows) &&
+    frame.deltaRows.every(isWebHostSurfaceDeltaRow) &&
+    isOptionalSafeInteger(frame.baselineGen) &&
+    isOptionalSafeInteger(frame.stylesBase) &&
+    (frame.images === undefined || isWebHostSurfaceImages(frame.images)) &&
+    (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage)) &&
+    (frame.accessibilityTree === undefined ||
+      isWebHostAccessibilityNodes(frame.accessibilityTree)) &&
+    (frame.accessibilityAnnouncements === undefined ||
+      isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)) &&
+    (frame.scrollRegions === undefined ||
+      isWebHostScrollRegions(frame.scrollRegions)) &&
+    hasValidAdditiveFrameFields(frame)
+  );
 }
 
 function isSurfaceGridDimension(value: unknown): value is number {
   // Structural validation precedes the shared practical allocation budget.
-  return typeof value === "number" && Number.isInteger(value)
-    && value >= 0 && value <= 2_147_483_647;
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 2_147_483_647
+  );
 }
 
 /**
@@ -1030,267 +1036,279 @@ function isSurfaceGridDimension(value: unknown): value is number {
  * means "feature not present" — servers older than the field omit it.
  */
 function hasValidAdditiveFrameFields(
-  frame: Partial<WebHostSurfaceFrame> | Partial<WebHostSurfaceDeltaFrame>
+  frame: Partial<WebHostSurfaceFrame> | Partial<WebHostSurfaceDeltaFrame>,
 ): boolean {
-  return isOptionalSafeInteger(frame.epoch)
-    && isOptionalSafeInteger(frame.gen)
-    && (frame.links === undefined || isWebHostSurfaceLinks(frame.links))
-    && (frame.linkTargets === undefined || isWebHostSurfaceLinkTargets(frame.linkTargets))
-    && (
-      frame.focusPresentation === undefined
-        || isWebHostFocusPresentation(frame.focusPresentation)
-    )
-    && (
-      frame.preferredGridWidth === undefined
-        || (Number.isSafeInteger(frame.preferredGridWidth) && frame.preferredGridWidth >= 0)
-    )
-    && (
-      frame.preferredGridHeight === undefined
-        || (Number.isSafeInteger(frame.preferredGridHeight) && frame.preferredGridHeight >= 0)
-    );
+  return (
+    isOptionalSafeInteger(frame.epoch) &&
+    isOptionalSafeInteger(frame.gen) &&
+    (frame.links === undefined || isWebHostSurfaceLinks(frame.links)) &&
+    (frame.linkTargets === undefined ||
+      isWebHostSurfaceLinkTargets(frame.linkTargets)) &&
+    (frame.focusPresentation === undefined ||
+      isWebHostFocusPresentation(frame.focusPresentation)) &&
+    (frame.preferredGridWidth === undefined ||
+      (Number.isSafeInteger(frame.preferredGridWidth) &&
+        frame.preferredGridWidth >= 0)) &&
+    (frame.preferredGridHeight === undefined ||
+      (Number.isSafeInteger(frame.preferredGridHeight) &&
+        frame.preferredGridHeight >= 0))
+  );
 }
 
-function isOptionalSafeInteger(
-  value: unknown
-): boolean {
+function isOptionalSafeInteger(value: unknown): boolean {
   return value === undefined || Number.isSafeInteger(value);
 }
 
 function isWebHostSurfaceLinks(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceLinkRow[] {
   return Array.isArray(value) && value.every(isWebHostSurfaceLinkRow);
 }
 
 function isWebHostSurfaceLinkRow(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceLinkRow {
-  return Array.isArray(value)
-    && value.length === 2
-    && Number.isSafeInteger(value[0])
-    && value[0] >= 0
-    && Array.isArray(value[1])
-    && value[1].every(isWebHostSurfaceLinkRun);
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    Number.isSafeInteger(value[0]) &&
+    value[0] >= 0 &&
+    Array.isArray(value[1]) &&
+    value[1].every(isWebHostSurfaceLinkRun)
+  );
 }
 
 function isWebHostSurfaceLinkRun(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceLinkRun {
   if (!Array.isArray(value) || value.length !== 3) {
     return false;
   }
   const [x, span, targetIndex] = value as number[];
-  return Number.isSafeInteger(x)
-    && x >= 0
-    && Number.isSafeInteger(span)
-    && span >= 1
-    && Number.isSafeInteger(targetIndex)
-    && targetIndex >= 0;
+  return (
+    Number.isSafeInteger(x) &&
+    x >= 0 &&
+    Number.isSafeInteger(span) &&
+    span >= 1 &&
+    Number.isSafeInteger(targetIndex) &&
+    targetIndex >= 0
+  );
 }
 
-function isWebHostSurfaceLinkTargets(
-  value: unknown
-): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+function isWebHostSurfaceLinkTargets(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((entry) => typeof entry === "string")
+  );
 }
 
 function isWebHostFocusPresentation(
-  value: unknown
+  value: unknown,
 ): value is WebHostFocusPresentation {
   if (!value || typeof value !== "object") {
     return false;
   }
   const presentation = value as Partial<WebHostFocusPresentation>;
   return (
-    presentation.focusedIdentity === undefined
-      || typeof presentation.focusedIdentity === "string"
-  )
-    && typeof presentation.semantics === "string"
-    && typeof presentation.prefersTextInput === "boolean"
-    && typeof presentation.hasFocusedRegion === "boolean";
+    (presentation.focusedIdentity === undefined ||
+      typeof presentation.focusedIdentity === "string") &&
+    typeof presentation.semantics === "string" &&
+    typeof presentation.prefersTextInput === "boolean" &&
+    typeof presentation.hasFocusedRegion === "boolean"
+  );
 }
 
 function isWebHostSurfaceDeltaRow(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceDeltaRow {
-  return Array.isArray(value)
-    && value.length === 2
-    && Number.isSafeInteger(value[0])
-    && value[0] >= 0
-    && isWebHostSurfaceRow(value[1]);
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    Number.isSafeInteger(value[0]) &&
+    value[0] >= 0 &&
+    isWebHostSurfaceRow(value[1])
+  );
 }
 
-function isWebHostSurfaceRow(
-  value: unknown
-): value is WebHostSurfaceCell[] {
+function isWebHostSurfaceRow(value: unknown): value is WebHostSurfaceCell[] {
   return Array.isArray(value) && value.every(isWebHostSurfaceCell);
 }
 
-function isWebHostSurfaceCell(
-  value: unknown
-): value is WebHostSurfaceCell {
-  return Array.isArray(value)
-    && value.length === 4
-    && Number.isSafeInteger(value[0])
-    && value[0] >= 0
-    && typeof value[1] === "string"
-    && Number.isSafeInteger(value[2])
-    && value[2] >= 1
-    && Number.isSafeInteger(value[3])
-    && value[3] >= 0;
+function isWebHostSurfaceCell(value: unknown): value is WebHostSurfaceCell {
+  return (
+    Array.isArray(value) &&
+    value.length === 4 &&
+    Number.isSafeInteger(value[0]) &&
+    value[0] >= 0 &&
+    typeof value[1] === "string" &&
+    Number.isSafeInteger(value[2]) &&
+    value[2] >= 1 &&
+    Number.isSafeInteger(value[3]) &&
+    value[3] >= 0
+  );
 }
 
 function isWebHostAccessibilityNodes(
-  value: unknown
+  value: unknown,
 ): value is WebHostAccessibilityNode[] {
   return Array.isArray(value) && value.every(isWebHostAccessibilityNode);
 }
 
 function isWebHostAccessibilityNode(
-  value: unknown
+  value: unknown,
 ): value is WebHostAccessibilityNode {
   if (!value || typeof value !== "object") {
     return false;
   }
   const node = value as Partial<WebHostAccessibilityNode>;
-  return typeof node.id === "string"
-    && (node.parentId === undefined || typeof node.parentId === "string")
-    && isWebHostSurfaceRect(node.rect)
-    && typeof node.role === "string"
-    && (node.label === undefined || typeof node.label === "string")
-    && (node.hint === undefined || typeof node.hint === "string")
-    && (node.hidden === undefined || typeof node.hidden === "boolean")
-    && (node.liveRegion === undefined || typeof node.liveRegion === "string")
-    && (node.cursorAnchor === undefined || isWebHostAccessibilityPoint(node.cursorAnchor))
-    && (node.isFocused === undefined || typeof node.isFocused === "boolean");
+  return (
+    typeof node.id === "string" &&
+    (node.parentId === undefined || typeof node.parentId === "string") &&
+    isWebHostSurfaceRect(node.rect) &&
+    typeof node.role === "string" &&
+    (node.label === undefined || typeof node.label === "string") &&
+    (node.hint === undefined || typeof node.hint === "string") &&
+    (node.hidden === undefined || typeof node.hidden === "boolean") &&
+    (node.liveRegion === undefined || typeof node.liveRegion === "string") &&
+    (node.cursorAnchor === undefined ||
+      isWebHostAccessibilityPoint(node.cursorAnchor)) &&
+    (node.isFocused === undefined || typeof node.isFocused === "boolean")
+  );
 }
 
 function isWebHostAccessibilityPoint(
-  value: unknown
+  value: unknown,
 ): value is WebHostAccessibilityPoint {
-  return Array.isArray(value)
-    && value.length === 2
-    && value.every((entry) => typeof entry === "number");
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    value.every((entry) => typeof entry === "number")
+  );
 }
 
 function isWebHostAccessibilityAnnouncements(
-  value: unknown
+  value: unknown,
 ): value is WebHostAccessibilityAnnouncement[] {
-  return Array.isArray(value) && value.every(isWebHostAccessibilityAnnouncement);
+  return (
+    Array.isArray(value) && value.every(isWebHostAccessibilityAnnouncement)
+  );
 }
 
 function isWebHostAccessibilityAnnouncement(
-  value: unknown
+  value: unknown,
 ): value is WebHostAccessibilityAnnouncement {
   if (!value || typeof value !== "object") {
     return false;
   }
   const announcement = value as Partial<WebHostAccessibilityAnnouncement>;
-  return typeof announcement.message === "string"
-    && typeof announcement.politeness === "string";
+  return (
+    typeof announcement.message === "string" &&
+    typeof announcement.politeness === "string"
+  );
 }
 
 function isWebHostSurfaceImages(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceImage[] {
   return Array.isArray(value) && value.every(isWebHostSurfaceImage);
 }
 
-function isWebHostSurfaceImage(
-  value: unknown
-): value is WebHostSurfaceImage {
+function isWebHostSurfaceImage(value: unknown): value is WebHostSurfaceImage {
   if (!value || typeof value !== "object") {
     return false;
   }
   const image = value as Partial<WebHostSurfaceImage>;
-  return typeof image.id === "string"
-    && isWebHostSurfaceImageFormat(image.format)
-    && isWebHostSurfaceRect(image.bounds)
-    && isWebHostSurfaceRect(image.visibleBounds)
-    && isWebHostSurfaceScalingMode(image.scalingMode)
-    && (
-      image.opacity === undefined
-        || (typeof image.opacity === "number" && Number.isFinite(image.opacity))
-    )
-    && (image.pixelSize === undefined || isWebHostSurfaceSize(image.pixelSize))
-    && (image.dataBase64 === undefined || typeof image.dataBase64 === "string");
+  return (
+    typeof image.id === "string" &&
+    isWebHostSurfaceImageFormat(image.format) &&
+    isWebHostSurfaceRect(image.bounds) &&
+    isWebHostSurfaceRect(image.visibleBounds) &&
+    isWebHostSurfaceScalingMode(image.scalingMode) &&
+    (image.opacity === undefined ||
+      (typeof image.opacity === "number" && Number.isFinite(image.opacity))) &&
+    (image.pixelSize === undefined || isWebHostSurfaceSize(image.pixelSize)) &&
+    (image.dataBase64 === undefined || typeof image.dataBase64 === "string")
+  );
 }
 
-function isWebHostSurfaceDamage(
-  value: unknown
-): value is WebHostSurfaceDamage {
+function isWebHostSurfaceDamage(value: unknown): value is WebHostSurfaceDamage {
   if (!value || typeof value !== "object") {
     return false;
   }
   const damage = value as Partial<WebHostSurfaceDamage>;
-  return Array.isArray(damage.textRows)
-    && damage.textRows.every(isWebHostSurfaceDamageTextRow)
-    && typeof damage.requiresFullTextRepaint === "boolean"
-    && typeof damage.requiresFullGraphicsReplay === "boolean";
+  return (
+    Array.isArray(damage.textRows) &&
+    damage.textRows.every(isWebHostSurfaceDamageTextRow) &&
+    typeof damage.requiresFullTextRepaint === "boolean" &&
+    typeof damage.requiresFullGraphicsReplay === "boolean"
+  );
 }
 
 function isWebHostSurfaceDamageTextRow(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceDamageTextRow {
-  return Array.isArray(value)
-    && value.length === 2
-    && typeof value[0] === "number"
-    && Array.isArray(value[1])
-    && value[1].every(isWebHostSurfaceDamageRange);
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === "number" &&
+    Array.isArray(value[1]) &&
+    value[1].every(isWebHostSurfaceDamageRange)
+  );
 }
 
 function isWebHostSurfaceDamageRange(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceDamageRange {
-  return Array.isArray(value)
-    && value.length === 2
-    && typeof value[0] === "number"
-    && typeof value[1] === "number";
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === "number" &&
+    typeof value[1] === "number"
+  );
 }
 
 function isWebHostSurfaceImageFormat(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceImageFormat {
   return typeof value === "string";
 }
 
 function isWebHostScrollRegions(
-  value: unknown
+  value: unknown,
 ): value is WebHostScrollRegion[] {
   return Array.isArray(value) && value.every(isWebHostScrollRegion);
 }
 
-function isWebHostScrollRegion(
-  value: unknown
-): value is WebHostScrollRegion {
+function isWebHostScrollRegion(value: unknown): value is WebHostScrollRegion {
   if (!value || typeof value !== "object") {
     return false;
   }
   const region = value as Partial<WebHostScrollRegion>;
-  return typeof region.id === "string"
-    && isWebHostSurfaceRect(region.rect)
-    && isWebHostSurfaceSize(region.offset)
-    && isWebHostSurfaceSize(region.content);
+  return (
+    typeof region.id === "string" &&
+    isWebHostSurfaceRect(region.rect) &&
+    isWebHostSurfaceSize(region.offset) &&
+    isWebHostSurfaceSize(region.content)
+  );
 }
 
-function isWebHostSurfaceRect(
-  value: unknown
-): value is WebHostSurfaceRect {
-  return Array.isArray(value)
-    && value.length === 4
-    && value.every((entry) => typeof entry === "number");
+function isWebHostSurfaceRect(value: unknown): value is WebHostSurfaceRect {
+  return (
+    Array.isArray(value) &&
+    value.length === 4 &&
+    value.every((entry) => typeof entry === "number")
+  );
 }
 
-function isWebHostSurfaceSize(
-  value: unknown
-): value is WebHostSurfaceSize {
-  return Array.isArray(value)
-    && value.length === 2
-    && value.every((entry) => typeof entry === "number");
+function isWebHostSurfaceSize(value: unknown): value is WebHostSurfaceSize {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    value.every((entry) => typeof entry === "number")
+  );
 }
 
 function isWebHostSurfaceScalingMode(
-  value: unknown
+  value: unknown,
 ): value is WebHostSurfaceImage["scalingMode"] {
   return typeof value === "string";
 }

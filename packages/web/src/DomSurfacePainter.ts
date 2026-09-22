@@ -1,16 +1,16 @@
 import { fontForStyle } from "./CanvasSurfacePainter.ts";
 import { admitsImagePayload } from "./ImageAllocationBudget.ts";
 import {
+  isSupportedImageFormat,
+  normalizeScalingMode,
+} from "./normalizeWireTokens.ts";
+import { registerDomSurfacePainterConformanceControl } from "./SurfacePainterConformanceControl.ts";
+import {
   resolvedSurfaceBackground,
   resolvedSurfaceForeground,
   type SurfaceMetrics,
   type WebHostSurfacePainter,
 } from "./SurfaceRenderer.ts";
-import { webTUITerminalBackgroundColor } from "./WebHostTerminalStyle.ts";
-import {
-  isSupportedImageFormat,
-  normalizeScalingMode,
-} from "./normalizeWireTokens.ts";
 import {
   isWebHostImageRecoveryId,
   type WebHostImagePayloadRequestHandler,
@@ -20,9 +20,7 @@ import {
   type WebHostSurfaceLineStyle,
   type WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
-import {
-  registerDomSurfacePainterConformanceControl,
-} from "./SurfacePainterConformanceControl.ts";
+import { webTUITerminalBackgroundColor } from "./WebHostTerminalStyle.ts";
 
 interface RenderedImage {
   container: HTMLElement;
@@ -90,9 +88,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
    * Binds the container the painter renders into. The runtime owns the
    * container's size; the painter owns everything inside it.
    */
-  attach(
-    root: HTMLElement
-  ): void {
+  attach(root: HTMLElement): void {
     this.root = root;
 
     const rowsLayer = createElement("div");
@@ -121,7 +117,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     metrics: SurfaceMetrics,
     frame: WebHostSurfaceFrame | undefined,
     damage?: WebHostSurfaceDamage,
-    _recoveredImagePayloadIds?: readonly string[]
+    _recoveredImagePayloadIds?: readonly string[],
   ): void {
     const root = this.root;
     const rowsLayer = this.rowsLayer;
@@ -152,19 +148,23 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     }
 
     const gridKey = `${frame.width}x${frame.height}x${frame.rows.length}`;
-    const fullRepaint = metricsChanged
-      || !this.hasRenderedFrame
-      || gridKey !== this.renderedGridKey
-      || !damage
-      || damage.requiresFullTextRepaint
-      || damage.requiresFullGraphicsReplay;
+    const fullRepaint =
+      metricsChanged ||
+      !this.hasRenderedFrame ||
+      gridKey !== this.renderedGridKey ||
+      !damage ||
+      damage.requiresFullTextRepaint ||
+      damage.requiresFullGraphicsReplay;
     this.renderedGridKey = gridKey;
 
     if (fullRepaint) {
       for (let y = this.rowElements.length; y > frame.rows.length; y -= 1) {
         this.rowElements[y - 1]?.remove();
       }
-      this.rowElements.length = Math.min(this.rowElements.length, frame.rows.length);
+      this.rowElements.length = Math.min(
+        this.rowElements.length,
+        frame.rows.length,
+      );
       for (let y = 0; y < frame.rows.length; y += 1) {
         this.rebuildRow(y, frame, metrics);
       }
@@ -197,7 +197,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   private rebuildRow(
     y: number,
     frame: WebHostSurfaceFrame,
-    metrics: SurfaceMetrics
+    metrics: SurfaceMetrics,
   ): void {
     const rowElement = this.ensureRowElement(y, metrics);
     const children: HTMLElement[] = [];
@@ -207,7 +207,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         text,
         span,
         frame.styles[styleIndex] ?? undefined,
-        metrics
+        metrics,
       );
       if (cellElement) {
         children.push(cellElement);
@@ -216,10 +216,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     rowElement.replaceChildren(...children);
   }
 
-  private ensureRowElement(
-    y: number,
-    metrics: SurfaceMetrics
-  ): HTMLElement {
+  private ensureRowElement(y: number, metrics: SurfaceMetrics): HTMLElement {
     let rowElement = this.rowElements[y];
     if (!rowElement) {
       rowElement = createElement("div");
@@ -235,10 +232,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     return rowElement;
   }
 
-  private applyRootStyle(
-    root: HTMLElement,
-    metrics: SurfaceMetrics
-  ): void {
+  private applyRootStyle(root: HTMLElement, metrics: SurfaceMetrics): void {
     const style = root.style;
     style.position = "relative";
     style.overflow = "hidden";
@@ -260,9 +254,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
    * grid instead of drifting by the sub-pixel remainder of the runtime's
    * ceil'd cell measurement.
    */
-  private letterSpacingFor(
-    metrics: SurfaceMetrics
-  ): string {
+  private letterSpacingFor(metrics: SurfaceMetrics): string {
     const font = fontForStyle(metrics.style);
     const key = `${font}|${metrics.cellWidth}`;
     if (this.letterSpacing?.key === key) {
@@ -288,7 +280,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   private reconcileImages(
     images: WebHostSurfaceImage[],
     metrics: SurfaceMetrics,
-    allowRecoveryRequests: boolean
+    allowRecoveryRequests: boolean,
   ): void {
     const layer = this.imagesLayer;
     if (!layer) {
@@ -309,12 +301,16 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       const [boundsX, boundsY, boundsWidth, boundsHeight] = image.bounds;
       const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
       const existing = this.renderedImages.get(image.id);
-      if (image.dataBase64 !== undefined && !admitsImagePayload(image.dataBase64)) continue;
       if (
-        boundsWidth <= 0
-        || boundsHeight <= 0
-        || clipWidth <= 0
-        || clipHeight <= 0
+        image.dataBase64 !== undefined &&
+        !admitsImagePayload(image.dataBase64)
+      )
+        continue;
+      if (
+        boundsWidth <= 0 ||
+        boundsHeight <= 0 ||
+        clipWidth <= 0 ||
+        clipHeight <= 0
       ) {
         continue;
       }
@@ -380,9 +376,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   }
 }
 
-function normalizedImageOpacity(
-  opacity: number | undefined
-): number {
+function normalizedImageOpacity(opacity: number | undefined): number {
   if (opacity === undefined || !Number.isFinite(opacity)) {
     return 1;
   }
@@ -394,9 +388,7 @@ function normalizedImageOpacity(
  * grid geometry, font, and theme colors. A key change invalidates every
  * rendered row, so the next paint restyles the root and rebuilds in full.
  */
-function metricsKeyFor(
-  metrics: SurfaceMetrics
-): string {
+function metricsKeyFor(metrics: SurfaceMetrics): string {
   return [
     metrics.columns,
     metrics.rows,
@@ -415,7 +407,7 @@ function buildCellElement(
   text: string,
   span: number,
   style: WebHostSurfaceStyle | undefined,
-  metrics: SurfaceMetrics
+  metrics: SurfaceMetrics,
 ): HTMLElement | undefined {
   const background = resolvedSurfaceBackground(style, metrics.style);
   const hasDecoration = Boolean(style?.underline || style?.strikethrough);
@@ -456,7 +448,7 @@ function buildCellElement(
 
 function applyTextDecoration(
   elementStyle: CSSStyleDeclaration,
-  style: WebHostSurfaceStyle | undefined
+  style: WebHostSurfaceStyle | undefined,
 ): void {
   const lines: string[] = [];
   if (style?.underline) {
@@ -481,27 +473,25 @@ function applyTextDecoration(
 }
 
 function decorationStyleFor(
-  pattern: WebHostSurfaceLineStyle["pattern"] | undefined
+  pattern: WebHostSurfaceLineStyle["pattern"] | undefined,
 ): string {
   switch (pattern) {
-  case "dot":
-    return "dotted";
-  case "dash":
-  case "dashDot":
-  case "dashDotDot":
-    return "dashed";
-  case "double":
-    return "double";
-  case "curly":
-    return "wavy";
-  default:
-    return "solid";
+    case "dot":
+      return "dotted";
+    case "dash":
+    case "dashDot":
+    case "dashDotDot":
+      return "dashed";
+    case "double":
+      return "double";
+    case "curly":
+      return "wavy";
+    default:
+      return "solid";
   }
 }
 
-function fillContainer(
-  style: CSSStyleDeclaration
-): void {
+function fillContainer(style: CSSStyleDeclaration): void {
   style.position = "absolute";
   style.left = "0";
   style.top = "0";
@@ -523,9 +513,7 @@ function makeImageEntry(): RenderedImage {
   return { container, image, source: "" };
 }
 
-function createElement(
-  tagName: string
-): HTMLElement {
+function createElement(tagName: string): HTMLElement {
   if (typeof document === "undefined") {
     throw new Error("document is not available");
   }

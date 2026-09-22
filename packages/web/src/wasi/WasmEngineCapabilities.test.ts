@@ -10,7 +10,7 @@ import {
 } from "./WasmEngineCapabilities.ts";
 
 function signals(
-  overrides: Partial<WasmEngineProbeSignals>
+  overrides: Partial<WasmEngineProbeSignals>,
 ): WasmEngineProbeSignals {
   return {
     errorStack: "",
@@ -46,59 +46,63 @@ test("stack frame shape and error markers classify the engine family", () => {
   // JSC identified by @-frames alone when instance markers are unavailable.
   expect(
     classifyWasmEngineFamily(
-      signals({ errorStack: "collect@https://example.test/app.js:10:3" })
-    )
+      signals({ errorStack: "collect@https://example.test/app.js:10:3" }),
+    ),
   ).toBe("jsc");
   expect(classifyWasmEngineFamily(signals({}))).toBe("unknown");
 });
 
 test("stack-lean stays recommended everywhere except confirmed V8", () => {
   expect(resolveWasmEngineCapabilities(v8Signals).stackLeanRecommended).toBe(
-    false
+    false,
   );
   expect(resolveWasmEngineCapabilities(jscSignals).stackLeanRecommended).toBe(
-    true
+    true,
   );
   expect(resolveWasmEngineCapabilities(geckoSignals).stackLeanRecommended).toBe(
-    true
+    true,
   );
-  expect(
-    resolveWasmEngineCapabilities(signals({})).stackLeanRecommended
-  ).toBe(true);
+  expect(resolveWasmEngineCapabilities(signals({})).stackLeanRecommended).toBe(
+    true,
+  );
 });
 
 test("JSPI requires both Suspending and promising", () => {
   expect(resolveWasmEngineCapabilities(v8Signals).supportsJSPI).toBe(false);
   expect(
     resolveWasmEngineCapabilities(
-      signals({ wasmSuspendingType: "function", wasmPromisingType: "function" })
-    ).supportsJSPI
+      signals({
+        wasmSuspendingType: "function",
+        wasmPromisingType: "function",
+      }),
+    ).supportsJSPI,
   ).toBe(true);
   expect(
-    resolveWasmEngineCapabilities(
-      signals({ wasmSuspendingType: "function" })
-    ).supportsJSPI
+    resolveWasmEngineCapabilities(signals({ wasmSuspendingType: "function" }))
+      .supportsJSPI,
   ).toBe(false);
 });
 
 test("environment defaults disable lean only on confirmed V8", () => {
   expect(
-    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(v8Signals))
+    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(v8Signals)),
   ).toEqual({ SWIFTTUI_STACK_LEAN_PROFILE: "0" });
   // JSC: worker stack budget does not fit non-lean; lean engines opt into
   // retained reuse under the lean profile (descent-shallowing, so it is
   // stack-safety-neutral-or-better; measured 27.6 -> 10.8 ms/frame on
   // WebKit 2026-07-22).
   expect(
-    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(jscSignals))
+    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(jscSignals)),
   ).toEqual({ SWIFTTUI_LEAN_RETAINED_REUSE: "1" });
   // Gecko: measured live (2026-07) to overflow non-lean in its worker.
   expect(
-    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(geckoSignals))
+    stackProfileEnvironmentDefaults(
+      resolveWasmEngineCapabilities(geckoSignals),
+    ),
   ).toEqual({ SWIFTTUI_LEAN_RETAINED_REUSE: "1" });
   // Unknown engines keep the safe lean default, with retained reuse on.
   expect(
-    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(signals({})))
+    stackProfileEnvironmentDefaults(resolveWasmEngineCapabilities(signals({}))),
   ).toEqual({ SWIFTTUI_LEAN_RETAINED_REUSE: "1" });
 });
 
@@ -136,13 +140,15 @@ test("bridge applies engine defaults and lets caller environment win", () => {
     engineCapabilities: resolveWasmEngineCapabilities(jscSignals),
     environment: { SWIFTTUI_LEAN_RETAINED_REUSE: "0" },
   });
-  expect(reuseOverriddenBridge.environment.SWIFTTUI_LEAN_RETAINED_REUSE).toBe("0");
+  expect(reuseOverriddenBridge.environment.SWIFTTUI_LEAN_RETAINED_REUSE).toBe(
+    "0",
+  );
 });
 
 test("live probe collects without throwing and classifies to a known family", () => {
   const live = collectWasmEngineProbeSignals();
   expect(typeof live.errorStack).toBe("string");
   expect(["v8", "jsc", "gecko", "unknown"]).toContain(
-    resolveWasmEngineCapabilities(live).engine
+    resolveWasmEngineCapabilities(live).engine,
   );
 });

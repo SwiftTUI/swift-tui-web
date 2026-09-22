@@ -3,13 +3,13 @@ import { Worker } from "node:worker_threads";
 import { wasi } from "@bjorn3/browser_wasi_shim";
 
 import {
-  MainThreadWasmPauseGate,
-  PausableMonotonicClock,
-  WorkerWasmPauseGate,
   createWasmPauseCell,
   installPausableClockTimeGet,
   isWasmPauseCellPaused,
+  MainThreadWasmPauseGate,
+  PausableMonotonicClock,
   setWasmPauseCellPaused,
+  WorkerWasmPauseGate,
 } from "./WasmRuntimePause.ts";
 
 test("pausable clock excludes accumulated pause time", () => {
@@ -94,13 +94,17 @@ test("main-thread pause gate suspends waiters until resumed", async () => {
 
 test("pausable clock_time_get rewrites monotonic reads and passes realtime through", () => {
   const memory = new WebAssembly.Memory({ initial: 1 });
-  let raw = 500;
+  const raw = 500;
   const clock = new PausableMonotonicClock(() => raw);
   clock.addPausedMilliseconds(200);
 
   let realtimeCalls = 0;
   const wasiImport: Record<string, unknown> = {
-    clock_time_get: (_clockid: number, _precision: bigint, timePtr: number): number => {
+    clock_time_get: (
+      _clockid: number,
+      _precision: bigint,
+      timePtr: number,
+    ): number => {
       realtimeCalls += 1;
       new DataView(memory.buffer).setBigUint64(timePtr, 42n, true);
       return wasi.ERRNO_SUCCESS;
@@ -111,7 +115,7 @@ test("pausable clock_time_get rewrites monotonic reads and passes realtime throu
   const clockTimeGet = wasiImport.clock_time_get as (
     clockid: number,
     precision: bigint,
-    timePtr: number
+    timePtr: number,
   ) => number;
 
   expect(clockTimeGet(wasi.CLOCKID_MONOTONIC, 0n, 8)).toBe(wasi.ERRNO_SUCCESS);
@@ -125,20 +129,23 @@ test("pausable clock_time_get rewrites monotonic reads and passes realtime throu
 
 function resumePauseCellFromWorker(
   cell: SharedArrayBuffer,
-  delayMilliseconds: number
+  delayMilliseconds: number,
 ): Worker {
-  return new Worker(`
+  return new Worker(
+    `
     const { workerData } = require("node:worker_threads");
     const flags = new Int32Array(workerData.cell);
     setTimeout(() => {
       Atomics.store(flags, 0, 0);
       Atomics.notify(flags, 0);
     }, workerData.delayMilliseconds);
-  `, {
-    eval: true,
-    workerData: {
-      cell,
-      delayMilliseconds,
+  `,
+    {
+      eval: true,
+      workerData: {
+        cell,
+        delayMilliseconds,
+      },
     },
-  });
+  );
 }

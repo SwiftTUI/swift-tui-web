@@ -15,7 +15,7 @@ test("the default wasm SDK tracks the pinned toolchain", () => {
   // SDK installed and then fails on a clean runner. Pin them together.
   const pinnedToolchain = readFileSync(
     resolve(import.meta.dir, "../../../../.swift-version"),
-    "utf8"
+    "utf8",
   ).trim();
 
   expect(defaultWasmSwiftSDK).toBe(`swift-${pinnedToolchain}-RELEASE_wasm`);
@@ -32,7 +32,7 @@ test("detects the required wasm Swift flag sequence", () => {
       ...requiredWasmSwiftFlags,
       "-Xlinker",
       "--initial-memory=1",
-    ])
+    ]),
   ).toBe(true);
 
   expect(
@@ -46,7 +46,7 @@ test("detects the required wasm Swift flag sequence", () => {
       "-Osize",
       "-Xswiftc",
       "-disable-llvm-merge-functions-pass",
-    ])
+    ]),
   ).toBe(false);
 });
 
@@ -61,9 +61,9 @@ test("formats commands for readable CI logs", () => {
       "/tmp/My Project",
       "-Xlinker",
       "stack-size=16777216",
-    ])
+    ]),
   ).toBe(
-    "swiftly run swift build --package-path '/tmp/My Project' -Xlinker stack-size=16777216"
+    "swiftly run swift build --package-path '/tmp/My Project' -Xlinker stack-size=16777216",
   );
 });
 
@@ -73,20 +73,27 @@ test("emits explicit CI log lines for flag confirmation and commands", () => {
     packagePath: "/tmp/pkg",
     product: "WebExampleApp",
     swiftlyWorkingDirectory: "/tmp",
-    buildCommand: ["swiftly", "run", "swift", "build", "--product", "WebExampleApp"],
+    buildCommand: [
+      "swiftly",
+      "run",
+      "swift",
+      "build",
+      "--product",
+      "WebExampleApp",
+    ],
     showBinPathCommand: ["swiftly", "run", "swift", "build", "--show-bin-path"],
   });
 
   expect(lines).toContain("WASM_REQUIRED_FLAGS_CONFIRMED=true");
   expect(lines).toContain("WASM_BUILD_CONFIGURATION_NAME=release");
   expect(lines).toContain(
-    "WASM_REQUIRED_FLAGS=-Xswiftc -Osize -Xswiftc -Xfrontend -Xswiftc -disable-llvm-merge-functions-pass"
+    "WASM_REQUIRED_FLAGS=-Xswiftc -Osize -Xswiftc -Xfrontend -Xswiftc -disable-llvm-merge-functions-pass",
   );
   expect(lines).toContain(
-    'WASM_BUILD_COMMAND_ARGS_JSON=["swiftly","run","swift","build","--product","WebExampleApp"]'
+    'WASM_BUILD_COMMAND_ARGS_JSON=["swiftly","run","swift","build","--product","WebExampleApp"]',
   );
   expect(lines).toContain(
-    'WASM_SHOW_BIN_PATH_COMMAND_ARGS_JSON=["swiftly","run","swift","build","--show-bin-path"]'
+    'WASM_SHOW_BIN_PATH_COMMAND_ARGS_JSON=["swiftly","run","swift","build","--show-bin-path"]',
   );
 });
 
@@ -97,7 +104,15 @@ test("marks required release flags as skipped for debug wasm builds", () => {
     product: "WebExampleApp",
     swiftlyWorkingDirectory: "/tmp",
     buildCommand: ["swiftly", "run", "swift", "build", "-c", "debug"],
-    showBinPathCommand: ["swiftly", "run", "swift", "build", "-c", "debug", "--show-bin-path"],
+    showBinPathCommand: [
+      "swiftly",
+      "run",
+      "swift",
+      "build",
+      "-c",
+      "debug",
+      "--show-bin-path",
+    ],
   });
 
   expect(lines).toContain("WASM_BUILD_CONFIGURATION_NAME=debug");

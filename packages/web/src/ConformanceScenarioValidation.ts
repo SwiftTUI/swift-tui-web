@@ -5,7 +5,7 @@ import type {
 
 export function validateConformanceScenarioState(
   entry: ConformanceManifestEntry,
-  steps: ConformanceStep[]
+  steps: ConformanceStep[],
 ): void {
   if (!steps.some((step) => step.type === "expect")) {
     fail(`${entry.file}: expected at least one expectation`);
@@ -21,7 +21,7 @@ export function validateConformanceScenarioState(
 
 function validateDecodePlans(
   entry: ConformanceManifestEntry,
-  steps: ConformanceStep[]
+  steps: ConformanceStep[],
 ): void {
   const active = new Set<string>();
   for (const step of steps) {
@@ -38,7 +38,7 @@ function validateDecodePlans(
 
 function validateAndroidLabels(
   entry: ConformanceManifestEntry,
-  steps: ConformanceStep[]
+  steps: ConformanceStep[],
 ): void {
   const labels = new Set<string>();
   for (const step of steps) {
@@ -62,7 +62,7 @@ function validateAndroidLabels(
 
 function validateChannelLifecycle(
   entry: ConformanceManifestEntry,
-  steps: ConformanceStep[]
+  steps: ConformanceStep[],
 ): void {
   let currentToken: number | undefined = 1;
   let lastIssuedToken = 1;
@@ -74,12 +74,8 @@ function validateChannelLifecycle(
       const action = step.value.action;
       const token = step.value.token;
       if (
-        (action === "clientChunk" || action === "closeClient")
-        && (
-          typeof token !== "number"
-          || token < 1
-          || token > lastIssuedToken
-        )
+        (action === "clientChunk" || action === "closeClient") &&
+        (typeof token !== "number" || token < 1 || token > lastIssuedToken)
       ) {
         fail(`${entry.file}: channel action uses unknown/future token`);
       }
@@ -92,7 +88,9 @@ function validateChannelLifecycle(
     }
     if (step.type === "reconnect") {
       if (phase !== "detached" || pendingSurfaceSends !== undefined) {
-        fail(`${entry.file}: reconnect requires detached state with no pending caps`);
+        fail(
+          `${entry.file}: reconnect requires detached state with no pending caps`,
+        );
       }
       lastIssuedToken += 1;
       currentToken = lastIssuedToken;
@@ -105,10 +103,10 @@ function validateChannelLifecycle(
       continue;
     }
     if (
-      step.type === "emit"
-      && phase === "pre-capabilities"
-      && step.record.startsWith("\u001Esurface:")
-      && pendingSurfaceSends !== undefined
+      step.type === "emit" &&
+      phase === "pre-capabilities" &&
+      step.record.startsWith("\u001Esurface:") &&
+      pendingSurfaceSends !== undefined
     ) {
       pendingSurfaceSends -= 1;
       if (pendingSurfaceSends === 0) {
@@ -122,8 +120,6 @@ function validateChannelLifecycle(
   }
 }
 
-function fail(
-  message: string
-): never {
+function fail(message: string): never {
   throw new Error(`conformance fixture error: ${message}`);
 }

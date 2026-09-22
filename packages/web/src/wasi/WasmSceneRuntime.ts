@@ -3,22 +3,25 @@ import {
   type WebHostSceneRuntimeOptions,
 } from "../WebHostSceneRuntime.ts";
 import {
-  encodeResizeControlMessage,
   type BrowserWASIBridge,
+  encodeResizeControlMessage,
 } from "./BrowserWASIBridge.ts";
 
 import { MainThreadWasmExecutor } from "./MainThreadWasmExecutor.ts";
 import {
-  SharedInputQueueWriter,
   createSharedInputQueue,
   type SharedInputQueueBuffers,
+  SharedInputQueueWriter,
 } from "./SharedInputQueue.ts";
 import {
   mainThreadStackProfileEnvironmentDefaults,
   resolveWasmEngineCapabilities,
   type WasmEngineCapabilities,
 } from "./WasmEngineCapabilities.ts";
-import { createWasmPauseCell, setWasmPauseCellPaused } from "./WasmRuntimePause.ts";
+import {
+  createWasmPauseCell,
+  setWasmPauseCellPaused,
+} from "./WasmRuntimePause.ts";
 
 const workerModuleURL = new URL("./wasm-scene-worker.js", import.meta.url);
 
@@ -45,7 +48,10 @@ interface WorkerErrorMessage {
   message: string;
 }
 
-type WorkerMessage = WorkerOutputMessage | WorkerExitMessage | WorkerErrorMessage;
+type WorkerMessage =
+  | WorkerOutputMessage
+  | WorkerExitMessage
+  | WorkerErrorMessage;
 
 export interface WasmSceneResizeEvent {
   sceneId: string;
@@ -82,7 +88,7 @@ export interface WasmSceneRuntimeFactoryOptions {
 export function resolveWasmExecutionMode(
   preference: WasmExecutionModePreference,
   capabilities: WasmEngineCapabilities,
-  sharedInputQueueAvailable: boolean
+  sharedInputQueueAvailable: boolean,
 ): WasmExecutionMode {
   if (preference !== "auto") {
     return preference;
@@ -103,7 +109,7 @@ export function resolveWasmExecutionMode(
 
 export function createWasmSceneRuntimeFactory(
   wasmURL: URL,
-  factoryOptions: WasmSceneRuntimeFactoryOptions = {}
+  factoryOptions: WasmSceneRuntimeFactoryOptions = {},
 ): (options: WebHostSceneRuntimeOptions) => WebHostSceneRuntime {
   return (options) => {
     const runtime = new WasmSceneRuntime(options, wasmURL, factoryOptions);
@@ -138,7 +144,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   constructor(
     options: WebHostSceneRuntimeOptions,
     wasmURL: URL,
-    factoryOptions: WasmSceneRuntimeFactoryOptions
+    factoryOptions: WasmSceneRuntimeFactoryOptions,
   ) {
     let inputQueue: SharedInputQueueBuffers | undefined;
     let inputWriter: SharedInputQueueWriter | undefined;
@@ -172,7 +178,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
 
     const enqueueInput = (
       writer: SharedInputQueueWriter,
-      chunk: Uint8Array
+      chunk: Uint8Array,
     ): void => {
       void writer.writeAsync(chunk).then((outcome) => {
         if (inputCapacityNotifier.disposed || outcome.status === "written") {
@@ -192,8 +198,9 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
         void writer.waitForCapacity(1).then((available) => {
           inputCapacityNotifier.pending = false;
           if (available && !inputCapacityNotifier.disposed) {
-            (options.bridge as BrowserWASIBridge | undefined)
-              ?.notifyInputCapacityAvailable();
+            (
+              options.bridge as BrowserWASIBridge | undefined
+            )?.notifyInputCapacityAvailable();
           }
         });
       }
@@ -237,11 +244,12 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   /// the chunked writer is that it should not happen silently.
   private notifyInputOverflow(
     bytesWritten: number,
-    bytesRemaining: number
+    bytesRemaining: number,
   ): void {
-    const message = bytesWritten === 0
-      ? `Dropped ${bytesRemaining} byte(s) of terminal input: the app did not read from its input queue within 500 ms.`
-      : `Delivered ${bytesWritten} byte(s) of terminal input and dropped ${bytesRemaining}: the app did not drain its input queue within 500 ms.`;
+    const message =
+      bytesWritten === 0
+        ? `Dropped ${bytesRemaining} byte(s) of terminal input: the app did not read from its input queue within 500 ms.`
+        : `Delivered ${bytesWritten} byte(s) of terminal input and dropped ${bytesRemaining}: the app did not drain its input queue within 500 ms.`;
     this.notifyRuntimeIssue({
       severity: "warning",
       code: "web.input.queueDeadlineExceeded",
@@ -251,9 +259,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     });
   }
 
-  protected override onRuntimeSuspensionChange(
-    suspended: boolean
-  ): void {
+  protected override onRuntimeSuspensionChange(suspended: boolean): void {
     this.suspended = suspended;
     if (this.pauseCell) {
       setWasmPauseCellPaused(this.pauseCell, suspended);
@@ -271,18 +277,22 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     this.detachBridgeInputListener = this.bridge?.stdin.subscribe((chunk) => {
       return this.inputRouter.route(chunk);
     });
-    this.detachResizeListener = this.bridge?.subscribeResize((columns, rows, cellWidth, cellHeight) => {
-      this.onSceneResize?.({
-        sceneId: this.descriptor.id,
-        columns,
-        rows,
-        cellWidth,
-        cellHeight,
-      });
-    });
+    this.detachResizeListener = this.bridge?.subscribeResize(
+      (columns, rows, cellWidth, cellHeight) => {
+        this.onSceneResize?.({
+          sceneId: this.descriptor.id,
+          columns,
+          rows,
+          cellWidth,
+          cellHeight,
+        });
+      },
+    );
 
-    const initialColumns = Number(this.bridge?.environment.SWIFTTUI_COLUMNS ?? "0") || 0;
-    const initialRows = Number(this.bridge?.environment.SWIFTTUI_ROWS ?? "0") || 0;
+    const initialColumns =
+      Number(this.bridge?.environment.SWIFTTUI_COLUMNS ?? "0") || 0;
+    const initialRows =
+      Number(this.bridge?.environment.SWIFTTUI_ROWS ?? "0") || 0;
     if (!this.bridge && initialColumns > 0 && initialRows > 0) {
       this.onSceneResize?.({
         sceneId: this.descriptor.id,
@@ -293,7 +303,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
 
     if (!this.bridge) {
       this.writeOutput(
-        "\r\nSwiftTUI WASI browser runtime requires a WASI bridge.\r\n"
+        "\r\nSwiftTUI WASI browser runtime requires a WASI bridge.\r\n",
       );
       return;
     }
@@ -301,7 +311,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     const mode = resolveWasmExecutionMode(
       this.executionModePreference,
       resolveWasmEngineCapabilities(),
-      this.inputQueue !== undefined && this.inputWriter !== undefined
+      this.inputQueue !== undefined && this.inputWriter !== undefined,
     );
     if (mode === "main-thread") {
       this.startMainThreadExecutor();
@@ -312,22 +322,25 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       if (this.sharedQueueError !== undefined) {
         console.error(
           "[SwiftTUIWeb] failed to create shared stdin queue",
-          this.sharedQueueError
+          this.sharedQueueError,
         );
       }
       this.writeOutput(
-        "\r\nSwiftTUI WASI browser runtime requires SharedArrayBuffer-backed stdin. Serve the app with COOP/COEP headers.\r\n"
+        "\r\nSwiftTUI WASI browser runtime requires SharedArrayBuffer-backed stdin. Serve the app with COOP/COEP headers.\r\n",
       );
       return;
     }
 
     this.worker = new Worker(this.workerModuleURL, { type: "module" });
-    this.worker.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
-      this.handleWorkerMessage(event.data);
-    });
+    this.worker.addEventListener(
+      "message",
+      (event: MessageEvent<WorkerMessage>) => {
+        this.handleWorkerMessage(event.data);
+      },
+    );
     this.worker.addEventListener("error", (event) => {
       this.bridge?.stderr.write(
-        `\nSwiftTUI WASI worker failed: ${event.message || "unknown worker error"}\n`
+        `\nSwiftTUI WASI worker failed: ${event.message || "unknown worker error"}\n`,
       );
     });
 
@@ -361,18 +374,24 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     const executor = new MainThreadWasmExecutor({
       wasmURL: this.wasmURL.href,
       environment: {
-        ...mainThreadStackProfileEnvironmentDefaults(resolveWasmEngineCapabilities()),
+        ...mainThreadStackProfileEnvironmentDefaults(
+          resolveWasmEngineCapabilities(),
+        ),
         ...bridge.environment,
       },
       onStdout: (chunk) => bridge.stdout.write(chunk),
       onStderr: (chunk) => bridge.stderr.write(chunk),
       onExit: (code) => {
         if (code !== 0) {
-          bridge.stderr.write(`\nSwiftTUI WASI app exited with code ${code}.\n`);
+          bridge.stderr.write(
+            `\nSwiftTUI WASI app exited with code ${code}.\n`,
+          );
         }
       },
       onError: (message) => {
-        bridge.stderr.write(`\nFailed to start SwiftTUI WASI app: ${message}\n`);
+        bridge.stderr.write(
+          `\nFailed to start SwiftTUI WASI app: ${message}\n`,
+        );
       },
     });
     this.executor = executor;
@@ -384,24 +403,26 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     executor.start();
   }
 
-  private handleWorkerMessage(
-    message: WorkerMessage
-  ): void {
+  private handleWorkerMessage(message: WorkerMessage): void {
     switch (message.type) {
-    case "stdout":
-      this.bridge?.stdout.write(message.chunk);
-      break;
-    case "stderr":
-      this.bridge?.stderr.write(message.chunk);
-      break;
-    case "exit":
-      if (message.code !== 0) {
-        this.bridge?.stderr.write(`\nSwiftTUI WASI app exited with code ${message.code}.\n`);
-      }
-      break;
-    case "error":
-      this.bridge?.stderr.write(`\nFailed to start SwiftTUI WASI app: ${message.message}\n`);
-      break;
+      case "stdout":
+        this.bridge?.stdout.write(message.chunk);
+        break;
+      case "stderr":
+        this.bridge?.stderr.write(message.chunk);
+        break;
+      case "exit":
+        if (message.code !== 0) {
+          this.bridge?.stderr.write(
+            `\nSwiftTUI WASI app exited with code ${message.code}.\n`,
+          );
+        }
+        break;
+      case "error":
+        this.bridge?.stderr.write(
+          `\nFailed to start SwiftTUI WASI app: ${message.message}\n`,
+        );
+        break;
     }
   }
 }

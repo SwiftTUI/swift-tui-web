@@ -1,13 +1,13 @@
 import { ConsoleStdout, Fd, WASI, wasi } from "@bjorn3/browser_wasi_shim";
 import {
-  SharedInputQueueReader,
   type SharedInputQueueBuffers,
+  SharedInputQueueReader,
 } from "./SharedInputQueue.ts";
 import { WasiPollScheduler } from "./WasiPollScheduler.ts";
 import {
+  installPausableClockTimeGet,
   PausableMonotonicClock,
   WorkerWasmPauseGate,
-  installPausableClockTimeGet,
 } from "./WasmRuntimePause.ts";
 
 export interface StartWasmSceneWorkerMessage {
@@ -46,13 +46,16 @@ export type WasmSceneWorkerResponse =
   | ErrorWasmSceneWorkerMessage;
 
 export function startWasmSceneWorker(): void {
-  globalThis.addEventListener("message", (event: MessageEvent<WasmSceneWorkerMessage>) => {
-    if (event.data.type !== "start") {
-      return;
-    }
+  globalThis.addEventListener(
+    "message",
+    (event: MessageEvent<WasmSceneWorkerMessage>) => {
+      if (event.data.type !== "start") {
+        return;
+      }
 
-    void startWasmScene(event.data);
-  });
+      void startWasmScene(event.data);
+    },
+  );
 }
 
 class BlockingInputFileDescriptor extends Fd {
@@ -108,9 +111,7 @@ class BlockingInputFileDescriptor extends Fd {
     return this.reader.availableBytes();
   }
 
-  waitForReadable(
-    timeoutMilliseconds?: number
-  ) {
+  waitForReadable(timeoutMilliseconds?: number) {
     return this.reader.waitForReadable(timeoutMilliseconds);
   }
 
@@ -122,7 +123,7 @@ class BlockingInputFileDescriptor extends Fd {
 function installWasiPollScheduler(
   wasiBridge: WASI,
   stdin: BlockingInputFileDescriptor,
-  pauseCell: SharedArrayBuffer | undefined
+  pauseCell: SharedArrayBuffer | undefined,
 ): void {
   const originalPoll = wasiBridge.wasiImport.poll_oneoff;
   if (typeof originalPoll !== "function") {
@@ -134,7 +135,9 @@ function installWasiPollScheduler(
 
   const pauseClock = pauseCell ? new PausableMonotonicClock() : undefined;
   const pauseGate =
-    pauseCell && pauseClock ? new WorkerWasmPauseGate(pauseCell, pauseClock) : undefined;
+    pauseCell && pauseClock
+      ? new WorkerWasmPauseGate(pauseCell, pauseClock)
+      : undefined;
   if (pauseClock) {
     installPausableClockTimeGet(wasiBridge.wasiImport, memory, pauseClock);
   }
@@ -144,21 +147,29 @@ function installWasiPollScheduler(
     stdin,
     fallbackPoll: (inPtr, outPtr, nsubscriptions, neventsPtr) =>
       originalPoll(inPtr, outPtr, nsubscriptions, neventsPtr),
-    nowMilliseconds: pauseClock ? () => pauseClock.nowMilliseconds() : undefined,
+    nowMilliseconds: pauseClock
+      ? () => pauseClock.nowMilliseconds()
+      : undefined,
     pauseGate,
   });
-  wasiBridge.wasiImport.poll_oneoff = (inPtr, outPtr, nsubscriptions, neventsPtr) =>
-    scheduler.pollOneOff(inPtr, outPtr, nsubscriptions, neventsPtr);
+  wasiBridge.wasiImport.poll_oneoff = (
+    inPtr,
+    outPtr,
+    nsubscriptions,
+    neventsPtr,
+  ) => scheduler.pollOneOff(inPtr, outPtr, nsubscriptions, neventsPtr);
 }
 
 async function startWasmScene(
-  message: StartWasmSceneWorkerMessage
+  message: StartWasmSceneWorkerMessage,
 ): Promise<void> {
   try {
     const stdin = new BlockingInputFileDescriptor(message.inputQueue);
     const wasiBridge = new WASI(
       ["app.wasm"],
-      Object.entries(message.environment).map(([key, value]) => `${key}=${value}`),
+      Object.entries(message.environment).map(
+        ([key, value]) => `${key}=${value}`,
+      ),
       [
         stdin,
         new ConsoleStdout((chunk) => {
@@ -173,13 +184,15 @@ async function startWasmScene(
             chunk,
           });
         }),
-      ]
+      ],
     );
     installWasiPollScheduler(wasiBridge, stdin, message.pauseCell);
 
     const response = await fetch(message.wasmURL);
     if (!response.ok) {
-      throw new Error(`failed to load ${message.wasmURL}: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `failed to load ${message.wasmURL}: ${response.status} ${response.statusText}`,
+      );
     }
 
     const module = await WebAssembly.compile(await response.arrayBuffer());
@@ -200,8 +213,6 @@ async function startWasmScene(
   }
 }
 
-function postWorkerMessage(
-  message: WasmSceneWorkerResponse
-): void {
+function postWorkerMessage(message: WasmSceneWorkerResponse): void {
   globalThis.postMessage(message);
 }

@@ -1,7 +1,13 @@
+/** biome-ignore-all lint/complexity/useSimpleNumberKeys: the glyph tables are keyed by Unicode code point, which reads as hex. */
 type LineWeight = 0 | 1 | 2 | 3;
 type Direction = "north" | "east" | "south" | "west";
 type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
-type Spec = [north: LineWeight, east: LineWeight, south: LineWeight, west: LineWeight];
+type Spec = [
+  north: LineWeight,
+  east: LineWeight,
+  south: LineWeight,
+  west: LineWeight,
+];
 
 interface Rect {
   x: number;
@@ -27,7 +33,7 @@ interface BoxDrawingCanvasContext {
     control2X: number,
     control2Y: number,
     x: number,
-    y: number
+    y: number,
   ): void;
   stroke(): void;
   setLineDash(lineDash: number[]): void;
@@ -152,9 +158,7 @@ const lineSpecs: Record<number, Spec> = {
   0x257f: [heavy, none, light, none],
 };
 
-export function canRenderBoxDrawing(
-  text: string
-): boolean {
+export function canRenderBoxDrawing(text: string): boolean {
   const codePoint = singleCodePoint(text);
   if (codePoint === undefined) {
     return false;
@@ -168,7 +172,7 @@ export function canRenderBoxDrawing(
 export function drawBoxDrawing(
   context: BoxDrawingCanvasContext,
   text: string,
-  rect: Rect
+  rect: Rect,
 ): boolean {
   const codePoint = singleCodePoint(text);
   if (codePoint === undefined) {
@@ -187,9 +191,7 @@ export function drawBoxDrawing(
   return false;
 }
 
-function singleCodePoint(
-  text: string
-): number | undefined {
+function singleCodePoint(text: string): number | undefined {
   const characters = Array.from(text);
   if (characters.length !== 1) {
     return undefined;
@@ -200,7 +202,7 @@ function singleCodePoint(
 function drawBoxDrawingCodePoint(
   context: BoxDrawingCanvasContext,
   codePoint: number,
-  rect: Rect
+  rect: Rect,
 ): boolean {
   const spec = lineSpecs[codePoint];
   if (spec) {
@@ -209,36 +211,70 @@ function drawBoxDrawingCodePoint(
   }
 
   switch (codePoint) {
-  case 0x2504: drawDashedHorizontal(context, rect, light, 3); return true;
-  case 0x2505: drawDashedHorizontal(context, rect, heavy, 3); return true;
-  case 0x2506: drawDashedVertical(context, rect, light, 3); return true;
-  case 0x2507: drawDashedVertical(context, rect, heavy, 3); return true;
-  case 0x2508: drawDashedHorizontal(context, rect, light, 4); return true;
-  case 0x2509: drawDashedHorizontal(context, rect, heavy, 4); return true;
-  case 0x250a: drawDashedVertical(context, rect, light, 4); return true;
-  case 0x250b: drawDashedVertical(context, rect, heavy, 4); return true;
-  case 0x254c: drawDashedHorizontal(context, rect, light, 2); return true;
-  case 0x254d: drawDashedHorizontal(context, rect, heavy, 2); return true;
-  case 0x254e: drawDashedVertical(context, rect, light, 2); return true;
-  case 0x254f: drawDashedVertical(context, rect, heavy, 2); return true;
-  case 0x2571: drawDiagonal(context, rect, false); return true;
-  case 0x2572: drawDiagonal(context, rect, true); return true;
-  case 0x2573:
-    drawDiagonal(context, rect, false);
-    drawDiagonal(context, rect, true);
-    return true;
-  case 0x256d: drawArc(context, rect, "topLeft"); return true;
-  case 0x256e: drawArc(context, rect, "topRight"); return true;
-  case 0x256f: drawArc(context, rect, "bottomRight"); return true;
-  case 0x2570: drawArc(context, rect, "bottomLeft"); return true;
-  default:
-    return false;
+    case 0x2504:
+      drawDashedHorizontal(context, rect, light, 3);
+      return true;
+    case 0x2505:
+      drawDashedHorizontal(context, rect, heavy, 3);
+      return true;
+    case 0x2506:
+      drawDashedVertical(context, rect, light, 3);
+      return true;
+    case 0x2507:
+      drawDashedVertical(context, rect, heavy, 3);
+      return true;
+    case 0x2508:
+      drawDashedHorizontal(context, rect, light, 4);
+      return true;
+    case 0x2509:
+      drawDashedHorizontal(context, rect, heavy, 4);
+      return true;
+    case 0x250a:
+      drawDashedVertical(context, rect, light, 4);
+      return true;
+    case 0x250b:
+      drawDashedVertical(context, rect, heavy, 4);
+      return true;
+    case 0x254c:
+      drawDashedHorizontal(context, rect, light, 2);
+      return true;
+    case 0x254d:
+      drawDashedHorizontal(context, rect, heavy, 2);
+      return true;
+    case 0x254e:
+      drawDashedVertical(context, rect, light, 2);
+      return true;
+    case 0x254f:
+      drawDashedVertical(context, rect, heavy, 2);
+      return true;
+    case 0x2571:
+      drawDiagonal(context, rect, false);
+      return true;
+    case 0x2572:
+      drawDiagonal(context, rect, true);
+      return true;
+    case 0x2573:
+      drawDiagonal(context, rect, false);
+      drawDiagonal(context, rect, true);
+      return true;
+    case 0x256d:
+      drawArc(context, rect, "topLeft");
+      return true;
+    case 0x256e:
+      drawArc(context, rect, "topRight");
+      return true;
+    case 0x256f:
+      drawArc(context, rect, "bottomRight");
+      return true;
+    case 0x2570:
+      drawArc(context, rect, "bottomLeft");
+      return true;
+    default:
+      return false;
   }
 }
 
-function strokeMetrics(
-  rect: Rect
-): StrokeMetrics {
+function strokeMetrics(rect: Rect): StrokeMetrics {
   const unit = Math.max(1, Math.round(Math.min(rect.width, rect.height) / 16));
   return {
     light: unit,
@@ -250,7 +286,7 @@ function strokeMetrics(
 function drawCellLines(
   context: BoxDrawingCanvasContext,
   spec: Spec,
-  rect: Rect
+  rect: Rect,
 ): void {
   const metrics = strokeMetrics(rect);
   const edges: Array<[LineWeight, Direction]> = [
@@ -269,7 +305,7 @@ function drawHalfStroke(
   weight: LineWeight,
   direction: Direction,
   rect: Rect,
-  metrics: StrokeMetrics
+  metrics: StrokeMetrics,
 ): void {
   if (weight === none) {
     return;
@@ -282,45 +318,55 @@ function drawHalfStroke(
 
   const segment = (thickness: number, offset: number) => {
     switch (direction) {
-    case "north":
-      context.fillRect(cx - thickness / 2 + offset, rect.y, thickness, cy - rect.y + thickness / 2);
-      break;
-    case "south":
-      context.fillRect(
-        cx - thickness / 2 + offset,
-        cy - thickness / 2,
-        thickness,
-        maxY - cy + thickness / 2
-      );
-      break;
-    case "west":
-      context.fillRect(rect.x, cy - thickness / 2 + offset, cx - rect.x + thickness / 2, thickness);
-      break;
-    case "east":
-      context.fillRect(
-        cx - thickness / 2,
-        cy - thickness / 2 + offset,
-        maxX - cx + thickness / 2,
-        thickness
-      );
-      break;
+      case "north":
+        context.fillRect(
+          cx - thickness / 2 + offset,
+          rect.y,
+          thickness,
+          cy - rect.y + thickness / 2,
+        );
+        break;
+      case "south":
+        context.fillRect(
+          cx - thickness / 2 + offset,
+          cy - thickness / 2,
+          thickness,
+          maxY - cy + thickness / 2,
+        );
+        break;
+      case "west":
+        context.fillRect(
+          rect.x,
+          cy - thickness / 2 + offset,
+          cx - rect.x + thickness / 2,
+          thickness,
+        );
+        break;
+      case "east":
+        context.fillRect(
+          cx - thickness / 2,
+          cy - thickness / 2 + offset,
+          maxX - cx + thickness / 2,
+          thickness,
+        );
+        break;
     }
   };
 
   switch (weight) {
-  case light:
-    segment(metrics.light, 0);
-    break;
-  case heavy:
-    segment(metrics.heavy, 0);
-    break;
-  case double: {
-    const thickness = metrics.light;
-    const offset = (thickness + metrics.doubleGap) / 2;
-    segment(thickness, -offset);
-    segment(thickness, offset);
-    break;
-  }
+    case light:
+      segment(metrics.light, 0);
+      break;
+    case heavy:
+      segment(metrics.heavy, 0);
+      break;
+    case double: {
+      const thickness = metrics.light;
+      const offset = (thickness + metrics.doubleGap) / 2;
+      segment(thickness, -offset);
+      segment(thickness, offset);
+      break;
+    }
   }
 }
 
@@ -328,7 +374,7 @@ function drawDashedHorizontal(
   context: BoxDrawingCanvasContext,
   rect: Rect,
   weight: LineWeight,
-  segments: number
+  segments: number,
 ): void {
   const metrics = strokeMetrics(rect);
   const thickness = weight === heavy ? metrics.heavy : metrics.light;
@@ -346,7 +392,7 @@ function drawDashedVertical(
   context: BoxDrawingCanvasContext,
   rect: Rect,
   weight: LineWeight,
-  segments: number
+  segments: number,
 ): void {
   const metrics = strokeMetrics(rect);
   const thickness = weight === heavy ? metrics.heavy : metrics.light;
@@ -363,7 +409,7 @@ function drawDashedVertical(
 function drawDiagonal(
   context: BoxDrawingCanvasContext,
   rect: Rect,
-  descending: boolean
+  descending: boolean,
 ): void {
   const metrics = strokeMetrics(rect);
   context.lineWidth = metrics.light;
@@ -384,7 +430,7 @@ function drawDiagonal(
 function drawArc(
   context: BoxDrawingCanvasContext,
   rect: Rect,
-  corner: Corner
+  corner: Corner,
 ): void {
   const metrics = strokeMetrics(rect);
   const cx = rect.x + rect.width / 2;
@@ -400,38 +446,66 @@ function drawArc(
   context.beginPath();
 
   switch (corner) {
-  case "topLeft":
-    context.moveTo(cx, cy + radius);
-    context.lineTo(cx, maxY);
-    context.moveTo(cx + radius, cy);
-    context.lineTo(maxX, cy);
-    context.moveTo(cx, cy + radius);
-    context.bezierCurveTo(cx, cy + radius - kappa, cx + radius - kappa, cy, cx + radius, cy);
-    break;
-  case "topRight":
-    context.moveTo(cx, cy + radius);
-    context.lineTo(cx, maxY);
-    context.moveTo(cx - radius, cy);
-    context.lineTo(rect.x, cy);
-    context.moveTo(cx - radius, cy);
-    context.bezierCurveTo(cx - radius + kappa, cy, cx, cy + radius - kappa, cx, cy + radius);
-    break;
-  case "bottomRight":
-    context.moveTo(cx, cy - radius);
-    context.lineTo(cx, rect.y);
-    context.moveTo(cx - radius, cy);
-    context.lineTo(rect.x, cy);
-    context.moveTo(cx, cy - radius);
-    context.bezierCurveTo(cx, cy - radius + kappa, cx - radius + kappa, cy, cx - radius, cy);
-    break;
-  case "bottomLeft":
-    context.moveTo(cx, cy - radius);
-    context.lineTo(cx, rect.y);
-    context.moveTo(cx + radius, cy);
-    context.lineTo(maxX, cy);
-    context.moveTo(cx + radius, cy);
-    context.bezierCurveTo(cx + radius - kappa, cy, cx, cy - radius + kappa, cx, cy - radius);
-    break;
+    case "topLeft":
+      context.moveTo(cx, cy + radius);
+      context.lineTo(cx, maxY);
+      context.moveTo(cx + radius, cy);
+      context.lineTo(maxX, cy);
+      context.moveTo(cx, cy + radius);
+      context.bezierCurveTo(
+        cx,
+        cy + radius - kappa,
+        cx + radius - kappa,
+        cy,
+        cx + radius,
+        cy,
+      );
+      break;
+    case "topRight":
+      context.moveTo(cx, cy + radius);
+      context.lineTo(cx, maxY);
+      context.moveTo(cx - radius, cy);
+      context.lineTo(rect.x, cy);
+      context.moveTo(cx - radius, cy);
+      context.bezierCurveTo(
+        cx - radius + kappa,
+        cy,
+        cx,
+        cy + radius - kappa,
+        cx,
+        cy + radius,
+      );
+      break;
+    case "bottomRight":
+      context.moveTo(cx, cy - radius);
+      context.lineTo(cx, rect.y);
+      context.moveTo(cx - radius, cy);
+      context.lineTo(rect.x, cy);
+      context.moveTo(cx, cy - radius);
+      context.bezierCurveTo(
+        cx,
+        cy - radius + kappa,
+        cx - radius + kappa,
+        cy,
+        cx - radius,
+        cy,
+      );
+      break;
+    case "bottomLeft":
+      context.moveTo(cx, cy - radius);
+      context.lineTo(cx, rect.y);
+      context.moveTo(cx + radius, cy);
+      context.lineTo(maxX, cy);
+      context.moveTo(cx + radius, cy);
+      context.bezierCurveTo(
+        cx + radius - kappa,
+        cy,
+        cx,
+        cy - radius + kappa,
+        cx,
+        cy - radius,
+      );
+      break;
   }
 
   context.stroke();
@@ -440,83 +514,158 @@ function drawArc(
 function drawBlockElement(
   context: BoxDrawingCanvasContext,
   codePoint: number,
-  rect: Rect
+  rect: Rect,
 ): boolean {
   const maxX = rect.x + rect.width;
   const maxY = rect.y + rect.height;
 
   const lowerEighths = (count: number) => {
-    const height = rect.height * count / 8;
+    const height = (rect.height * count) / 8;
     context.fillRect(rect.x, maxY - height, rect.width, height);
   };
   const leftEighths = (count: number) => {
-    const width = rect.width * count / 8;
+    const width = (rect.width * count) / 8;
     context.fillRect(rect.x, rect.y, width, rect.height);
   };
 
   switch (codePoint) {
-  case 0x2580: context.fillRect(rect.x, rect.y, rect.width, rect.height / 2); return true;
-  case 0x2581: lowerEighths(1); return true;
-  case 0x2582: lowerEighths(2); return true;
-  case 0x2583: lowerEighths(3); return true;
-  case 0x2584: lowerEighths(4); return true;
-  case 0x2585: lowerEighths(5); return true;
-  case 0x2586: lowerEighths(6); return true;
-  case 0x2587: lowerEighths(7); return true;
-  case 0x2588: context.fillRect(rect.x, rect.y, rect.width, rect.height); return true;
-  case 0x2589: leftEighths(7); return true;
-  case 0x258a: leftEighths(6); return true;
-  case 0x258b: leftEighths(5); return true;
-  case 0x258c: leftEighths(4); return true;
-  case 0x258d: leftEighths(3); return true;
-  case 0x258e: leftEighths(2); return true;
-  case 0x258f: leftEighths(1); return true;
-  case 0x2590:
-    context.fillRect(rect.x + rect.width / 2, rect.y, rect.width / 2, rect.height);
-    return true;
-  case 0x2591: drawShade(context, rect, "light"); return true;
-  case 0x2592: drawShade(context, rect, "medium"); return true;
-  case 0x2593: drawShade(context, rect, "dark"); return true;
-  case 0x2594: context.fillRect(rect.x, rect.y, rect.width, rect.height / 8); return true;
-  case 0x2595:
-    context.fillRect(maxX - rect.width / 8, rect.y, rect.width / 8, rect.height);
-    return true;
-  case 0x2596: fillQuadrants(context, rect, ["bottomLeft"]); return true;
-  case 0x2597: fillQuadrants(context, rect, ["bottomRight"]); return true;
-  case 0x2598: fillQuadrants(context, rect, ["topLeft"]); return true;
-  case 0x2599: fillQuadrants(context, rect, ["topLeft", "bottomLeft", "bottomRight"]); return true;
-  case 0x259a: fillQuadrants(context, rect, ["topLeft", "bottomRight"]); return true;
-  case 0x259b: fillQuadrants(context, rect, ["topLeft", "topRight", "bottomLeft"]); return true;
-  case 0x259c: fillQuadrants(context, rect, ["topLeft", "topRight", "bottomRight"]); return true;
-  case 0x259d: fillQuadrants(context, rect, ["topRight"]); return true;
-  case 0x259e: fillQuadrants(context, rect, ["topRight", "bottomLeft"]); return true;
-  case 0x259f: fillQuadrants(context, rect, ["topRight", "bottomLeft", "bottomRight"]); return true;
-  default:
-    return false;
+    case 0x2580:
+      context.fillRect(rect.x, rect.y, rect.width, rect.height / 2);
+      return true;
+    case 0x2581:
+      lowerEighths(1);
+      return true;
+    case 0x2582:
+      lowerEighths(2);
+      return true;
+    case 0x2583:
+      lowerEighths(3);
+      return true;
+    case 0x2584:
+      lowerEighths(4);
+      return true;
+    case 0x2585:
+      lowerEighths(5);
+      return true;
+    case 0x2586:
+      lowerEighths(6);
+      return true;
+    case 0x2587:
+      lowerEighths(7);
+      return true;
+    case 0x2588:
+      context.fillRect(rect.x, rect.y, rect.width, rect.height);
+      return true;
+    case 0x2589:
+      leftEighths(7);
+      return true;
+    case 0x258a:
+      leftEighths(6);
+      return true;
+    case 0x258b:
+      leftEighths(5);
+      return true;
+    case 0x258c:
+      leftEighths(4);
+      return true;
+    case 0x258d:
+      leftEighths(3);
+      return true;
+    case 0x258e:
+      leftEighths(2);
+      return true;
+    case 0x258f:
+      leftEighths(1);
+      return true;
+    case 0x2590:
+      context.fillRect(
+        rect.x + rect.width / 2,
+        rect.y,
+        rect.width / 2,
+        rect.height,
+      );
+      return true;
+    case 0x2591:
+      drawShade(context, rect, "light");
+      return true;
+    case 0x2592:
+      drawShade(context, rect, "medium");
+      return true;
+    case 0x2593:
+      drawShade(context, rect, "dark");
+      return true;
+    case 0x2594:
+      context.fillRect(rect.x, rect.y, rect.width, rect.height / 8);
+      return true;
+    case 0x2595:
+      context.fillRect(
+        maxX - rect.width / 8,
+        rect.y,
+        rect.width / 8,
+        rect.height,
+      );
+      return true;
+    case 0x2596:
+      fillQuadrants(context, rect, ["bottomLeft"]);
+      return true;
+    case 0x2597:
+      fillQuadrants(context, rect, ["bottomRight"]);
+      return true;
+    case 0x2598:
+      fillQuadrants(context, rect, ["topLeft"]);
+      return true;
+    case 0x2599:
+      fillQuadrants(context, rect, ["topLeft", "bottomLeft", "bottomRight"]);
+      return true;
+    case 0x259a:
+      fillQuadrants(context, rect, ["topLeft", "bottomRight"]);
+      return true;
+    case 0x259b:
+      fillQuadrants(context, rect, ["topLeft", "topRight", "bottomLeft"]);
+      return true;
+    case 0x259c:
+      fillQuadrants(context, rect, ["topLeft", "topRight", "bottomRight"]);
+      return true;
+    case 0x259d:
+      fillQuadrants(context, rect, ["topRight"]);
+      return true;
+    case 0x259e:
+      fillQuadrants(context, rect, ["topRight", "bottomLeft"]);
+      return true;
+    case 0x259f:
+      fillQuadrants(context, rect, ["topRight", "bottomLeft", "bottomRight"]);
+      return true;
+    default:
+      return false;
   }
 }
 
 function fillQuadrants(
   context: BoxDrawingCanvasContext,
   rect: Rect,
-  quadrants: Corner[]
+  quadrants: Corner[],
 ): void {
   const halfWidth = rect.width / 2;
   const halfHeight = rect.height / 2;
   for (const quadrant of quadrants) {
     switch (quadrant) {
-    case "topLeft":
-      context.fillRect(rect.x, rect.y, halfWidth, halfHeight);
-      break;
-    case "topRight":
-      context.fillRect(rect.x + halfWidth, rect.y, halfWidth, halfHeight);
-      break;
-    case "bottomLeft":
-      context.fillRect(rect.x, rect.y + halfHeight, halfWidth, halfHeight);
-      break;
-    case "bottomRight":
-      context.fillRect(rect.x + halfWidth, rect.y + halfHeight, halfWidth, halfHeight);
-      break;
+      case "topLeft":
+        context.fillRect(rect.x, rect.y, halfWidth, halfHeight);
+        break;
+      case "topRight":
+        context.fillRect(rect.x + halfWidth, rect.y, halfWidth, halfHeight);
+        break;
+      case "bottomLeft":
+        context.fillRect(rect.x, rect.y + halfHeight, halfWidth, halfHeight);
+        break;
+      case "bottomRight":
+        context.fillRect(
+          rect.x + halfWidth,
+          rect.y + halfHeight,
+          halfWidth,
+          halfHeight,
+        );
+        break;
     }
   }
 }
@@ -524,13 +673,21 @@ function fillQuadrants(
 function drawShade(
   context: BoxDrawingCanvasContext,
   rect: Rect,
-  density: "light" | "medium" | "dark"
+  density: "light" | "medium" | "dark",
 ): void {
-  const pixels = density === "light"
-    ? [[0, 0]]
-    : density === "medium"
-      ? [[0, 0], [1, 1]]
-      : [[0, 0], [1, 0], [0, 1]];
+  const pixels =
+    density === "light"
+      ? [[0, 0]]
+      : density === "medium"
+        ? [
+            [0, 0],
+            [1, 1],
+          ]
+        : [
+            [0, 0],
+            [1, 0],
+            [0, 1],
+          ];
 
   for (let y = rect.y; y < rect.y + rect.height; y += 2) {
     for (let x = rect.x; x < rect.x + rect.width; x += 2) {
@@ -552,17 +709,23 @@ function drawShade(
 // dot) so that adjacent set bits — both within and across cells — connect
 // without visible mid-fill spacing, and a fully-set mask renders identical
 // to U+2588 FULL BLOCK.
-const brailleSubpixels: ReadonlyArray<readonly [bit: number, col: number, row: number]> = [
-  [0x01, 0, 0], [0x08, 1, 0],
-  [0x02, 0, 1], [0x10, 1, 1],
-  [0x04, 0, 2], [0x20, 1, 2],
-  [0x40, 0, 3], [0x80, 1, 3],
+const brailleSubpixels: ReadonlyArray<
+  readonly [bit: number, col: number, row: number]
+> = [
+  [0x01, 0, 0],
+  [0x08, 1, 0],
+  [0x02, 0, 1],
+  [0x10, 1, 1],
+  [0x04, 0, 2],
+  [0x20, 1, 2],
+  [0x40, 0, 3],
+  [0x80, 1, 3],
 ];
 
 function drawBraille(
   context: BoxDrawingCanvasContext,
   codePoint: number,
-  rect: Rect
+  rect: Rect,
 ): boolean {
   const mask = codePoint - 0x2800;
   if (mask === 0) {

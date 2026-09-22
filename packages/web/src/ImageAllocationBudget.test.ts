@@ -1,8 +1,16 @@
 import { expect, test } from "bun:test";
-import { admitsImageBytes, admitsImagePayload } from "./ImageAllocationBudget.ts";
+import {
+  admitsImageBytes,
+  admitsImagePayload,
+} from "./ImageAllocationBudget.ts";
 
 test("PNG dimensions are checked before compressed bitmap decode", () => {
-  const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII="), c => c.charCodeAt(0));
+  const bytes = Uint8Array.from(
+    atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+    ),
+    (c) => c.charCodeAt(0),
+  );
   expect(admitsImageBytes(bytes)).toBe(true);
   const view = new DataView(bytes.buffer);
   view.setUint32(16, 8192);

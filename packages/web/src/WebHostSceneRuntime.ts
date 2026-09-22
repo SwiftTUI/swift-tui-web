@@ -1,3 +1,42 @@
+import { AccessibilityTreeMounter } from "./AccessibilityTree.ts";
+import {
+  type CanvasSurfaceMetrics,
+  CanvasSurfacePainter,
+  fontForStyle,
+} from "./CanvasSurfacePainter.ts";
+import { DomSurfacePainter } from "./DomSurfacePainter.ts";
+import {
+  type CellLocation,
+  InputEventEncoder,
+  type PointerButton,
+} from "./InputEventEncoder.ts";
+import { normalizeSemantics } from "./normalizeWireTokens.ts";
+import {
+  cellLocationForEvent,
+  linkTargetAt,
+  type PointerGeometryMetrics,
+  rawCellLocationForEvent,
+  wheelTargetCanScroll,
+} from "./PointerGeometry.ts";
+import { boundedCanvasSize } from "./RasterAllocationBudget.ts";
+import {
+  defaultAnimationFrameScheduler,
+  type SurfacePaintRequest,
+  SurfacePaintScheduler,
+  type WebHostPaintScheduling,
+  type WebHostPaintStatistics,
+} from "./SurfacePaintScheduler.ts";
+import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
+import type { WebHostSceneDescriptor } from "./WebHostSceneManifest.ts";
+import type {
+  WebHostAccessibilityAnnouncement,
+  WebHostFocusPresentation,
+  WebHostFrameDiagnosticRecord,
+  WebHostImagePayloadRequestHandler,
+  WebHostOutputSink,
+  WebHostRuntimeIssue,
+  WebHostSurfaceFrame,
+} from "./WebHostSurfaceTransport.ts";
 import {
   applyWebHostTerminalStyle,
   normalizeWebHostTerminalStyle,
@@ -5,49 +44,15 @@ import {
   type WebHostTerminalStyle,
   webTUITerminalBackgroundColor,
 } from "./WebHostTerminalStyle.ts";
-import {
-  CanvasSurfacePainter,
-  fontForStyle,
-  type CanvasSurfaceMetrics,
-} from "./CanvasSurfacePainter.ts";
-import { DomSurfacePainter } from "./DomSurfacePainter.ts";
-import { boundedCanvasSize } from "./RasterAllocationBudget.ts";
-import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
-import {
-  InputEventEncoder,
-  type CellLocation,
-  type PointerButton,
-} from "./InputEventEncoder.ts";
-import {
-  cellLocationForEvent,
-  linkTargetAt,
-  rawCellLocationForEvent,
-  wheelTargetCanScroll,
-  type PointerGeometryMetrics,
-} from "./PointerGeometry.ts";
-import { AccessibilityTreeMounter } from "./AccessibilityTree.ts";
-import { normalizeSemantics } from "./normalizeWireTokens.ts";
-import {
-  defaultAnimationFrameScheduler,
-  SurfacePaintScheduler,
-  type SurfacePaintRequest,
-  type WebHostPaintScheduling,
-  type WebHostPaintStatistics,
-} from "./SurfacePaintScheduler.ts";
-import {
-  type WebHostAccessibilityAnnouncement,
-  type WebHostFocusPresentation,
-  type WebHostFrameDiagnosticRecord,
-  type WebHostImagePayloadRequestHandler,
-  type WebHostOutputSink,
-  type WebHostRuntimeIssue,
-  type WebHostSurfaceFrame,
-} from "./WebHostSurfaceTransport.ts";
-import type { WebHostSceneDescriptor } from "./WebHostSceneManifest.ts";
 
 export interface WebHostSceneBridge {
   bindOutput(sink: WebHostOutputSink): void;
-  resize(columns: number, rows: number, cellWidth?: number, cellHeight?: number): void;
+  resize(
+    columns: number,
+    rows: number,
+    cellWidth?: number,
+    cellHeight?: number,
+  ): void;
   updateRenderStyle(style: WebHostTerminalStyle): void;
   sendInput(chunk: Uint8Array): void;
   /** Optional for compatibility with custom bridges predating image recovery. */
@@ -225,7 +230,9 @@ export class WebHostSceneRuntime {
 
   private readonly bridge?: WebHostSceneBridge;
   private readonly onInput: (chunk: Uint8Array) => void;
-  private readonly onFrameDiagnostic?: (diagnostic: WebHostFrameDiagnosticRecord) => void;
+  private readonly onFrameDiagnostic?: (
+    diagnostic: WebHostFrameDiagnosticRecord,
+  ) => void;
   private readonly synchronizeAccessibilityFocus: boolean;
   private readonly wheelMode: WheelMode;
   private readonly rendererKind: WebHostSurfaceRendererKind;
@@ -278,22 +285,26 @@ export class WebHostSceneRuntime {
     this.bridge = options.bridge;
     this.onInput = options.onInput;
     this.onFrameDiagnostic = options.onFrameDiagnostic;
-    this.synchronizeAccessibilityFocus = options.synchronizeAccessibilityFocus ?? true;
-    this.wheelMode = options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
+    this.synchronizeAccessibilityFocus =
+      options.synchronizeAccessibilityFocus ?? true;
+    this.wheelMode =
+      options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
     this.rendererKind = options.renderer ?? "canvas";
     this.sceneFrame = options.sceneFrame ?? "fill";
     const onImagePayloadMiss = (
-      ids: readonly string[]
+      ids: readonly string[],
     ): readonly string[] | void => {
       return this.bridge?.requestImagePayloads?.(ids);
     };
-    this.painter = this.rendererKind === "dom"
-      ? new DomSurfacePainter({ onImagePayloadMiss })
-      : new CanvasSurfacePainter({ onImagePayloadMiss });
-    const paintScheduling = options.paintScheduling ?? defaultAnimationFrameScheduler();
+    this.painter =
+      this.rendererKind === "dom"
+        ? new DomSurfacePainter({ onImagePayloadMiss })
+        : new CanvasSurfacePainter({ onImagePayloadMiss });
+    const paintScheduling =
+      options.paintScheduling ?? defaultAnimationFrameScheduler();
     this.paintScheduler = new SurfacePaintScheduler(
       paintScheduling === "synchronous" ? undefined : paintScheduling,
-      (request) => this.paint(request)
+      (request) => this.paint(request),
     );
     this.onOpenHyperlink = options.onOpenHyperlink;
     this.suspendWhenHidden = options.suspendWhenHidden ?? true;
@@ -322,7 +333,8 @@ export class WebHostSceneRuntime {
 
     if (this.painter instanceof DomSurfacePainter) {
       const surfaceRoot = document.createElement("div");
-      surfaceRoot.className = "webhost-scene__surface webhost-scene__surface--dom";
+      surfaceRoot.className =
+        "webhost-scene__surface webhost-scene__surface--dom";
       surfaceRoot.setAttribute("aria-hidden", "true");
       this.domSurfaceRoot = surfaceRoot;
       this.painter.attach(surfaceRoot);
@@ -339,7 +351,7 @@ export class WebHostSceneRuntime {
     this.terminalMount.replaceChildren(
       this.surfaceElement as HTMLElement,
       this.accessibilityTree.element,
-      this.accessibilityTree.announcerElement
+      this.accessibilityTree.announcerElement,
     );
     this.installInputHandlers();
     this.installResizeObserver();
@@ -349,7 +361,8 @@ export class WebHostSceneRuntime {
         this.presentSurface(frame, recoveredImagePayloadIds),
       writeClipboard: (text) => this.writeClipboard(text),
       notifyRuntimeIssue: (issue) => this.notifyRuntimeIssue(issue),
-      recordFrameDiagnostic: (diagnostic) => this.recordFrameDiagnostic(diagnostic),
+      recordFrameDiagnostic: (diagnostic) =>
+        this.recordFrameDiagnostic(diagnostic),
       writeOutput: (text) => this.writeOutput(text),
       writeError: (text) => this.writeOutput(text),
     });
@@ -361,9 +374,7 @@ export class WebHostSceneRuntime {
     this.resizeToMount();
   }
 
-  setVisible(
-    visible: boolean
-  ): void {
+  setVisible(visible: boolean): void {
     this.isVisible = visible;
     this.applyVisibility();
     if (visible) {
@@ -381,9 +392,7 @@ export class WebHostSceneRuntime {
    * `setVisible`: the app is suspended while either says hidden, unless
    * `suspendWhenHidden` is `false`.
    */
-  setDocumentVisible(
-    visible: boolean
-  ): void {
+  setDocumentVisible(visible: boolean): void {
     const becameVisible = visible && !this.documentVisible;
     this.documentVisible = visible;
     this.updateRuntimeSuspension();
@@ -403,7 +412,8 @@ export class WebHostSceneRuntime {
   }
 
   private updateRuntimeSuspension(): void {
-    const suspended = this.suspendWhenHidden && (!this.isVisible || !this.documentVisible);
+    const suspended =
+      this.suspendWhenHidden && (!this.isVisible || !this.documentVisible);
     if (suspended === this.runtimeSuspended) {
       return;
     }
@@ -416,13 +426,9 @@ export class WebHostSceneRuntime {
    * WASI worker / JSPI executor). The base runtime only presents frames, so
    * it has nothing to suspend.
    */
-  protected onRuntimeSuspensionChange(
-    _suspended: boolean
-  ): void {}
+  protected onRuntimeSuspensionChange(_suspended: boolean): void {}
 
-  setStyle(
-    style: WebHostTerminalStyle
-  ): void {
+  setStyle(style: WebHostTerminalStyle): void {
     this.currentStyle = normalizeWebHostTerminalStyle(style);
     this.applyStyle(this.currentStyle);
     this.bridge?.updateRenderStyle(this.currentStyle);
@@ -430,18 +436,13 @@ export class WebHostSceneRuntime {
     this.resizeToMount();
   }
 
-  resize(
-    columns: number,
-    rows: number
-  ): void {
+  resize(columns: number, rows: number): void {
     this.columns = Math.max(1, Math.round(columns));
     this.rows = Math.max(1, Math.round(rows));
     this.paintScheduler.repaintNow();
   }
 
-  writeOutput(
-    text: string
-  ): void {
+  writeOutput(text: string): void {
     if (!this.diagnosticText) {
       const diagnosticText = document.createElement("pre");
       diagnosticText.className = "webhost-scene__diagnostic";
@@ -451,9 +452,7 @@ export class WebHostSceneRuntime {
     this.diagnosticText.textContent = `${this.diagnosticText.textContent ?? ""}${text}`;
   }
 
-  notifyRuntimeIssue(
-    issue: WebHostRuntimeIssue
-  ): void {
+  notifyRuntimeIssue(issue: WebHostRuntimeIssue): void {
     // Into the mount, not only the console: a runtime issue is the app telling
     // the user something went wrong, and a console line is invisible to anyone
     // who is not already looking at devtools.
@@ -461,14 +460,12 @@ export class WebHostSceneRuntime {
   }
 
   private recordFrameDiagnostic(
-    diagnostic: WebHostFrameDiagnosticRecord
+    diagnostic: WebHostFrameDiagnosticRecord,
   ): void {
     this.onFrameDiagnostic?.(diagnostic);
   }
 
-  async writeClipboard(
-    text: string
-  ): Promise<void> {
+  async writeClipboard(text: string): Promise<void> {
     const clipboard = globalThis.navigator?.clipboard;
     if (!clipboard?.writeText) {
       return;
@@ -482,9 +479,7 @@ export class WebHostSceneRuntime {
     }
   }
 
-  sendInput(
-    chunk: Uint8Array
-  ): void {
+  sendInput(chunk: Uint8Array): void {
     this.onInput(chunk);
   }
 
@@ -509,7 +504,7 @@ export class WebHostSceneRuntime {
    * from `pointerType`. Only changes are sent.
    */
   private sendPointerCapabilitiesIfChanged(
-    supportsScrollPanning: boolean
+    supportsScrollPanning: boolean,
   ): void {
     if (this.lastSentPointerCapabilities === supportsScrollPanning) {
       return;
@@ -543,7 +538,7 @@ export class WebHostSceneRuntime {
    */
   private presentSurface(
     frame: WebHostSurfaceFrame,
-    recoveredImagePayloadIds?: readonly string[]
+    recoveredImagePayloadIds?: readonly string[],
   ): void {
     this.currentFrame = frame;
     this.columns = Math.max(1, Math.round(frame.width));
@@ -558,10 +553,16 @@ export class WebHostSceneRuntime {
    */
   get preferredGridSize(): { width: number; height: number } | undefined {
     const frame = this.currentFrame;
-    if (frame?.preferredGridWidth === undefined || frame.preferredGridHeight === undefined) {
+    if (
+      frame?.preferredGridWidth === undefined ||
+      frame.preferredGridHeight === undefined
+    ) {
       return undefined;
     }
-    return { width: frame.preferredGridWidth, height: frame.preferredGridHeight };
+    return {
+      width: frame.preferredGridWidth,
+      height: frame.preferredGridHeight,
+    };
   }
 
   /**
@@ -580,19 +581,15 @@ export class WebHostSceneRuntime {
     };
   }
 
-  private linkTarget(
-    location: CellLocation
-  ): string | undefined {
+  private linkTarget(location: CellLocation): string | undefined {
     return linkTargetAt(
       this.currentFrame?.links,
       this.currentFrame?.linkTargets,
-      location
+      location,
     );
   }
 
-  private openHyperlink(
-    url: string
-  ): void {
+  private openHyperlink(url: string): void {
     if (this.onOpenHyperlink) {
       this.onOpenHyperlink(url);
       return;
@@ -605,9 +602,7 @@ export class WebHostSceneRuntime {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  private applyStyle(
-    style: WebHostTerminalStyle
-  ): void {
+  private applyStyle(style: WebHostTerminalStyle): void {
     applyWebHostTerminalStyle(this.element, style);
     this.element.style.boxSizing = "border-box";
     // The resizable frame geometry is standalone-page chrome. Embedders keep
@@ -652,7 +647,9 @@ export class WebHostSceneRuntime {
     this.terminalMount.style.overscrollBehavior =
       this.wheelMode === "capture" ? "contain" : "auto";
     this.terminalMount.style.outline = "none";
-    this.terminalMount.style.background = webTUITerminalBackgroundColor(this.currentStyle);
+    this.terminalMount.style.background = webTUITerminalBackgroundColor(
+      this.currentStyle,
+    );
 
     if (this.canvas) {
       this.canvas.style.display = "block";
@@ -675,7 +672,7 @@ export class WebHostSceneRuntime {
     this.element.style.setProperty(
       "display",
       this.isVisible ? "grid" : "none",
-      "important"
+      "important",
     );
   }
 
@@ -734,12 +731,13 @@ export class WebHostSceneRuntime {
       const button = this.inputEncoder.pointerButton(event.button);
       this.activePointerButton = button;
       this.hasCapturedPointer = true;
-      this.pointerDownLinkTarget = button === "primary"
-        ? this.linkTarget(location)
-        : undefined;
+      this.pointerDownLinkTarget =
+        button === "primary" ? this.linkTarget(location) : undefined;
       this.terminalMount.focus?.({ preventScroll: true });
       this.terminalMount.setPointerCapture?.(event.pointerId);
-      this.onInput(this.inputEncoder.encodePointerDown(location, button, event));
+      this.onInput(
+        this.inputEncoder.encodePointerDown(location, button, event),
+      );
       event.preventDefault();
     };
 
@@ -758,12 +756,17 @@ export class WebHostSceneRuntime {
         return;
       }
 
-      const button = this.inputEncoder.pointerButton(event.button) ?? this.activePointerButton;
+      const button =
+        this.inputEncoder.pointerButton(event.button) ??
+        this.activePointerButton;
       this.onInput(this.inputEncoder.encodePointerUp(location, button, event));
       // A click — down and up over the same link target — opens the link,
       // mirroring the Android host's tap-to-open. The app still receives the
       // pointer messages above.
-      if (downLinkTarget !== undefined && this.linkTarget(location) === downLinkTarget) {
+      if (
+        downLinkTarget !== undefined &&
+        this.linkTarget(location) === downLinkTarget
+      ) {
         this.openHyperlink(downLinkTarget);
       }
       event.preventDefault();
@@ -773,9 +776,10 @@ export class WebHostSceneRuntime {
       if (!this.hasCapturedPointer && this.allowsNativeTextSelection(event)) {
         return;
       }
-      const location = event.buttons && this.hasCapturedPointer
-        ? this.rawCellLocation(event)
-        : this.cellLocation(event);
+      const location =
+        event.buttons && this.hasCapturedPointer
+          ? this.rawCellLocation(event)
+          : this.cellLocation(event);
       if (!location) {
         return;
       }
@@ -784,7 +788,13 @@ export class WebHostSceneRuntime {
         this.terminalMount.style.cursor =
           this.linkTarget(location) !== undefined ? "pointer" : "";
       }
-      this.onInput(this.inputEncoder.encodePointerMove(location, this.activePointerButton, event));
+      this.onInput(
+        this.inputEncoder.encodePointerMove(
+          location,
+          this.activePointerButton,
+          event,
+        ),
+      );
     };
 
     const handleWheel = (event: WheelEvent) => {
@@ -803,8 +813,15 @@ export class WebHostSceneRuntime {
       // pointer can still move in this direction; otherwise let the wheel fall
       // through so the page (or parent iframe) scrolls — iframe-like behavior.
       // "capture" mode always forwards while over the surface (legacy).
-      if (this.wheelMode === "chain"
-        && !wheelTargetCanScroll(this.currentFrame?.scrollRegions, location, event.deltaX, event.deltaY)) {
+      if (
+        this.wheelMode === "chain" &&
+        !wheelTargetCanScroll(
+          this.currentFrame?.scrollRegions,
+          location,
+          event.deltaX,
+          event.deltaY,
+        )
+      ) {
         return;
       }
 
@@ -817,7 +834,9 @@ export class WebHostSceneRuntime {
     this.terminalMount.addEventListener("pointerdown", handlePointerDown);
     this.terminalMount.addEventListener("pointerup", handlePointerUp);
     this.terminalMount.addEventListener("pointermove", handlePointerMove);
-    this.terminalMount.addEventListener("wheel", handleWheel, { passive: false });
+    this.terminalMount.addEventListener("wheel", handleWheel, {
+      passive: false,
+    });
 
     this.detachInputHandlers = () => {
       this.terminalMount.removeEventListener("keydown", handleKeyDown);
@@ -832,8 +851,14 @@ export class WebHostSceneRuntime {
   private resizeToMount(): void {
     this.measureCells();
     const rect = this.terminalMount.getBoundingClientRect?.();
-    const width = rect?.width && rect.width > 0 ? rect.width : this.columns * this.cellWidth;
-    const height = rect?.height && rect.height > 0 ? rect.height : this.rows * this.cellHeight;
+    const width =
+      rect?.width && rect.width > 0
+        ? rect.width
+        : this.columns * this.cellWidth;
+    const height =
+      rect?.height && rect.height > 0
+        ? rect.height
+        : this.rows * this.cellHeight;
     this.surfaceCSSWidth = width;
     this.surfaceCSSHeight = height;
     const nextColumns = Math.max(1, Math.floor(width / this.cellWidth));
@@ -855,17 +880,23 @@ export class WebHostSceneRuntime {
       cellWidth: this.cellWidth,
       cellHeight: this.cellHeight,
     };
-    if (this.lastSentResize
-      && this.lastSentResize.columns === current.columns
-      && this.lastSentResize.rows === current.rows
-      && this.lastSentResize.cellWidth === current.cellWidth
-      && this.lastSentResize.cellHeight === current.cellHeight
+    if (
+      this.lastSentResize &&
+      this.lastSentResize.columns === current.columns &&
+      this.lastSentResize.rows === current.rows &&
+      this.lastSentResize.cellWidth === current.cellWidth &&
+      this.lastSentResize.cellHeight === current.cellHeight
     ) {
       return;
     }
 
     this.lastSentResize = current;
-    this.bridge?.resize(current.columns, current.rows, current.cellWidth, current.cellHeight);
+    this.bridge?.resize(
+      current.columns,
+      current.rows,
+      current.cellWidth,
+      current.cellHeight,
+    );
   }
 
   private resizeSurface(): boolean {
@@ -874,7 +905,11 @@ export class WebHostSceneRuntime {
 
     if (this.domSurfaceRoot) {
       const last = this.lastDomSurfaceSize;
-      if (last && last.width === gridCSSWidth && last.height === gridCSSHeight) {
+      if (
+        last &&
+        last.width === gridCSSWidth &&
+        last.height === gridCSSHeight
+      ) {
         return false;
       }
       this.lastDomSurfaceSize = { width: gridCSSWidth, height: gridCSSHeight };
@@ -896,11 +931,12 @@ export class WebHostSceneRuntime {
     this.canvasScale = bounded.scale;
     const styleWidth = "100%";
     const styleHeight = "100%";
-    if (this.canvas.width === width
-      && this.canvas.height === height
-      && this.canvas.style.width === styleWidth
-      && this.canvas.style.height === styleHeight
-      && !scaleChanged
+    if (
+      this.canvas.width === width &&
+      this.canvas.height === height &&
+      this.canvas.style.width === styleWidth &&
+      this.canvas.style.height === styleHeight &&
+      !scaleChanged
     ) {
       return false;
     }
@@ -916,8 +952,14 @@ export class WebHostSceneRuntime {
     const canvas = this.canvas ?? document.createElement("canvas");
     const context = canvas.getContext?.("2d");
     if (!context) {
-      this.cellWidth = Math.max(1, Math.round(this.currentStyle.fontSize * 0.62));
-      this.cellHeight = Math.max(1, Math.round(this.currentStyle.fontSize * 1.35));
+      this.cellWidth = Math.max(
+        1,
+        Math.round(this.currentStyle.fontSize * 0.62),
+      );
+      this.cellHeight = Math.max(
+        1,
+        Math.round(this.currentStyle.fontSize * 1.35),
+      );
       return;
     }
 
@@ -930,9 +972,7 @@ export class WebHostSceneRuntime {
    * The one place pixels and the ARIA sidecar change, called by the paint
    * scheduler with the newest frame and everything coalesced into it.
    */
-  private paint(
-    request: SurfacePaintRequest
-  ): void {
+  private paint(request: SurfacePaintRequest): void {
     // Sizing the backing store clears it, so it happens here, immediately
     // before the frame that fills it — never on receipt of a deferred frame.
     const resized = this.resizeSurface();
@@ -940,26 +980,34 @@ export class WebHostSceneRuntime {
       this.surfaceMetrics(),
       request.frame,
       resized ? undefined : request.damage,
-      request.recoveredImagePayloadIds
+      request.recoveredImagePayloadIds,
     );
-    this.syncAccessibilityTree(request.frame, request.accessibilityAnnouncements);
+    this.syncAccessibilityTree(
+      request.frame,
+      request.accessibilityAnnouncements,
+    );
   }
 
   private syncAccessibilityTree(
     frame: WebHostSurfaceFrame | undefined,
-    announcements: readonly WebHostAccessibilityAnnouncement[]
+    announcements: readonly WebHostAccessibilityAnnouncement[],
   ): void {
     const tree = this.accessibilityTree;
     if (!tree || !frame) {
       return;
     }
 
-    tree.present(frame.accessibilityTree ?? [], {
-      cellWidth: this.cellWidth,
-      cellHeight: this.cellHeight,
-    }, [...announcements], {
-      synchronizeFocus: this.synchronizeAccessibilityFocus,
-    });
+    tree.present(
+      frame.accessibilityTree ?? [],
+      {
+        cellWidth: this.cellWidth,
+        cellHeight: this.cellHeight,
+      },
+      [...announcements],
+      {
+        synchronizeFocus: this.synchronizeAccessibilityFocus,
+      },
+    );
   }
 
   private surfaceMetrics(): CanvasSurfaceMetrics {
@@ -975,7 +1023,9 @@ export class WebHostSceneRuntime {
 
   private pointerMetrics(): PointerGeometryMetrics {
     return {
-      rect: this.surfaceElement?.getBoundingClientRect?.() ?? this.terminalMount.getBoundingClientRect?.(),
+      rect:
+        this.surfaceElement?.getBoundingClientRect?.() ??
+        this.terminalMount.getBoundingClientRect?.(),
       cellWidth: this.cellWidth,
       cellHeight: this.cellHeight,
       columns: this.columns,
@@ -989,21 +1039,15 @@ export class WebHostSceneRuntime {
    * has real text nodes to select, and only while Alt/Option is held — plain
    * pointer input still belongs to the app.
    */
-  private allowsNativeTextSelection(
-    event: MouseEvent
-  ): boolean {
+  private allowsNativeTextSelection(event: MouseEvent): boolean {
     return this.rendererKind === "dom" && event.altKey;
   }
 
-  private cellLocation(
-    event: MouseEvent
-  ): CellLocation | undefined {
+  private cellLocation(event: MouseEvent): CellLocation | undefined {
     return cellLocationForEvent(event, this.pointerMetrics());
   }
 
-  private rawCellLocation(
-    event: MouseEvent
-  ): CellLocation | undefined {
+  private rawCellLocation(event: MouseEvent): CellLocation | undefined {
     return rawCellLocationForEvent(event, this.pointerMetrics());
   }
 }

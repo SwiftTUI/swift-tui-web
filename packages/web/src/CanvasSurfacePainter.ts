@@ -1,21 +1,16 @@
+import { canRenderBoxDrawing, drawBoxDrawing } from "./BoxDrawingRenderer.ts";
+import { admitsImageBytes } from "./ImageAllocationBudget.ts";
 import {
-  canRenderBoxDrawing,
-  drawBoxDrawing,
-} from "./BoxDrawingRenderer.ts";
+  isSupportedImageFormat,
+  type NormalizedSurfaceImageFormat,
+} from "./normalizeWireTokens.ts";
+import { registerCanvasSurfacePainterConformanceControl } from "./SurfacePainterConformanceControl.ts";
 import {
   resolvedSurfaceBackground,
   resolvedSurfaceForeground,
   type SurfaceMetrics,
   type WebHostSurfacePainter,
 } from "./SurfaceRenderer.ts";
-import {
-  isSupportedImageFormat,
-  type NormalizedSurfaceImageFormat,
-} from "./normalizeWireTokens.ts";
-import {
-  type ResolvedWebHostTerminalStyle,
-  webTUITerminalBackgroundColor,
-} from "./WebHostTerminalStyle.ts";
 import {
   isWebHostImageRecoveryId,
   type WebHostImagePayloadRequestHandler,
@@ -25,9 +20,9 @@ import {
   type WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
 import {
-  registerCanvasSurfacePainterConformanceControl,
-} from "./SurfacePainterConformanceControl.ts";
-import { admitsImageBytes } from "./ImageAllocationBudget.ts";
+  type ResolvedWebHostTerminalStyle,
+  webTUITerminalBackgroundColor,
+} from "./WebHostTerminalStyle.ts";
 
 /**
  * A read-only snapshot of the cell grid geometry and active style the painter
@@ -61,7 +56,7 @@ export interface CanvasSurfacePainterOptions {
   decodeImage?: (
     dataBase64: string,
     format: NormalizedSurfaceImageFormat,
-    imageID: string
+    imageID: string,
   ) => Promise<CanvasImageSource>;
   /**
    * Reports supported, positive-area images whose payload cannot be resolved
@@ -107,7 +102,9 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   private readonly imageCache = new Map<string, CachedWebHostImage>();
   private readonly unresolvedImageIds = new Set<string>();
   private unresolvedImagePayloadCharacters = 0;
-  private readonly imageDecoder: NonNullable<CanvasSurfacePainterOptions["decodeImage"]>;
+  private readonly imageDecoder: NonNullable<
+    CanvasSurfacePainterOptions["decodeImage"]
+  >;
   private readonly onImagePayloadMiss: WebHostImagePayloadRequestHandler;
   private readonly maxDecodedImageCacheEntries: number;
   private readonly maxDecodedImageCacheBytes: number;
@@ -126,10 +123,12 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     this.imageDecoder = options.decodeImage ?? decodeImage;
     this.onImagePayloadMiss = options.onImagePayloadMiss ?? (() => {});
     this.maxDecodedImageCacheEntries = cacheLimit(
-      options.maxDecodedImageCacheEntries, MAX_DECODED_IMAGE_CACHE_ENTRIES
+      options.maxDecodedImageCacheEntries,
+      MAX_DECODED_IMAGE_CACHE_ENTRIES,
     );
     this.maxDecodedImageCacheBytes = cacheLimit(
-      options.maxDecodedImageCacheBytes, MAX_DECODED_IMAGE_CACHE_BYTES
+      options.maxDecodedImageCacheBytes,
+      MAX_DECODED_IMAGE_CACHE_BYTES,
     );
     registerCanvasSurfacePainterConformanceControl(this, {
       evictImages: (ids) => {
@@ -137,12 +136,17 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
           this.removeCachedImage(id);
         }
       },
-      visibleImageIDs: (images) => [...new Set(
-        images
-          .filter(isPaintableSurfaceImage)
-          .filter((image) => this.imageCache.get(image.id)?.image !== undefined)
-          .map((image) => image.id)
-      )].sort(),
+      visibleImageIDs: (images) =>
+        [
+          ...new Set(
+            images
+              .filter(isPaintableSurfaceImage)
+              .filter(
+                (image) => this.imageCache.get(image.id)?.image !== undefined,
+              )
+              .map((image) => image.id),
+          ),
+        ].sort(),
     });
   }
 
@@ -150,10 +154,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
    * Binds the canvas the painter draws into and the callback used to request a
    * full repaint after an asynchronous image decode completes.
    */
-  attach(
-    canvas: HTMLCanvasElement,
-    requestRedraw: () => void
-  ): void {
+  attach(canvas: HTMLCanvasElement, requestRedraw: () => void): void {
     if (this.disposed) {
       return;
     }
@@ -165,7 +166,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     metrics: CanvasSurfaceMetrics,
     frame: WebHostSurfaceFrame | undefined,
     damage?: WebHostSurfaceDamage,
-    recoveredImagePayloadIds: readonly string[] = []
+    recoveredImagePayloadIds: readonly string[] = [],
   ): void {
     if (this.disposed) {
       return;
@@ -186,13 +187,19 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     }
     this.sweepUnresolvedImages(frame?.images);
     this.visibleImageIds = new Set(
-      (frame?.images ?? []).filter(isPaintableSurfaceImage).map((image) => image.id)
+      (frame?.images ?? [])
+        .filter(isPaintableSurfaceImage)
+        .map((image) => image.id),
     );
     this.inactiveDecodedImageIds.clear();
     for (const [id, cached] of this.imageCache) {
       // An image whose id exceeds the recovery limit cannot be requested
       // again after eviction, so it stays retained like the visible set.
-      if (cached.image && !this.visibleImageIds.has(id) && isWebHostImageRecoveryId(id)) {
+      if (
+        cached.image &&
+        !this.visibleImageIds.has(id) &&
+        isWebHostImageRecoveryId(id)
+      ) {
         this.inactiveDecodedImageIds.add(id);
       }
     }
@@ -207,7 +214,8 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       return;
     }
 
-    const scale = metrics.pixelScale ?? (globalThis.window?.devicePixelRatio || 1);
+    const scale =
+      metrics.pixelScale ?? (globalThis.window?.devicePixelRatio || 1);
     context.setTransform(scale, 0, 0, scale, 0, 0);
     context.textBaseline = "alphabetic";
 
@@ -237,7 +245,11 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     try {
       this.drawRows(context, frame, metrics, dirtyRegion);
       this.drawImages(
-        context, frame.images ?? [], metrics, dirtyRegion, recoveredPayloadIds
+        context,
+        frame.images ?? [],
+        metrics,
+        dirtyRegion,
+        recoveredPayloadIds,
       );
     } finally {
       if (dirtyRegion) {
@@ -265,7 +277,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     context: CanvasRenderingContext2D,
     frame: WebHostSurfaceFrame,
     metrics: CanvasSurfaceMetrics,
-    dirtyRegion?: DirtyRegion
+    dirtyRegion?: DirtyRegion,
   ): void {
     if (dirtyRegion) {
       for (const [y, ranges] of dirtyRegion.rows) {
@@ -287,7 +299,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     metrics: CanvasSurfaceMetrics,
     row: WebHostSurfaceFrame["rows"][number],
     y: number,
-    ranges?: DirtyRowRanges
+    ranges?: DirtyRowRanges,
   ): void {
     for (const cell of row) {
       const [x, text, span, styleIndex] = cell;
@@ -304,7 +316,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     images: WebHostSurfaceImage[],
     metrics: CanvasSurfaceMetrics,
     dirtyRegion: DirtyRegion | undefined,
-    recoveredPayloadIds: Set<string>
+    recoveredPayloadIds: Set<string>,
   ): void {
     const missingPayloadIds = new Set<string>();
     for (const image of images) {
@@ -317,7 +329,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
         metrics,
         dirtyRegion,
         missingPayloadIds,
-        recoveredPayloadIds
+        recoveredPayloadIds,
       );
     }
     this.reportImagePayloadMisses(missingPayloadIds);
@@ -325,7 +337,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
 
   private prepareImages(
     images: WebHostSurfaceImage[],
-    recoveredPayloadIds: Set<string>
+    recoveredPayloadIds: Set<string>,
   ): void {
     const missingPayloadIds = new Set<string>();
     for (const image of images) {
@@ -343,26 +355,37 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     metrics: CanvasSurfaceMetrics,
     dirtyRegion: DirtyRegion | undefined,
     missingPayloadIds: Set<string>,
-    recoveredPayloadIds: Set<string>
+    recoveredPayloadIds: Set<string>,
   ): void {
     const [boundsX, boundsY, boundsWidth, boundsHeight] = image.bounds;
     const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
-    if (boundsWidth <= 0 || boundsHeight <= 0 || clipWidth <= 0 || clipHeight <= 0) {
+    if (
+      boundsWidth <= 0 ||
+      boundsHeight <= 0 ||
+      clipWidth <= 0 ||
+      clipHeight <= 0
+    ) {
       return;
     }
 
     const decodedImage = this.cachedImage(
       image,
       missingPayloadIds,
-      recoveredPayloadIds
+      recoveredPayloadIds,
     );
     if (!decodedImage) {
       return;
     }
 
     if (
-      dirtyRegion
-      && !dirtyRegionIntersectsCellRect(dirtyRegion, clipX, clipY, clipWidth, clipHeight)
+      dirtyRegion &&
+      !dirtyRegionIntersectsCellRect(
+        dirtyRegion,
+        clipX,
+        clipY,
+        clipWidth,
+        clipHeight,
+      )
     ) {
       return;
     }
@@ -373,7 +396,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       clipX * metrics.cellWidth,
       clipY * metrics.cellHeight,
       clipWidth * metrics.cellWidth,
-      clipHeight * metrics.cellHeight
+      clipHeight * metrics.cellHeight,
     );
     context.clip();
     // Opacity is placement state, not image-content identity. Keep the decoded
@@ -385,7 +408,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       boundsX * metrics.cellWidth,
       boundsY * metrics.cellHeight,
       boundsWidth * metrics.cellWidth,
-      boundsHeight * metrics.cellHeight
+      boundsHeight * metrics.cellHeight,
     );
     context.restore();
   }
@@ -393,7 +416,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   private cachedImage(
     image: WebHostSurfaceImage,
     missingPayloadIds: Set<string>,
-    recoveredPayloadIds: Set<string>
+    recoveredPayloadIds: Set<string>,
   ): CanvasImageSource | undefined {
     if (!isSupportedImageFormat(image.format)) {
       return undefined;
@@ -406,11 +429,11 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       return cached.image;
     }
 
-    const beginsRecoveredGeneration = image.dataBase64 !== undefined
-      && recoveredPayloadIds.delete(image.id);
+    const beginsRecoveredGeneration =
+      image.dataBase64 !== undefined && recoveredPayloadIds.delete(image.id);
     if (
-      image.dataBase64 !== undefined
-      && (cached?.payload === undefined || beginsRecoveredGeneration)
+      image.dataBase64 !== undefined &&
+      (cached?.payload === undefined || beginsRecoveredGeneration)
     ) {
       if (!this.canTrackUnresolvedImage(image.id, image.dataBase64)) {
         return undefined;
@@ -454,57 +477,57 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       const promise = this.imageDecoder(cached.payload, image.format, image.id);
       cached.promise = promise;
       cached.retries = nextAttempts;
-      void promise.then((decodedImage) => {
-        const latest = this.imageCache.get(image.id);
-        if (latest?.promise !== promise) {
-          closeDecodedImage(decodedImage);
-          return;
-        }
-        this.removeUnresolvedImage(image.id);
-        const decodedBytes = estimatedDecodedImageBytes(decodedImage);
-        this.imageCache.delete(image.id);
-        this.imageCache.set(image.id, { image: decodedImage, decodedBytes });
-        this.decodedImageCount += 1;
-        this.decodedImageBytes += decodedBytes;
-        this.trimDecodedImages();
-        this.requestRedraw();
-      }).catch(() => {
-        const latest = this.imageCache.get(image.id);
-        if (latest?.promise !== promise) {
-          return;
-        }
-        latest.promise = undefined;
-        if (
-          (latest.retries ?? 0) >= MAX_IMAGE_DECODE_ATTEMPTS
-          && !latest.missReported
-        ) {
-          latest.missReported = true;
-          if (isWebHostImageRecoveryId(image.id)) {
-            this.scheduleImagePayloadMiss(image.id);
+      void promise
+        .then((decodedImage) => {
+          const latest = this.imageCache.get(image.id);
+          if (latest?.promise !== promise) {
+            closeDecodedImage(decodedImage);
+            return;
           }
-        }
-        this.requestRedraw();
-      });
+          this.removeUnresolvedImage(image.id);
+          const decodedBytes = estimatedDecodedImageBytes(decodedImage);
+          this.imageCache.delete(image.id);
+          this.imageCache.set(image.id, { image: decodedImage, decodedBytes });
+          this.decodedImageCount += 1;
+          this.decodedImageBytes += decodedBytes;
+          this.trimDecodedImages();
+          this.requestRedraw();
+        })
+        .catch(() => {
+          const latest = this.imageCache.get(image.id);
+          if (latest?.promise !== promise) {
+            return;
+          }
+          latest.promise = undefined;
+          if (
+            (latest.retries ?? 0) >= MAX_IMAGE_DECODE_ATTEMPTS &&
+            !latest.missReported
+          ) {
+            latest.missReported = true;
+            if (isWebHostImageRecoveryId(image.id)) {
+              this.scheduleImagePayloadMiss(image.id);
+            }
+          }
+          this.requestRedraw();
+        });
     }
 
     return undefined;
   }
 
-  private canTrackUnresolvedImage(
-    id: string,
-    payload?: string
-  ): boolean {
+  private canTrackUnresolvedImage(id: string, payload?: string): boolean {
     const existing = this.imageCache.get(id);
     const existingPayloadCharacters = existing?.image
       ? 0
-      : existing?.payload?.length ?? 0;
-    const nextPayloadCharacters = this.unresolvedImagePayloadCharacters
-      - existingPayloadCharacters
-      + (payload?.length ?? 0);
+      : (existing?.payload?.length ?? 0);
+    const nextPayloadCharacters =
+      this.unresolvedImagePayloadCharacters -
+      existingPayloadCharacters +
+      (payload?.length ?? 0);
     return (
-      (this.unresolvedImageIds.has(id)
-        || this.unresolvedImageIds.size < MAX_UNRESOLVED_IMAGE_CACHE_ENTRIES)
-      && nextPayloadCharacters <= MAX_UNRESOLVED_IMAGE_PAYLOAD_CHARACTERS
+      (this.unresolvedImageIds.has(id) ||
+        this.unresolvedImageIds.size < MAX_UNRESOLVED_IMAGE_CACHE_ENTRIES) &&
+      nextPayloadCharacters <= MAX_UNRESOLVED_IMAGE_PAYLOAD_CHARACTERS
     );
   }
 
@@ -525,8 +548,10 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     // The candidate set follows LRU order, rebuilt when the visible set
     // changes. Completion of many pinned decodes never rescans that set.
     for (const id of this.inactiveDecodedImageIds) {
-      if (this.decodedImageCount <= this.maxDecodedImageCacheEntries
-        && this.decodedImageBytes <= this.maxDecodedImageCacheBytes) {
+      if (
+        this.decodedImageCount <= this.maxDecodedImageCacheEntries &&
+        this.decodedImageBytes <= this.maxDecodedImageCacheBytes
+      ) {
         break;
       }
       // Never evict the visible working set into a decode/resync/redraw loop.
@@ -535,10 +560,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     }
   }
 
-  private setUnresolvedImage(
-    id: string,
-    cached: CachedWebHostImage
-  ): void {
+  private setUnresolvedImage(id: string, cached: CachedWebHostImage): void {
     const existing = this.imageCache.get(id);
     if (this.unresolvedImageIds.has(id)) {
       this.unresolvedImagePayloadCharacters -= existing?.payload?.length ?? 0;
@@ -549,9 +571,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     this.pendingImagePayloadMissIds.delete(id);
   }
 
-  private removeUnresolvedImage(
-    id: string
-  ): void {
+  private removeUnresolvedImage(id: string): void {
     if (!this.unresolvedImageIds.delete(id)) {
       return;
     }
@@ -561,7 +581,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   }
 
   private sweepUnresolvedImages(
-    images: WebHostSurfaceImage[] | undefined
+    images: WebHostSurfaceImage[] | undefined,
   ): void {
     const presentedIds = new Set<string>();
     for (const image of images ?? []) {
@@ -581,22 +601,18 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     }
   }
 
-  private reportImagePayloadMisses(
-    ids: Set<string>
-  ): void {
+  private reportImagePayloadMisses(ids: Set<string>): void {
     if (ids.size === 0) {
       return;
     }
     const candidateIds = [...ids].sort();
     this.applyImagePayloadMissAdmission(
       candidateIds,
-      this.onImagePayloadMiss(candidateIds)
+      this.onImagePayloadMiss(candidateIds),
     );
   }
 
-  private scheduleImagePayloadMiss(
-    id: string
-  ): void {
+  private scheduleImagePayloadMiss(id: string): void {
     this.pendingImagePayloadMissIds.add(id);
     if (this.imagePayloadMissScheduled) {
       return;
@@ -610,22 +626,19 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       const ids = [...this.pendingImagePayloadMissIds].sort();
       this.pendingImagePayloadMissIds.clear();
       if (ids.length > 0) {
-        this.applyImagePayloadMissAdmission(
-          ids,
-          this.onImagePayloadMiss(ids)
-        );
+        this.applyImagePayloadMissAdmission(ids, this.onImagePayloadMiss(ids));
       }
     });
   }
 
   private applyImagePayloadMissAdmission(
     candidateIds: readonly string[],
-    admittedIds: readonly string[] | void
+    admittedIds: readonly string[] | void,
   ): void {
     // Callbacks authored against the former void contract commonly use a
     // concise `array.push(...)` body, whose runtime result is a number.
     const acceptedIds = new Set(
-      Array.isArray(admittedIds) ? admittedIds : candidateIds
+      Array.isArray(admittedIds) ? admittedIds : candidateIds,
     );
     for (const id of candidateIds) {
       const cached = this.imageCache.get(id);
@@ -642,7 +655,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     y: number,
     text: string,
     span: number,
-    style?: WebHostSurfaceStyle | null
+    style?: WebHostSurfaceStyle | null,
   ): void {
     const rectX = x * metrics.cellWidth;
     const rectY = y * metrics.cellHeight;
@@ -670,22 +683,45 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
         if (text !== " ") {
           context.fillStyle = foreground;
           context.strokeStyle = foreground;
-          if (!canRenderBoxDrawing(text) || !drawBoxDrawing(context, text, {
-            x: rectX,
-            y: rectY,
-            width,
-            height: metrics.cellHeight,
-          })) {
+          if (
+            !canRenderBoxDrawing(text) ||
+            !drawBoxDrawing(context, text, {
+              x: rectX,
+              y: rectY,
+              width,
+              height: metrics.cellHeight,
+            })
+          ) {
             context.font = fontForStyle(metrics.style, style);
             context.fillText(
               text,
               rectX,
-              rectY + Math.floor((metrics.cellHeight + metrics.style.fontSize) / 2) - 2
+              rectY +
+                Math.floor((metrics.cellHeight + metrics.style.fontSize) / 2) -
+                2,
             );
           }
         }
-        this.drawTextLine(context, metrics, rectX, rectY, width, style?.underline, "underline", foreground);
-        this.drawTextLine(context, metrics, rectX, rectY, width, style?.strikethrough, "strike", foreground);
+        this.drawTextLine(
+          context,
+          metrics,
+          rectX,
+          rectY,
+          width,
+          style?.underline,
+          "underline",
+          foreground,
+        );
+        this.drawTextLine(
+          context,
+          metrics,
+          rectX,
+          rectY,
+          width,
+          style?.strikethrough,
+          "strike",
+          foreground,
+        );
       } finally {
         context.restore();
       }
@@ -696,9 +732,13 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   private dirtyRegionForDamage(
     damage: WebHostSurfaceDamage | undefined,
     frame: WebHostSurfaceFrame,
-    metrics: CanvasSurfaceMetrics
+    metrics: CanvasSurfaceMetrics,
   ): DirtyRegion | undefined {
-    if (!damage || damage.requiresFullTextRepaint || damage.requiresFullGraphicsReplay) {
+    if (
+      !damage ||
+      damage.requiresFullTextRepaint ||
+      damage.requiresFullGraphicsReplay
+    ) {
       return undefined;
     }
 
@@ -713,12 +753,19 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
         rows.set(row, "full");
         continue;
       }
-      const rowRanges: DirtyCellRange[] = rows.get(row) === "full"
-        ? []
-        : [...(rows.get(row) as DirtyCellRange[] | undefined ?? [])];
+      const rowRanges: DirtyCellRange[] =
+        rows.get(row) === "full"
+          ? []
+          : [...((rows.get(row) as DirtyCellRange[] | undefined) ?? [])];
       for (const [start, end] of ranges) {
-        const lowerBound = Math.max(0, Math.min(frame.width, Math.floor(start)));
-        const upperBound = Math.max(lowerBound, Math.min(frame.width, Math.ceil(end)));
+        const lowerBound = Math.max(
+          0,
+          Math.min(frame.width, Math.floor(start)),
+        );
+        const upperBound = Math.max(
+          lowerBound,
+          Math.min(frame.width, Math.ceil(end)),
+        );
         if (lowerBound >= upperBound) {
           continue;
         }
@@ -740,7 +787,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     width: number,
     line: WebHostSurfaceStyle["underline"],
     placement: "underline" | "strike",
-    fallbackColor: string
+    fallbackColor: string,
   ): void {
     if (!line) {
       return;
@@ -755,9 +802,10 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       context.setLineDash([]);
     }
 
-    const lineY = placement === "underline"
-      ? y + metrics.cellHeight - 2
-      : y + Math.floor(metrics.cellHeight / 2);
+    const lineY =
+      placement === "underline"
+        ? y + metrics.cellHeight - 2
+        : y + Math.floor(metrics.cellHeight / 2);
     context.beginPath();
     context.moveTo(x, lineY);
     context.lineTo(x + width, lineY);
@@ -768,7 +816,8 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
 
 function cacheLimit(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isFinite(value)
-    ? Math.max(0, Math.floor(value)) : fallback;
+    ? Math.max(0, Math.floor(value))
+    : fallback;
 }
 
 function estimatedDecodedImageBytes(image: CanvasImageSource): number {
@@ -780,11 +829,20 @@ function estimatedDecodedImageBytes(image: CanvasImageSource): number {
   };
   const width = dimensions.naturalWidth ?? dimensions.width;
   const height = dimensions.naturalHeight ?? dimensions.height;
-  if (typeof width !== "number" || typeof height !== "number"
-    || !Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0) {
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width < 0 ||
+    height < 0
+  ) {
     return 0;
   }
-  return Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(width) * Math.ceil(height) * 4);
+  return Math.min(
+    Number.MAX_SAFE_INTEGER,
+    Math.ceil(width) * Math.ceil(height) * 4,
+  );
 }
 
 function closeDecodedImage(image: CanvasImageSource): void {
@@ -792,25 +850,23 @@ function closeDecodedImage(image: CanvasImageSource): void {
   closable.close?.();
 }
 
-function normalizedImageOpacity(
-  opacity: number | undefined
-): number {
+function normalizedImageOpacity(opacity: number | undefined): number {
   if (opacity === undefined || !Number.isFinite(opacity)) {
     return 1;
   }
   return Math.max(0, Math.min(1, opacity));
 }
 
-function isPaintableSurfaceImage(
-  image: WebHostSurfaceImage
-): boolean {
+function isPaintableSurfaceImage(image: WebHostSurfaceImage): boolean {
   const [, , boundsWidth, boundsHeight] = image.bounds;
   const [, , clipWidth, clipHeight] = image.visibleBounds;
-  return isSupportedImageFormat(image.format)
-    && boundsWidth > 0
-    && boundsHeight > 0
-    && clipWidth > 0
-    && clipHeight > 0;
+  return (
+    isSupportedImageFormat(image.format) &&
+    boundsWidth > 0 &&
+    boundsHeight > 0 &&
+    clipWidth > 0 &&
+    clipHeight > 0
+  );
 }
 
 /**
@@ -820,7 +876,7 @@ function isPaintableSurfaceImage(
  */
 export function fontForStyle(
   terminalStyle: ResolvedWebHostTerminalStyle,
-  style?: WebHostSurfaceStyle | null
+  style?: WebHostSurfaceStyle | null,
 ): string {
   const emphasis = style?.em ?? 0;
   const italic = (emphasis & 2) !== 0 ? "italic " : "";
@@ -832,7 +888,7 @@ function cellRect(
   metrics: CanvasSurfaceMetrics,
   x: number,
   y: number,
-  span: number
+  span: number,
 ): DirtyRect {
   return {
     x: x * metrics.cellWidth,
@@ -844,10 +900,13 @@ function cellRect(
 
 async function decodeImage(
   dataBase64: string,
-  format: NormalizedSurfaceImageFormat
+  format: NormalizedSurfaceImageFormat,
 ): Promise<CanvasImageSource> {
   const bytes = decodeBase64Bytes(dataBase64);
-  if (!admitsImageBytes(bytes)) throw new Error("Image exceeds the raster budget or has an unsupported container");
+  if (!admitsImageBytes(bytes))
+    throw new Error(
+      "Image exceeds the raster budget or has an unsupported container",
+    );
   const blob = new Blob([bytes], { type: `image/${format}` });
 
   if (typeof createImageBitmap === "function") {
@@ -872,9 +931,7 @@ async function decodeImage(
   });
 }
 
-function decodeBase64Bytes(
-  value: string
-): Uint8Array<ArrayBuffer> {
+function decodeBase64Bytes(value: string): Uint8Array<ArrayBuffer> {
   if (typeof atob === "function") {
     const binary = atob(value);
     const bytes = new Uint8Array(binary.length);
@@ -887,9 +944,7 @@ function decodeBase64Bytes(
   return new Uint8Array(Buffer.from(value, "base64"));
 }
 
-function normalizeCellRanges(
-  ranges: DirtyCellRange[]
-): DirtyCellRange[] {
+function normalizeCellRanges(ranges: DirtyCellRange[]): DirtyCellRange[] {
   const sorted = ranges
     .filter((range) => range.end > range.start)
     .sort((lhs, rhs) => lhs.start - rhs.start || lhs.end - rhs.end);
@@ -908,7 +963,7 @@ function normalizeCellRanges(
 function cellIntersectsRanges(
   x: number,
   span: number,
-  ranges: DirtyRowRanges
+  ranges: DirtyRowRanges,
 ): boolean {
   if (ranges === "full") {
     return true;
@@ -923,7 +978,7 @@ function dirtyRegionIntersectsCellRect(
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
 ): boolean {
   const startRow = Math.max(0, Math.floor(y));
   const endRow = Math.max(startRow, Math.ceil(y + height));
@@ -936,7 +991,13 @@ function dirtyRegionIntersectsCellRect(
     if (!ranges) {
       continue;
     }
-    if (cellIntersectsRanges(rectRange.start, rectRange.end - rectRange.start, ranges)) {
+    if (
+      cellIntersectsRanges(
+        rectRange.start,
+        rectRange.end - rectRange.start,
+        ranges,
+      )
+    ) {
       return true;
     }
   }

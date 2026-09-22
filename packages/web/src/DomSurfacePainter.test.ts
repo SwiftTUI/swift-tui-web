@@ -2,12 +2,12 @@ import { expect, test } from "bun:test";
 
 import { DomSurfacePainter } from "./DomSurfacePainter.ts";
 import type { SurfaceMetrics } from "./SurfaceRenderer.ts";
-import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 import {
   MAX_OUTSTANDING_IMAGE_RECOVERY_IDS,
   WebHostOutputDecoder,
   type WebHostSurfaceFrame,
 } from "./WebHostSurfaceTransport.ts";
+import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
 test("full paint renders positioned row and cell elements with resolved styles", () => {
   const dom = installFakeDOM();
@@ -28,9 +28,7 @@ test("full paint renders positioned row and cell elements with resolved styles",
           [0, "Hi", 2, 1],
           [4, "rev", 3, 2],
         ],
-        [
-          [2, "under", 5, 3],
-        ],
+        [[2, "under", 5, 3]],
       ],
     });
     painter.paint(metricsFor(2), frame);
@@ -77,7 +75,10 @@ test("root style pins the grid: line height, ligatures, and letter-spacing corre
     const painter = new DomSurfacePainter();
     const root = new FakeElement("div");
     painter.attach(root as unknown as HTMLElement);
-    painter.paint(metricsFor(2), makeFrame({ rows: [[[0, "x", 1, 0]]], styles: [null] }));
+    painter.paint(
+      metricsFor(2),
+      makeFrame({ rows: [[[0, "x", 1, 0]]], styles: [null] }),
+    );
 
     expect(root.style.lineHeight).toBe("18px");
     expect(root.style.fontVariantLigatures).toBe("none");
@@ -127,10 +128,7 @@ test("damage-scoped paints rebuild only the damaged rows", () => {
 
     const first = makeFrame({
       styles: [null],
-      rows: [
-        [[0, "one", 3, 0]],
-        [[0, "two", 3, 0]],
-      ],
+      rows: [[[0, "one", 3, 0]], [[0, "two", 3, 0]]],
     });
     painter.paint(metricsFor(2), first);
 
@@ -140,10 +138,7 @@ test("damage-scoped paints rebuild only the damaged rows", () => {
 
     const second = makeFrame({
       styles: [null],
-      rows: [
-        [[0, "one", 3, 0]],
-        [[0, "TWO", 3, 0]],
-      ],
+      rows: [[[0, "one", 3, 0]], [[0, "TWO", 3, 0]]],
       damage: {
         textRows: [[1, []]],
         requiresFullTextRepaint: false,
@@ -153,7 +148,9 @@ test("damage-scoped paints rebuild only the damaged rows", () => {
     painter.paint(metricsFor(2), second, second.damage);
 
     // Row 0's cell element is untouched (same identity); row 1 was rebuilt.
-    expect(rowsLayer?.children[0]?.children[0]).toBe(untouchedCell as FakeElement);
+    expect(rowsLayer?.children[0]?.children[0]).toBe(
+      untouchedCell as FakeElement,
+    );
     expect(rowsLayer?.children[1]?.children[0]?.textContent).toBe("TWO");
   } finally {
     dom.restore();
@@ -167,7 +164,10 @@ test("full-repaint damage and grid growth rebuild every row", () => {
     const root = new FakeElement("div");
     painter.attach(root as unknown as HTMLElement);
 
-    painter.paint(metricsFor(1), makeFrame({ styles: [null], rows: [[[0, "a", 1, 0]]] }));
+    painter.paint(
+      metricsFor(1),
+      makeFrame({ styles: [null], rows: [[[0, "a", 1, 0]]] }),
+    );
     const rowsLayer = root.children[0];
     expect(rowsLayer?.children).toHaveLength(1);
 
@@ -175,11 +175,7 @@ test("full-repaint damage and grid growth rebuild every row", () => {
       width: 8,
       height: 3,
       styles: [null],
-      rows: [
-        [[0, "a", 1, 0]],
-        [[0, "b", 1, 0]],
-        [[0, "c", 1, 0]],
-      ],
+      rows: [[[0, "a", 1, 0]], [[0, "b", 1, 0]], [[0, "c", 1, 0]]],
       damage: {
         textRows: [[2, []]],
         requiresFullTextRepaint: false,
@@ -213,7 +209,8 @@ test("surface images render as clipped elements and reconcile by id", () => {
           visibleBounds: [2, 0, 3, 2] as [number, number, number, number],
           scalingMode: "stretch" as const,
           opacity: 0.25,
-          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+          dataBase64:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
         },
       ],
     });
@@ -229,7 +226,9 @@ test("surface images render as clipped elements and reconcile by id", () => {
     expect(image?.style.opacity).toBe("0.25");
     expect(image?.style.left).toBe("-8px");
     expect(image?.style.width).toBe("32px");
-    expect(image?.getAttribute("src")).toStartWith("data:image/png;base64,iVBOR");
+    expect(image?.getAttribute("src")).toStartWith(
+      "data:image/png;base64,iVBOR",
+    );
 
     const withoutImage = makeFrame({ styles: [null], rows: [[]] });
     painter.paint(metricsFor(2), withoutImage);
@@ -246,39 +245,46 @@ test("payload-less repeats preserve a known image while updating its geometry", 
     const root = new FakeElement("div");
     painter.attach(root as unknown as HTMLElement);
 
-    painter.paint(metricsFor(2), makeFrame({
-      styles: [null],
-      rows: [[], []],
-      images: [
-        {
-          id: "img-1",
-          format: "png" as const,
-          bounds: [1, 0, 4, 2] as [number, number, number, number],
-          visibleBounds: [2, 0, 3, 2] as [number, number, number, number],
-          scalingMode: "stretch" as const,
-          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
-        },
-      ],
-    }));
+    painter.paint(
+      metricsFor(2),
+      makeFrame({
+        styles: [null],
+        rows: [[], []],
+        images: [
+          {
+            id: "img-1",
+            format: "png" as const,
+            bounds: [1, 0, 4, 2] as [number, number, number, number],
+            visibleBounds: [2, 0, 3, 2] as [number, number, number, number],
+            scalingMode: "stretch" as const,
+            dataBase64:
+              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+          },
+        ],
+      }),
+    );
 
     const imagesLayer = root.children[1];
     const container = imagesLayer?.children[0];
     const image = container?.children[0];
 
-    painter.paint(metricsFor(2), makeFrame({
-      styles: [null],
-      rows: [[], []],
-      images: [
-        {
-          id: "img-1",
-          format: "png" as const,
-          bounds: [2, 1, 5, 3] as [number, number, number, number],
-          visibleBounds: [3, 1, 2, 1] as [number, number, number, number],
-          scalingMode: "stretch" as const,
-          opacity: 0.75,
-        },
-      ],
-    }));
+    painter.paint(
+      metricsFor(2),
+      makeFrame({
+        styles: [null],
+        rows: [[], []],
+        images: [
+          {
+            id: "img-1",
+            format: "png" as const,
+            bounds: [2, 1, 5, 3] as [number, number, number, number],
+            visibleBounds: [3, 1, 2, 1] as [number, number, number, number],
+            scalingMode: "stretch" as const,
+            opacity: 0.75,
+          },
+        ],
+      }),
+    );
 
     expect(imagesLayer?.children).toHaveLength(1);
     expect(imagesLayer?.children[0]).toBe(container as FakeElement);
@@ -291,7 +297,9 @@ test("payload-less repeats preserve a known image while updating its geometry", 
     expect(image?.style.top).toBe("0px");
     expect(image?.style.width).toBe("40px");
     expect(image?.style.height).toBe("54px");
-    expect(image?.getAttribute("src")).toStartWith("data:image/png;base64,iVBOR");
+    expect(image?.getAttribute("src")).toStartWith(
+      "data:image/png;base64,iVBOR",
+    );
     expect(image?.style.opacity).toBe("0.75");
   } finally {
     dom.restore();
@@ -363,7 +371,7 @@ test("DOM keeps decoder-cap overflow image ids eligible for later recovery", () 
         bounds: [0, 0, 1, 1],
         visibleBounds: [0, 0, 1, 1],
         scalingMode: "stretch",
-      })
+      }),
     );
     const overflowId = images.at(-1)!.id;
     const missingFrame = makeFrame({
@@ -379,10 +387,10 @@ test("DOM keeps decoder-cap overflow image ids eligible for later recovery", () 
     painter.paint(metricsFor(1), missingFrame);
 
     expect(admissionAttempts[0]?.candidates).toHaveLength(
-      MAX_OUTSTANDING_IMAGE_RECOVERY_IDS + 1
+      MAX_OUTSTANDING_IMAGE_RECOVERY_IDS + 1,
     );
     expect(admissionAttempts[0]?.accepted).toHaveLength(
-      MAX_OUTSTANDING_IMAGE_RECOVERY_IDS
+      MAX_OUTSTANDING_IMAGE_RECOVERY_IDS,
     );
     expect(admissionAttempts).toHaveLength(1);
 
@@ -390,9 +398,15 @@ test("DOM keeps decoder-cap overflow image ids eligible for later recovery", () 
       epoch: 15,
       styles: [null],
       rows: [[]],
-      images: images.map((image, index) => index === 0
-        ? { ...image, dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=" }
-        : image),
+      images: images.map((image, index) =>
+        index === 0
+          ? {
+              ...image,
+              dataBase64:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+            }
+          : image,
+      ),
     });
     decoder.prepareToPresentSurface(recoveryFrame);
     painter.paint(metricsFor(1), recoveryFrame);
@@ -418,56 +432,63 @@ test("DOM image misses exclude retained, unsupported, invisible, and zero-area i
     const root = new FakeElement("div");
     painter.attach(root as unknown as HTMLElement);
 
-    painter.paint(metricsFor(1), makeFrame({
-      epoch: 11,
-      styles: [null],
-      rows: [[]],
-      images: [
-        {
-          id: "retained",
-          format: "png",
-          bounds: [0, 0, 1, 1],
-          visibleBounds: [0, 0, 1, 1],
-          scalingMode: "stretch",
-          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
-        },
-      ],
-    }));
-    painter.paint(metricsFor(1), makeFrame({
-      epoch: 11,
-      styles: [null],
-      rows: [[]],
-      images: [
-        {
-          id: "retained",
-          format: "png",
-          bounds: [1, 0, 1, 1],
-          visibleBounds: [1, 0, 1, 1],
-          scalingMode: "fit",
-        },
-        {
-          id: "future",
-          format: "future-format",
-          bounds: [0, 0, 1, 1],
-          visibleBounds: [0, 0, 1, 1],
-          scalingMode: "stretch",
-        },
-        {
-          id: "zero",
-          format: "png",
-          bounds: [0, 0, 0, 1],
-          visibleBounds: [0, 0, 1, 1],
-          scalingMode: "stretch",
-        },
-        {
-          id: "invisible",
-          format: "png",
-          bounds: [0, 0, 1, 1],
-          visibleBounds: [0, 0, 0, 1],
-          scalingMode: "stretch",
-        },
-      ],
-    }));
+    painter.paint(
+      metricsFor(1),
+      makeFrame({
+        epoch: 11,
+        styles: [null],
+        rows: [[]],
+        images: [
+          {
+            id: "retained",
+            format: "png",
+            bounds: [0, 0, 1, 1],
+            visibleBounds: [0, 0, 1, 1],
+            scalingMode: "stretch",
+            dataBase64:
+              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+          },
+        ],
+      }),
+    );
+    painter.paint(
+      metricsFor(1),
+      makeFrame({
+        epoch: 11,
+        styles: [null],
+        rows: [[]],
+        images: [
+          {
+            id: "retained",
+            format: "png",
+            bounds: [1, 0, 1, 1],
+            visibleBounds: [1, 0, 1, 1],
+            scalingMode: "fit",
+          },
+          {
+            id: "future",
+            format: "future-format",
+            bounds: [0, 0, 1, 1],
+            visibleBounds: [0, 0, 1, 1],
+            scalingMode: "stretch",
+          },
+          {
+            id: "zero",
+            format: "png",
+            bounds: [0, 0, 0, 1],
+            visibleBounds: [0, 0, 1, 1],
+            scalingMode: "stretch",
+          },
+          {
+            id: "invisible",
+            format: "png",
+            bounds: [0, 0, 1, 1],
+            visibleBounds: [0, 0, 0, 1],
+            scalingMode: "stretch",
+          },
+        ],
+      }),
+    );
 
     expect(misses).toEqual([]);
     expect(root.children[1]?.children).toHaveLength(1);
@@ -484,34 +505,39 @@ test("unknown image formats skip only that image", () => {
     const root = new FakeElement("div");
     painter.attach(root as unknown as HTMLElement);
 
-    painter.paint(metricsFor(1), makeFrame({
-      styles: [null],
-      rows: [[[0, "A", 1, 0]]],
-      images: [
-        {
-          id: "future",
-          format: "future-format",
-          bounds: [0, 0, 1, 1],
-          visibleBounds: [0, 0, 1, 1],
-          scalingMode: "future-scaling",
-          dataBase64: "Rk9P",
-        },
-        {
-          id: "known",
-          format: "png",
-          bounds: [1, 0, 1, 1],
-          visibleBounds: [1, 0, 1, 1],
-          scalingMode: "future-scaling",
-          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
-        },
-      ],
-    }));
+    painter.paint(
+      metricsFor(1),
+      makeFrame({
+        styles: [null],
+        rows: [[[0, "A", 1, 0]]],
+        images: [
+          {
+            id: "future",
+            format: "future-format",
+            bounds: [0, 0, 1, 1],
+            visibleBounds: [0, 0, 1, 1],
+            scalingMode: "future-scaling",
+            dataBase64: "Rk9P",
+          },
+          {
+            id: "known",
+            format: "png",
+            bounds: [1, 0, 1, 1],
+            visibleBounds: [1, 0, 1, 1],
+            scalingMode: "future-scaling",
+            dataBase64:
+              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+          },
+        ],
+      }),
+    );
 
     expect(root.children[0]?.children[0]?.children[0]?.textContent).toBe("A");
     const imagesLayer = root.children[1];
     expect(imagesLayer?.children).toHaveLength(1);
-    expect(imagesLayer?.children[0]?.children[0]?.getAttribute("src"))
-      .toStartWith("data:image/png;base64,iVBOR");
+    expect(
+      imagesLayer?.children[0]?.children[0]?.getAttribute("src"),
+    ).toStartWith("data:image/png;base64,iVBOR");
   } finally {
     dom.restore();
   }
@@ -524,7 +550,10 @@ test("painting an undefined frame clears the surface", () => {
     const root = new FakeElement("div");
     painter.attach(root as unknown as HTMLElement);
 
-    painter.paint(metricsFor(1), makeFrame({ styles: [null], rows: [[[0, "a", 1, 0]]] }));
+    painter.paint(
+      metricsFor(1),
+      makeFrame({ styles: [null], rows: [[[0, "a", 1, 0]]] }),
+    );
     expect(root.children[0]?.children).toHaveLength(1);
 
     painter.paint(metricsFor(1), undefined);
@@ -537,9 +566,7 @@ test("painting an undefined frame clears the surface", () => {
 // ---------------------------------------------------------------------------
 // Fixtures
 
-function metricsFor(
-  rows: number
-): SurfaceMetrics {
+function metricsFor(rows: number): SurfaceMetrics {
   return {
     columns: 8,
     rows,
@@ -550,7 +577,7 @@ function metricsFor(
 }
 
 function makeFrame(
-  overrides: Partial<WebHostSurfaceFrame>
+  overrides: Partial<WebHostSurfaceFrame>,
 ): WebHostSurfaceFrame {
   return {
     version: 2,
@@ -569,9 +596,7 @@ interface FakeDOMOptions {
   measuredAdvance?: number;
 }
 
-function installFakeDOM(
-  options: FakeDOMOptions = {}
-): { restore(): void } {
+function installFakeDOM(options: FakeDOMOptions = {}): { restore(): void } {
   const previousDocument = globalThis.document;
   globalThis.document = {
     createElement: (tagName: string) => {
@@ -607,17 +632,13 @@ class FakeElement {
     this.tagName = tagName.toUpperCase();
   }
 
-  appendChild(
-    child: FakeElement
-  ): FakeElement {
+  appendChild(child: FakeElement): FakeElement {
     child.parent = this;
     this.children.push(child);
     return child;
   }
 
-  replaceChildren(
-    ...children: FakeElement[]
-  ): void {
+  replaceChildren(...children: FakeElement[]): void {
     for (const child of children) {
       child.parent = this;
     }
@@ -635,16 +656,11 @@ class FakeElement {
     }
   }
 
-  setAttribute(
-    name: string,
-    value: string
-  ): void {
+  setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
   }
 
-  getAttribute(
-    name: string
-  ): string | null {
+  getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }
 }
@@ -658,8 +674,10 @@ class FakeCanvasElement extends FakeElement {
   }
 
   getContext(
-    contextId: string
-  ): { font: string; measureText(text: string): { width: number } } | undefined {
+    contextId: string,
+  ):
+    | { font: string; measureText(text: string): { width: number } }
+    | undefined {
     if (contextId !== "2d") {
       return undefined;
     }

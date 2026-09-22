@@ -67,7 +67,7 @@ export function collectWasmEngineProbeSignals(): WasmEngineProbeSignals {
 }
 
 export function classifyWasmEngineFamily(
-  signals: WasmEngineProbeSignals
+  signals: WasmEngineProbeSignals,
 ): WasmEngineFamily {
   if (/^\s*at /m.test(signals.errorStack)) {
     return "v8";
@@ -82,7 +82,7 @@ export function classifyWasmEngineFamily(
 }
 
 export function resolveWasmEngineCapabilities(
-  signals: WasmEngineProbeSignals = collectWasmEngineProbeSignals()
+  signals: WasmEngineProbeSignals = collectWasmEngineProbeSignals(),
 ): WasmEngineCapabilities {
   const engine = classifyWasmEngineFamily(signals);
   return {
@@ -100,7 +100,7 @@ export function resolveWasmEngineCapabilities(
  * `SWIFTTUI_STACK_LEAN_PROFILE` (or a tuning override) always wins.
  */
 export function stackProfileEnvironmentDefaults(
-  capabilities: WasmEngineCapabilities
+  capabilities: WasmEngineCapabilities,
 ): Record<string, string> {
   // V8 workers run non-lean by default: the measured worker stack budget
   // fits the full-depth resolve, and per-frame pipeline cost roughly
@@ -137,7 +137,7 @@ export function stackProfileEnvironmentDefaults(
  * (measured ~12.7× the worker's on trunk WebKit).
  */
 export function mainThreadStackProfileEnvironmentDefaults(
-  capabilities: WasmEngineCapabilities
+  capabilities: WasmEngineCapabilities,
 ): Record<string, string> {
   // HOLD: the main-thread (JSPI) stack budget fits non-lean on JSC and V8
   // (measured), but the JSC main-thread lane has not been soaked non-lean
@@ -155,7 +155,9 @@ export interface JSPIConstructors {
 
 /** Typed access to the JSPI surface, or undefined where unsupported. */
 export function jspiConstructors(): JSPIConstructors | undefined {
-  const wasm = globalThis.WebAssembly as unknown as Partial<JSPIConstructors> | undefined;
+  const wasm = globalThis.WebAssembly as unknown as
+    | Partial<JSPIConstructors>
+    | undefined;
   if (
     typeof wasm?.Suspending === "function" &&
     typeof wasm?.promising === "function"

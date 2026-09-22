@@ -18,7 +18,7 @@ export type WebHostSceneManifestSource =
   | Response;
 
 export function normalizeWebHostSceneManifest(
-  source: unknown
+  source: unknown,
 ): WebHostSceneManifest {
   const scenes = normalizeSceneDescriptors(source);
   if (scenes.length === 0) {
@@ -30,13 +30,15 @@ export function normalizeWebHostSceneManifest(
     defaultSceneId: defaultScene.id,
     scenes: scenes.map((scene, index) => ({
       ...scene,
-      isDefault: scene.id === defaultScene.id || (index === 0 && !scenes.some((entry) => entry.isDefault)),
+      isDefault:
+        scene.id === defaultScene.id ||
+        (index === 0 && !scenes.some((entry) => entry.isDefault)),
     })),
   };
 }
 
 export function webTUISceneManifestToJSON(
-  manifest: WebHostSceneManifest
+  manifest: WebHostSceneManifest,
 ): string {
   return JSON.stringify({
     defaultSceneId: manifest.defaultSceneId,
@@ -49,13 +51,13 @@ export function webTUISceneManifestToJSON(
 }
 
 export function webTUISceneManifestFromDescriptors(
-  descriptors: WebHostSceneDescriptor[]
+  descriptors: WebHostSceneDescriptor[],
 ): WebHostSceneManifest {
   return normalizeWebHostSceneManifest(descriptors);
 }
 
 export async function loadWebHostSceneManifest(
-  source: WebHostSceneManifestSource
+  source: WebHostSceneManifestSource,
 ): Promise<WebHostSceneManifest> {
   if (Array.isArray(source) || isSceneManifest(source)) {
     return normalizeWebHostSceneManifest(source);
@@ -85,9 +87,7 @@ export async function loadWebHostSceneManifest(
   return normalizeWebHostSceneManifest(source);
 }
 
-function normalizeSceneDescriptors(
-  source: unknown
-): WebHostSceneDescriptor[] {
+function normalizeSceneDescriptors(source: unknown): WebHostSceneDescriptor[] {
   if (Array.isArray(source)) {
     return source.map(normalizeDescriptor);
   }
@@ -96,8 +96,13 @@ function normalizeSceneDescriptors(
     return source.scenes.map(normalizeDescriptor);
   }
 
-  if (isObject(source) && Array.isArray((source as { scenes?: unknown }).scenes)) {
-    return ((source as { scenes: unknown[] }).scenes ?? []).map(normalizeDescriptor);
+  if (
+    isObject(source) &&
+    Array.isArray((source as { scenes?: unknown }).scenes)
+  ) {
+    return ((source as { scenes: unknown[] }).scenes ?? []).map(
+      normalizeDescriptor,
+    );
   }
 
   throw new Error("scene manifest must be an array or an object with scenes");
@@ -105,10 +110,12 @@ function normalizeSceneDescriptors(
 
 function normalizeDescriptor(
   value: unknown,
-  index?: number
+  index?: number,
 ): WebHostSceneDescriptor {
   if (!isObject(value)) {
-    throw new Error(`scene descriptor at index ${index ?? 0} must be an object`);
+    throw new Error(
+      `scene descriptor at index ${index ?? 0} must be an object`,
+    );
   }
 
   const id = String((value as { id?: unknown }).id ?? "").trim();
@@ -129,27 +136,26 @@ function normalizeDescriptor(
   };
 }
 
-function isSceneManifest(
-  value: unknown
-): value is WebHostSceneManifest {
+function isSceneManifest(value: unknown): value is WebHostSceneManifest {
   return (
     isObject(value) &&
-    typeof (value as { defaultSceneId?: unknown }).defaultSceneId === "string" &&
+    typeof (value as { defaultSceneId?: unknown }).defaultSceneId ===
+      "string" &&
     Array.isArray((value as { scenes?: unknown }).scenes)
   );
 }
 
-function isObject(
-  value: unknown
-): value is Record<string, unknown> {
+function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
 async function loadWebHostSceneManifestFromResponse(
-  response: Response
+  response: Response,
 ): Promise<WebHostSceneManifest> {
   if (!response.ok) {
-    throw new Error(`failed to load scene manifest: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `failed to load scene manifest: ${response.status} ${response.statusText}`,
+    );
   }
 
   return normalizeWebHostSceneManifest(await response.json());

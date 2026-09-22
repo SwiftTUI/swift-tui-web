@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-
+import { ManualAnimationFrameScheduler } from "./ManualAnimationFrameScheduler.ts";
+import { WebHostSceneRuntime, type WheelMode } from "./WebHostSceneRuntime.ts";
+import {
+  encodePasteInputMessage,
+  encodeResyncControlMessage,
+  type WebHostOutputSink,
+} from "./WebHostSurfaceTransport.ts";
+import { transportFixture } from "./WebHostTestFixtures.ts";
 import {
   BrowserWASIBridge,
   encodeRenderStyleControlMessage,
@@ -10,14 +17,6 @@ import {
   sharedInputQueueDefaultCapacity,
 } from "./wasi/SharedInputQueue.ts";
 import { createWasmSceneRuntimeFactory } from "./wasi/WasmSceneRuntime.ts";
-import { ManualAnimationFrameScheduler } from "./ManualAnimationFrameScheduler.ts";
-import { WebHostSceneRuntime, type WheelMode } from "./WebHostSceneRuntime.ts";
-import {
-  encodePasteInputMessage,
-  encodeResyncControlMessage,
-  type WebHostOutputSink,
-} from "./WebHostSurfaceTransport.ts";
-import { transportFixture } from "./WebHostTestFixtures.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -35,7 +34,9 @@ test("hidden scenes stay out of layout even after style updates", () => {
 
     expect(runtime.element.hidden).toBe(true);
     expect(runtime.element.style.getPropertyValue("display")).toBe("none");
-    expect(runtime.element.style.getPropertyPriority("display")).toBe("important");
+    expect(runtime.element.style.getPropertyPriority("display")).toBe(
+      "important",
+    );
 
     runtime.setStyle({ fontSize: 18 });
     expect(runtime.element.hidden).toBe(true);
@@ -135,20 +136,28 @@ test("runtime draws decoded surface frames into the canvas", async () => {
       globalAlpha: 0.5,
     });
 
-    const strokes = context.operations.filter((operation) => operation.type === "stroke");
+    const strokes = context.operations.filter(
+      (operation) => operation.type === "stroke",
+    );
     expect(strokes).toContainEqual({
       type: "stroke",
       strokeStyle: "#EBB33CFF",
       lineWidth: 1,
       lineDash: [4, 3],
-      path: [["moveTo", 0, 25], ["lineTo", 10, 25]],
+      path: [
+        ["moveTo", 0, 25],
+        ["lineTo", 10, 25],
+      ],
     });
     expect(strokes).toContainEqual({
       type: "stroke",
       strokeStyle: "#E05757FF",
       lineWidth: 1,
       lineDash: [1, 3],
-      path: [["moveTo", 0, 13], ["lineTo", 10, 13]],
+      path: [
+        ["moveTo", 0, 13],
+        ["lineTo", 10, 13],
+      ],
     });
     expect(strokes.some((operation) => operation.lineWidth === 2)).toBe(true);
   } finally {
@@ -251,7 +260,11 @@ test("the resizable scene frame applies the standalone geometry", async () => {
 test("a container resize immediately repaints the retained frame at the new full size", async () => {
   const dom = installFakeDOM();
   try {
-    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 10, rows: 4 });
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 10,
+      rows: 4,
+    });
     const mount = new FakeElement("div");
     const runtime = new WebHostSceneRuntime({
       mount: mount as unknown as HTMLElement,
@@ -270,14 +283,18 @@ test("a container resize immediately repaints the retained frame at the new full
       bottom: 109,
     };
     await runtime.mount();
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 10,
-      height: 4,
-      styles: [null],
-      rows: [[[0, "A", 1, 0]], [], [], []],
-      images: [],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 10,
+          height: 4,
+          styles: [null],
+          rows: [[[0, "A", 1, 0]], [], [], []],
+          images: [],
+        }),
+      ),
+    );
 
     const canvas = dom.canvases[0]!;
     canvas.context.operations = [];
@@ -332,35 +349,55 @@ test("runtime redraws only damaged cells when a compatible frame includes damage
 
     const canvas = dom.canvases[0]!;
     const context = canvas.context;
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [
-        [[0, "A", 1, 0], [1, "B", 1, 0]],
-        [[0, "C", 1, 0], [1, "D", 1, 0]],
-      ],
-      images: [],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [
+            [
+              [0, "A", 1, 0],
+              [1, "B", 1, 0],
+            ],
+            [
+              [0, "C", 1, 0],
+              [1, "D", 1, 0],
+            ],
+          ],
+          images: [],
+        }),
+      ),
+    );
 
     context.operations = [];
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [
-        [[0, "A", 1, 0], [1, "B", 1, 0]],
-        [[0, "X", 1, 0], [1, "D", 1, 0]],
-      ],
-      images: [],
-      damage: {
-        textRows: [[1, [[0, 1]]]],
-        requiresFullTextRepaint: false,
-        requiresFullGraphicsReplay: false,
-      },
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [
+            [
+              [0, "A", 1, 0],
+              [1, "B", 1, 0],
+            ],
+            [
+              [0, "X", 1, 0],
+              [1, "D", 1, 0],
+            ],
+          ],
+          images: [],
+          damage: {
+            textRows: [[1, [[0, 1]]]],
+            requiresFullTextRepaint: false,
+            requiresFullGraphicsReplay: false,
+          },
+        }),
+      ),
+    );
 
     expect(context.operations).toContainEqual({
       type: "clearRect",
@@ -401,33 +438,47 @@ test("runtime redraws spanning cells that overlap a dirty range", async () => {
 
     const canvas = dom.canvases[0]!;
     const context = canvas.context;
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 6,
-      height: 1,
-      styles: [null],
-      rows: [
-        [[0, "Wide", 4, 0], [4, "Z", 1, 0]],
-      ],
-      images: [],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 6,
+          height: 1,
+          styles: [null],
+          rows: [
+            [
+              [0, "Wide", 4, 0],
+              [4, "Z", 1, 0],
+            ],
+          ],
+          images: [],
+        }),
+      ),
+    );
 
     context.operations = [];
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 6,
-      height: 1,
-      styles: [null],
-      rows: [
-        [[0, "wide", 4, 0], [4, "Z", 1, 0]],
-      ],
-      images: [],
-      damage: {
-        textRows: [[0, [[2, 3]]]],
-        requiresFullTextRepaint: false,
-        requiresFullGraphicsReplay: false,
-      },
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 6,
+          height: 1,
+          styles: [null],
+          rows: [
+            [
+              [0, "wide", 4, 0],
+              [4, "Z", 1, 0],
+            ],
+          ],
+          images: [],
+          damage: {
+            textRows: [[0, [[2, 3]]]],
+            requiresFullTextRepaint: false,
+            requiresFullGraphicsReplay: false,
+          },
+        }),
+      ),
+    );
 
     expect(context.operations).toContainEqual({
       type: "clearRect",
@@ -469,66 +520,68 @@ test("runtime clears stale overlay text when dirty rects remove an overlay", asy
     const context = canvas.context;
     context.operations = [];
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 24,
-      height: 4,
-      styles: [null],
-      rows: [
-        [[0, "Base content", 12, 0]],
-        [],
-        [],
-        [],
-      ],
-      images: [],
-    })));
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 24,
-      height: 4,
-      styles: [null],
-      rows: [
-        [[0, "Base content", 12, 0]],
-        [[0, "Command palette", 15, 0]],
-        [[0, "Search actions", 14, 0]],
-        [],
-      ],
-      images: [],
-      damage: {
-        textRows: [
-          [1, [[0, 24]]],
-          [2, [[0, 24]]],
-        ],
-        requiresFullTextRepaint: false,
-        requiresFullGraphicsReplay: false,
-      },
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 24,
+          height: 4,
+          styles: [null],
+          rows: [[[0, "Base content", 12, 0]], [], [], []],
+          images: [],
+        }),
+      ),
+    );
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 24,
+          height: 4,
+          styles: [null],
+          rows: [
+            [[0, "Base content", 12, 0]],
+            [[0, "Command palette", 15, 0]],
+            [[0, "Search actions", 14, 0]],
+            [],
+          ],
+          images: [],
+          damage: {
+            textRows: [
+              [1, [[0, 24]]],
+              [2, [[0, 24]]],
+            ],
+            requiresFullTextRepaint: false,
+            requiresFullGraphicsReplay: false,
+          },
+        }),
+      ),
+    );
 
     const overlayText = readCanvasTextLikePixels(canvas);
     expect(overlayText).toContain("Command palette");
     expect(overlayText).toContain("Search actions");
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 24,
-      height: 4,
-      styles: [null],
-      rows: [
-        [[0, "Base content", 12, 0]],
-        [],
-        [],
-        [],
-      ],
-      images: [],
-      damage: {
-        textRows: [
-          [1, [[0, 24]]],
-          [2, [[0, 24]]],
-        ],
-        requiresFullTextRepaint: false,
-        requiresFullGraphicsReplay: false,
-      },
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 24,
+          height: 4,
+          styles: [null],
+          rows: [[[0, "Base content", 12, 0]], [], [], []],
+          images: [],
+          damage: {
+            textRows: [
+              [1, [[0, 24]]],
+              [2, [[0, 24]]],
+            ],
+            requiresFullTextRepaint: false,
+            requiresFullGraphicsReplay: false,
+          },
+        }),
+      ),
+    );
 
     const dismissedText = readCanvasTextLikePixels(canvas);
     expect(dismissedText).not.toContain("Command palette");
@@ -541,7 +594,11 @@ test("runtime clears stale overlay text when dirty rects remove an overlay", asy
 test("runtime skips canvas drawing for compatible empty damage", async () => {
   const dom = installFakeDOM();
   try {
-    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
     const mount = new FakeElement("div");
     const runtime = new WebHostSceneRuntime({
       mount: mount as unknown as HTMLElement,
@@ -552,30 +609,38 @@ test("runtime skips canvas drawing for compatible empty damage", async () => {
     });
 
     await runtime.mount();
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[[0, "A", 1, 0]], []],
-      images: [],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[[0, "A", 1, 0]], []],
+          images: [],
+        }),
+      ),
+    );
 
     const context = dom.canvases[0]!.context;
     context.operations = [];
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[[0, "A", 1, 0]], []],
-      images: [],
-      damage: {
-        textRows: [],
-        requiresFullTextRepaint: false,
-        requiresFullGraphicsReplay: false,
-      },
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[[0, "A", 1, 0]], []],
+          images: [],
+          damage: {
+            textRows: [],
+            requiresFullTextRepaint: false,
+            requiresFullGraphicsReplay: false,
+          },
+        }),
+      ),
+    );
 
     expect(context.operations).toEqual([]);
   } finally {
@@ -588,7 +653,11 @@ test("runtime clears dirty rows when an image disappears", async () => {
     createImageBitmap: async () => ({ imageId: "decoded-image" }),
   });
   try {
-    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
     const mount = new FakeElement("div");
     const runtime = new WebHostSceneRuntime({
       mount: mount as unknown as HTMLElement,
@@ -599,46 +668,49 @@ test("runtime clears dirty rows when an image disappears", async () => {
     });
 
     await runtime.mount();
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [
-        [[0, "A", 1, 0]],
-        [[0, "B", 1, 0]],
-      ],
-      images: [
-        {
-          id: "png:test",
-          format: "png",
-          bounds: [1, 1, 2, 1],
-          visibleBounds: [1, 1, 2, 1],
-          scalingMode: "stretch",
-          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
-        },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[[0, "A", 1, 0]], [[0, "B", 1, 0]]],
+          images: [
+            {
+              id: "png:test",
+              format: "png",
+              bounds: [1, 1, 2, 1],
+              visibleBounds: [1, 1, 2, 1],
+              scalingMode: "stretch",
+              dataBase64:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+            },
+          ],
+        }),
+      ),
+    );
     await flushPromises();
 
     const context = dom.canvases[0]!.context;
     context.operations = [];
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [
-        [[0, "A", 1, 0]],
-        [[0, "B", 1, 0]],
-      ],
-      images: [],
-      damage: {
-        textRows: [[1, [[1, 3]]]],
-        requiresFullTextRepaint: false,
-        requiresFullGraphicsReplay: false,
-      },
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[[0, "A", 1, 0]], [[0, "B", 1, 0]]],
+          images: [],
+          damage: {
+            textRows: [[1, [[1, 3]]]],
+            requiresFullTextRepaint: false,
+            requiresFullGraphicsReplay: false,
+          },
+        }),
+      ),
+    );
 
     expect(context.operations).toContainEqual({
       type: "clearRect",
@@ -657,22 +729,18 @@ test("runtime clears dirty rows when an image disappears", async () => {
 test("WASI runtime forwards bridge control input into the worker queue", async () => {
   const dom = installFakeDOM();
   const previousWorker = globalThis.Worker;
-  const postedMessages: Array<{ inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0] }> = [];
+  const postedMessages: Array<{
+    inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
+  }> = [];
 
   class FakeWorker {
-    constructor(
-      _url: string | URL,
-      _options?: WorkerOptions
-    ) {}
+    constructor(_url: string | URL, _options?: WorkerOptions) {}
 
-    addEventListener(
-      _type: string,
-      _listener: EventListener
-    ): void {}
+    addEventListener(_type: string, _listener: EventListener): void {}
 
-    postMessage(
-      message: { inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0] }
-    ): void {
+    postMessage(message: {
+      inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
+    }): void {
       postedMessages.push(message);
     }
 
@@ -681,11 +749,18 @@ test("WASI runtime forwards bridge control input into the worker queue", async (
 
   globalThis.Worker = FakeWorker as unknown as typeof Worker;
   try {
-    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
     const mount = new FakeElement("div");
-    const runtime = createWasmSceneRuntimeFactory(new URL("https://example.test/app.wasm"), {
-      workerModuleURL: "fake-worker.js",
-    })({
+    const runtime = createWasmSceneRuntimeFactory(
+      new URL("https://example.test/app.wasm"),
+      {
+        workerModuleURL: "fake-worker.js",
+      },
+    )({
       mount: mount as unknown as HTMLElement,
       descriptor: { id: "main", title: "Main", isDefault: true },
       style: { fontSize: 20 },
@@ -705,13 +780,13 @@ test("WASI runtime forwards bridge control input into the worker queue", async (
     bridge.updateRenderStyle(style);
     const styleBytes = reader.readAvailable(reader.availableBytes());
     expect(Array.from(styleBytes ?? [])).toEqual(
-      Array.from(encodeRenderStyleControlMessage(style))
+      Array.from(encodeRenderStyleControlMessage(style)),
     );
 
     bridge.resize(10, 4, 9, 18);
     const resizeBytes = reader.readAvailable(reader.availableBytes());
     expect(Array.from(resizeBytes ?? [])).toEqual(
-      Array.from(encodeResizeControlMessage(10, 4, 9, 18))
+      Array.from(encodeResizeControlMessage(10, 4, 9, 18)),
     );
 
     runtime.dispose();
@@ -731,21 +806,13 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
   const consoleErrors: unknown[][] = [];
 
   class FakeWorker {
-    constructor(
-      _url: string | URL,
-      _options?: WorkerOptions
-    ) {}
+    constructor(_url: string | URL, _options?: WorkerOptions) {}
 
-    addEventListener(
-      _type: string,
-      _listener: EventListener
-    ): void {}
+    addEventListener(_type: string, _listener: EventListener): void {}
 
-    postMessage(
-      message: {
-        inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
-      }
-    ): void {
+    postMessage(message: {
+      inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
+    }): void {
       postedMessages.push(message);
     }
 
@@ -765,7 +832,7 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
     });
     const runtime = createWasmSceneRuntimeFactory(
       new URL("https://example.test/app.wasm"),
-      { workerModuleURL: "fake-worker.js" }
+      { workerModuleURL: "fake-worker.js" },
     )({
       mount: new FakeElement("div") as unknown as HTMLElement,
       descriptor: { id: "main", title: "Main", isDefault: true },
@@ -786,7 +853,7 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
     // One byte more than the ring can hold alongside the resync record, so the
     // resync cannot be written in one go.
     const filler = new Uint8Array(
-      sharedInputQueueDefaultCapacity - resync.byteLength + 1
+      sharedInputQueueDefaultCapacity - resync.byteLength + 1,
     );
     bridge.sendInput(filler);
     expect(reader.availableBytes()).toBe(filler.byteLength);
@@ -808,8 +875,9 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
     // through the ring as the reader drains, so nothing is dropped and nothing
     // is reported.
     expect(
-      Array.from(await drainExactly(reader, filler.byteLength + resync.byteLength))
-        .slice(filler.byteLength)
+      Array.from(
+        await drainExactly(reader, filler.byteLength + resync.byteLength),
+      ).slice(filler.byteLength),
     ).toEqual(Array.from(resync));
     expect(consoleErrors).toEqual([]);
 
@@ -823,14 +891,17 @@ test("WASI retries one keyframe resync after shared input capacity returns", asy
       ids: ["png:capacity-retry"],
     });
     const imageFiller = new Uint8Array(
-      sharedInputQueueDefaultCapacity - imageResync.byteLength + 1
+      sharedInputQueueDefaultCapacity - imageResync.byteLength + 1,
     );
     bridge.sendInput(imageFiller);
     bridge.requestImagePayloads(["png:capacity-retry"]);
     expect(
       Array.from(
-        await drainExactly(reader, imageFiller.byteLength + imageResync.byteLength)
-      ).slice(imageFiller.byteLength)
+        await drainExactly(
+          reader,
+          imageFiller.byteLength + imageResync.byteLength,
+        ),
+      ).slice(imageFiller.byteLength),
     ).toEqual(Array.from(imageResync));
     expect(consoleErrors).toEqual([]);
 
@@ -855,21 +926,13 @@ test("WASI input routing streams an oversized paste through the ring", async () 
   const consoleErrors: unknown[][] = [];
 
   class FakeWorker {
-    constructor(
-      _url: string | URL,
-      _options?: WorkerOptions
-    ) {}
+    constructor(_url: string | URL, _options?: WorkerOptions) {}
 
-    addEventListener(
-      _type: string,
-      _listener: EventListener
-    ): void {}
+    addEventListener(_type: string, _listener: EventListener): void {}
 
-    postMessage(
-      message: {
-        inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
-      }
-    ): void {
+    postMessage(message: {
+      inputQueue?: ConstructorParameters<typeof SharedInputQueueReader>[0];
+    }): void {
       postedMessages.push(message);
     }
 
@@ -889,7 +952,7 @@ test("WASI input routing streams an oversized paste through the ring", async () 
     });
     const runtime = createWasmSceneRuntimeFactory(
       new URL("https://example.test/app.wasm"),
-      { workerModuleURL: "fake-worker.js" }
+      { workerModuleURL: "fake-worker.js" },
     )({
       mount: new FakeElement("div") as unknown as HTMLElement,
       descriptor: { id: "main", title: "Main", isDefault: true },
@@ -908,14 +971,9 @@ test("WASI input routing streams an oversized paste through the ring", async () 
 
     // Both of these exceed the 64 KiB ring by one byte, which used to drop the
     // whole clipboard. They now stream through it while the reader drains.
-    const overflowingPastes = [
-      "a".repeat(65_529),
-      "界".repeat(7_281),
-    ];
+    const overflowingPastes = ["a".repeat(65_529), "界".repeat(7_281)];
     expect(
-      overflowingPastes.map(
-        (text) => encodePasteInputMessage(text).byteLength
-      )
+      overflowingPastes.map((text) => encodePasteInputMessage(text).byteLength),
     ).toEqual([65_537, 65_537]);
 
     for (const text of overflowingPastes) {
@@ -934,7 +992,11 @@ test("WASI input routing streams an oversized paste through the ring", async () 
       // the reader, and continues. Every byte arrives, in order, as one paste.
       const expected = encodePasteInputMessage(text);
       const received: number[] = [];
-      for (let turn = 0; turn < 512 && received.length < expected.byteLength; turn += 1) {
+      for (
+        let turn = 0;
+        turn < 512 && received.length < expected.byteLength;
+        turn += 1
+      ) {
         const chunk = reader.readAvailable(expected.byteLength);
         if (chunk) {
           received.push(...chunk);
@@ -985,57 +1047,64 @@ test("runtime mounts accessibility tree and announces live-region changes", asyn
     const canvas = dom.canvases[0]!;
     expect(canvas.getAttribute("aria-hidden")).toBe("true");
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      accessibilityTree: [
-        {
-          id: "root",
-          rect: [0, 0, 4, 2],
-          role: "group",
-          label: "Root",
-          isFocused: false,
-        },
-        {
-          id: "root/button",
-          parentId: "root",
-          rect: [0, 0, 2, 1],
-          role: "button",
-          label: "Save",
-          hint: "Writes the file",
-          isFocused: true,
-        },
-        {
-          id: "root/status",
-          parentId: "root",
-          rect: [0, 1, 2, 1],
-          role: "status",
-          label: "Idle",
-          liveRegion: "polite",
-          isFocused: false,
-        },
-        {
-          id: "root/error",
-          parentId: "root",
-          rect: [2, 1, 2, 1],
-          role: "alert",
-          label: "Ready",
-          liveRegion: "assertive",
-          isFocused: false,
-        },
-      ],
-      accessibilityAnnouncements: [
-        { message: "Ready", politeness: "polite" },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          accessibilityTree: [
+            {
+              id: "root",
+              rect: [0, 0, 4, 2],
+              role: "group",
+              label: "Root",
+              isFocused: false,
+            },
+            {
+              id: "root/button",
+              parentId: "root",
+              rect: [0, 0, 2, 1],
+              role: "button",
+              label: "Save",
+              hint: "Writes the file",
+              isFocused: true,
+            },
+            {
+              id: "root/status",
+              parentId: "root",
+              rect: [0, 1, 2, 1],
+              role: "status",
+              label: "Idle",
+              liveRegion: "polite",
+              isFocused: false,
+            },
+            {
+              id: "root/error",
+              parentId: "root",
+              rect: [2, 1, 2, 1],
+              role: "alert",
+              label: "Ready",
+              liveRegion: "assertive",
+              isFocused: false,
+            },
+          ],
+          accessibilityAnnouncements: [
+            { message: "Ready", politeness: "polite" },
+          ],
+        }),
+      ),
+    );
 
-    const tree = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-tree");
+    const tree = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-tree",
+    );
     const announcer = childWithClass(
       runtime.terminalMount,
-      "webhost-scene__accessibility-announcer"
+      "webhost-scene__accessibility-announcer",
     );
     const root = childWithData(tree, "accessibilityId", "root");
     const button = childWithData(root, "accessibilityId", "root/button");
@@ -1052,67 +1121,79 @@ test("runtime mounts accessibility tree and announces live-region changes", asyn
     expect(status.style.top).toBe("27px");
     expect(announcer.textContent).toBe("Ready");
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      accessibilityTree: [
-        {
-          id: "root/status",
-          rect: [0, 1, 2, 1],
-          role: "status",
-          label: "Saved",
-          liveRegion: "polite",
-          isFocused: false,
-        },
-        {
-          id: "root/error",
-          rect: [2, 1, 2, 1],
-          role: "alert",
-          label: "Failed",
-          liveRegion: "assertive",
-          isFocused: false,
-        },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          accessibilityTree: [
+            {
+              id: "root/status",
+              rect: [0, 1, 2, 1],
+              role: "status",
+              label: "Saved",
+              liveRegion: "polite",
+              isFocused: false,
+            },
+            {
+              id: "root/error",
+              rect: [2, 1, 2, 1],
+              role: "alert",
+              label: "Failed",
+              liveRegion: "assertive",
+              isFocused: false,
+            },
+          ],
+        }),
+      ),
+    );
 
     expect(announcer.getAttribute("aria-live")).toBe("assertive");
     expect(announcer.textContent).toBe("Failed\nSaved");
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      accessibilityAnnouncements: [
-        { message: "Published", politeness: "assertive" },
-        { message: "Queued", politeness: "polite" },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          accessibilityAnnouncements: [
+            { message: "Published", politeness: "assertive" },
+            { message: "Queued", politeness: "polite" },
+          ],
+        }),
+      ),
+    );
 
     expect(announcer.getAttribute("aria-live")).toBe("assertive");
     expect(announcer.textContent).toBe("Published\nQueued");
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      accessibilityTree: [
-        {
-          id: "root/status",
-          rect: [0, 1, 2, 1],
-          role: "status",
-          label: "Saved",
-          liveRegion: "polite",
-          isFocused: false,
-        },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          accessibilityTree: [
+            {
+              id: "root/status",
+              rect: [0, 1, 2, 1],
+              role: "status",
+              label: "Saved",
+              liveRegion: "polite",
+              isFocused: false,
+            },
+          ],
+        }),
+      ),
+    );
 
     expect(announcer.textContent).toBe("Published\nQueued");
   } finally {
@@ -1145,23 +1226,28 @@ test("unknown accessibility tokens preserve rendering and apply consumer default
     context.operations = [];
 
     bridge.stdout.write(
-      encoder.encode(transportFixture("web-surface-open-world-tokens"))
+      encoder.encode(transportFixture("web-surface-open-world-tokens")),
     );
 
     expect(fillTextOperations(context, "A")).toHaveLength(1);
-    const tree = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-tree");
+    const tree = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-tree",
+    );
     const status = childWithData(tree, "accessibilityId", "status");
     expect(status.getAttribute("aria-live")).toBeNull();
     const announcer = childWithClass(
       runtime.terminalMount,
-      "webhost-scene__accessibility-announcer"
+      "webhost-scene__accessibility-announcer",
     );
     expect(announcer.getAttribute("aria-live")).toBe("polite");
     expect(announcer.textContent).toBe("Ready");
     expect(runtime.focusPresentation?.semantics).toBe("automatic");
-    expect(runtime.terminalMount.children.some(
-      (child) => child.className === "webhost-scene__diagnostic"
-    )).toBe(false);
+    expect(
+      runtime.terminalMount.children.some(
+        (child) => child.className === "webhost-scene__diagnostic",
+      ),
+    ).toBe(false);
   } finally {
     dom.restore();
   }
@@ -1173,7 +1259,12 @@ test("runtime decodes surface images once and reuses the cached image", async ()
   const dom = installFakeDOM({
     createImageBitmap: async (blob) => {
       decodedBlobs.push(blob);
-      return { imageId: `decoded-${decodedBlobs.length}`, close: () => { closedImages++; } };
+      return {
+        imageId: `decoded-${decodedBlobs.length}`,
+        close: () => {
+          closedImages++;
+        },
+      };
     },
   });
   try {
@@ -1199,41 +1290,46 @@ test("runtime decodes surface images once and reuses the cached image", async ()
     const canvas = dom.canvases[0]!;
     const context = canvas.context;
     context.operations = [];
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[[0, "A", 1, 0]], []],
-      images: [
-        {
-          id: "future:test",
-          format: "future-format",
-          bounds: [0, 0, 1, 1],
-          visibleBounds: [0, 0, 1, 1],
-          scalingMode: "future-scaling",
-          pixelSize: [1, 1],
-          dataBase64: "Rk9P",
-        },
-        {
-          id: "png:test",
-          format: "png",
-          bounds: [1, 0, 2, 2],
-          visibleBounds: [1, 0, 1, 2],
-          scalingMode: "future-scaling",
-          pixelSize: [2, 2],
-          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
-        },
-        {
-          id: "png:test",
-          format: "png",
-          bounds: [3, 0, 1, 1],
-          visibleBounds: [3, 0, 1, 1],
-          scalingMode: "stretch",
-          pixelSize: [2, 2],
-        },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[[0, "A", 1, 0]], []],
+          images: [
+            {
+              id: "future:test",
+              format: "future-format",
+              bounds: [0, 0, 1, 1],
+              visibleBounds: [0, 0, 1, 1],
+              scalingMode: "future-scaling",
+              pixelSize: [1, 1],
+              dataBase64: "Rk9P",
+            },
+            {
+              id: "png:test",
+              format: "png",
+              bounds: [1, 0, 2, 2],
+              visibleBounds: [1, 0, 1, 2],
+              scalingMode: "future-scaling",
+              pixelSize: [2, 2],
+              dataBase64:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+            },
+            {
+              id: "png:test",
+              format: "png",
+              bounds: [3, 0, 1, 1],
+              visibleBounds: [3, 0, 1, 1],
+              scalingMode: "stretch",
+              pixelSize: [2, 2],
+            },
+          ],
+        }),
+      ),
+    );
     await flushPromises();
 
     expect(decodedBlobs).toHaveLength(1);
@@ -1269,22 +1365,26 @@ test("runtime decodes surface images once and reuses the cached image", async ()
     });
 
     context.operations = [];
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      images: [
-        {
-          id: "png:test",
-          format: "png",
-          bounds: [0, 1, 1, 1],
-          visibleBounds: [0, 1, 1, 1],
-          scalingMode: "stretch",
-        },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          images: [
+            {
+              id: "png:test",
+              format: "png",
+              bounds: [0, 1, 1, 1],
+              visibleBounds: [0, 1, 1, 1],
+              scalingMode: "stretch",
+            },
+          ],
+        }),
+      ),
+    );
 
     expect(decodedBlobs).toHaveLength(1);
     expect(drawImageOperations(context)).toEqual([
@@ -1342,57 +1442,69 @@ test("Canvas decode failure requests WASI image recovery and repaints the same s
       return true;
     });
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      epoch: 21,
-      gen: 1,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      images: [{
-        id: "png:recover-e2e",
-        format: "png",
-        bounds: [1, 0, 2, 2],
-        visibleBounds: [1, 0, 2, 2],
-        scalingMode: "stretch",
-        dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
-      }],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          epoch: 21,
+          gen: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          images: [
+            {
+              id: "png:recover-e2e",
+              format: "png",
+              bounds: [1, 0, 2, 2],
+              visibleBounds: [1, 0, 2, 2],
+              scalingMode: "stretch",
+              dataBase64:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+            },
+          ],
+        }),
+      ),
+    );
     for (let attempt = 0; attempt < 8; attempt += 1) {
       await flushPromises();
     }
 
     expect(decodeAttempts).toBe(3);
-    expect(controlMessages.filter(
-      (message) => message.startsWith("\u001Eresync:")
-    )).toEqual([
-      '\u001Eresync:{"scope":"images","ids":["png:recover-e2e"]}\n',
-    ]);
+    expect(
+      controlMessages.filter((message) => message.startsWith("\u001Eresync:")),
+    ).toEqual(['\u001Eresync:{"scope":"images","ids":["png:recover-e2e"]}\n']);
     expect(drawImageOperations(dom.canvases[0]!.context)).toEqual([]);
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      epoch: 21,
-      gen: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      images: [{
-        id: "png:recover-e2e",
-        format: "png",
-        bounds: [1, 0, 2, 2],
-        visibleBounds: [1, 0, 2, 2],
-        scalingMode: "stretch",
-        dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
-      }],
-      damage: {
-        textRows: [],
-        requiresFullTextRepaint: false,
-        requiresFullGraphicsReplay: false,
-      },
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          epoch: 21,
+          gen: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          images: [
+            {
+              id: "png:recover-e2e",
+              format: "png",
+              bounds: [1, 0, 2, 2],
+              visibleBounds: [1, 0, 2, 2],
+              scalingMode: "stretch",
+              dataBase64:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
+            },
+          ],
+          damage: {
+            textRows: [],
+            requiresFullTextRepaint: false,
+            requiresFullGraphicsReplay: false,
+          },
+        }),
+      ),
+    );
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await flushPromises();
     }
@@ -1406,9 +1518,9 @@ test("Canvas decode failure requests WASI image recovery and repaints the same s
       width: 20,
       height: 54,
     });
-    expect(controlMessages.filter(
-      (message) => message.startsWith("\u001Eresync:")
-    )).toHaveLength(1);
+    expect(
+      controlMessages.filter((message) => message.startsWith("\u001Eresync:")),
+    ).toHaveLength(1);
 
     unsubscribe();
     runtime.dispose();
@@ -1442,26 +1554,30 @@ test("runtime draws box and block elements procedurally instead of as font glyph
     const canvas = dom.canvases[0]!;
     const context = canvas.context;
     context.operations = [];
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 2,
-      styles: [
-        null,
-        {
-          fg: "#EBB33CFF",
-        },
-      ],
-      rows: [
-        [
-          [0, "┌", 1, 1],
-          [1, "─", 1, 1],
-          [2, "▄", 1, 1],
-          [3, "A", 1, 1],
-        ],
-      ],
-      images: [],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [
+            null,
+            {
+              fg: "#EBB33CFF",
+            },
+          ],
+          rows: [
+            [
+              [0, "┌", 1, 1],
+              [1, "─", 1, 1],
+              [2, "▄", 1, 1],
+              [3, "A", 1, 1],
+            ],
+          ],
+          images: [],
+        }),
+      ),
+    );
 
     expect(fillTextOperations(context, "┌")).toEqual([]);
     expect(fillTextOperations(context, "─")).toEqual([]);
@@ -1545,37 +1661,53 @@ test("runtime draws rounded box corners with the cell foreground stroke", async 
     const context = canvas.context;
     context.strokeStyle = "#000000";
     context.operations = [];
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 1,
-      width: 4,
-      height: 1,
-      styles: [
-        null,
-        {
-          fg: "#EBB33CFF",
-        },
-      ],
-      rows: [
-        [
-          [0, "╭", 1, 1],
-          [1, "╮", 1, 1],
-        ],
-      ],
-      images: [],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 1,
+          styles: [
+            null,
+            {
+              fg: "#EBB33CFF",
+            },
+          ],
+          rows: [
+            [
+              [0, "╭", 1, 1],
+              [1, "╮", 1, 1],
+            ],
+          ],
+          images: [],
+        }),
+      ),
+    );
 
     expect(fillTextOperations(context, "╭")).toEqual([]);
     expect(fillTextOperations(context, "╮")).toEqual([]);
-    const strokes = context.operations.filter((operation) => operation.type === "stroke");
+    const strokes = context.operations.filter(
+      (operation) => operation.type === "stroke",
+    );
     expect(strokes).toHaveLength(2);
-    expect(strokes.every((operation) => operation.strokeStyle === "#EBB33CFF")).toBe(true);
+    expect(
+      strokes.every((operation) => operation.strokeStyle === "#EBB33CFF"),
+    ).toBe(true);
     expect(strokes.every((operation) => operation.lineWidth === 1)).toBe(true);
-    expect(strokes.every((operation) => operation.lineDash instanceof Array)).toBe(true);
-    expect(strokes.every((operation) => (operation.lineDash as unknown[]).length === 0)).toBe(true);
-    expect(strokes.every((operation) => {
-      const path = operation.path as Array<[string, ...number[]]>;
-      return path.some(([command]) => command === "bezierCurveTo");
-    })).toBe(true);
+    expect(
+      strokes.every((operation) => operation.lineDash instanceof Array),
+    ).toBe(true);
+    expect(
+      strokes.every(
+        (operation) => (operation.lineDash as unknown[]).length === 0,
+      ),
+    ).toBe(true);
+    expect(
+      strokes.every((operation) => {
+        const path = operation.path as Array<[string, ...number[]]>;
+        return path.some(([command]) => command === "bezierCurveTo");
+      }),
+    ).toBe(true);
   } finally {
     dom.restore();
   }
@@ -1602,7 +1734,7 @@ test("runtime keeps diagnostic stdout visible when output is not a surface frame
     bridge.stdout.write(encoder.encode("legacy output\n"));
 
     const diagnostic = runtime.terminalMount.children.find(
-      (child) => child.className === "webhost-scene__diagnostic"
+      (child) => child.className === "webhost-scene__diagnostic",
     );
     expect(diagnostic?.textContent).toBe("legacy output\n");
   } finally {
@@ -1630,10 +1762,12 @@ test("runtime reports frame diagnostics without rendering them as terminal text"
     });
 
     await runtime.mount();
-    bridge.stdout.write(encoder.encode(
-      '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",'
-        + '"header":["frame","total_ms"],"fields":["7","14.20"]}\n'
-    ));
+    bridge.stdout.write(
+      encoder.encode(
+        '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",' +
+          '"header":["frame","total_ms"],"fields":["7","14.20"]}\n',
+      ),
+    );
 
     expect(diagnostics).toEqual([
       {
@@ -1642,9 +1776,11 @@ test("runtime reports frame diagnostics without rendering them as terminal text"
         fields: ["7", "14.20"],
       },
     ]);
-    expect(runtime.terminalMount.children.some(
-      (child) => child.className === "webhost-scene__diagnostic"
-    )).toBe(false);
+    expect(
+      runtime.terminalMount.children.some(
+        (child) => child.className === "webhost-scene__diagnostic",
+      ),
+    ).toBe(false);
   } finally {
     dom.restore();
   }
@@ -1685,22 +1821,28 @@ test("a coarse-pointer client declares scroll panning and tracks paradigm change
 
     // A real press is stronger evidence than the media query: this is the
     // pointer actually in use, not merely the primary one.
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0,
-      buttons: 1,
-      pointerId: 3,
-      pointerType: "touch",
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        pointerId: 3,
+        pointerType: "touch",
+      }),
+    );
     expect(declarations).toEqual([true, false, true]);
 
     // A pointer type the runtime cannot classify (pen, or an embedder that
     // omits it) leaves the last answer standing rather than guessing.
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0,
-      buttons: 1,
-      pointerId: 4,
-      pointerType: "pen",
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        pointerId: 4,
+        pointerType: "pen",
+      }),
+    );
     expect(declarations).toEqual([true, false, true]);
   } finally {
     dom.restore();
@@ -1730,12 +1872,15 @@ test("a desktop client declares nothing, because absence already means desktop",
     });
     await runtime.mount();
 
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0,
-      buttons: 1,
-      pointerId: 3,
-      pointerType: "mouse",
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        pointerId: 3,
+        pointerType: "mouse",
+      }),
+    );
     expect(declarations).toEqual([]);
   } finally {
     dom.restore();
@@ -1777,19 +1922,25 @@ test("runtime maps browser input events to web-surface messages", async () => {
       },
       preventDefault() {},
     });
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0,
-      buttons: 1,
-      clientX: 25,
-      clientY: 10,
-      pointerId: 7,
-    }));
-    runtime.terminalMount.dispatch("pointermove", pointerEvent({
-      buttons: 1,
-      clientX: 35,
-      clientY: 30,
-      pointerId: 7,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 25,
+        clientY: 10,
+        pointerId: 7,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointermove",
+      pointerEvent({
+        buttons: 1,
+        clientX: 35,
+        clientY: 30,
+        pointerId: 7,
+      }),
+    );
     runtime.terminalMount.dispatch("wheel", {
       clientX: 35,
       clientY: 30,
@@ -1836,24 +1987,31 @@ test("runtime can run as a passive embed without stealing focus or wheel scroll"
     });
 
     await runtime.mount();
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      accessibilityTree: [
-        {
-          id: "root/button",
-          rect: [0, 0, 2, 1],
-          role: "button",
-          label: "Save",
-          isFocused: true,
-        },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          accessibilityTree: [
+            {
+              id: "root/button",
+              rect: [0, 0, 2, 1],
+              role: "button",
+              label: "Save",
+              isFocused: true,
+            },
+          ],
+        }),
+      ),
+    );
 
-    const tree = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-tree");
+    const tree = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-tree",
+    );
     const button = childWithData(tree, "accessibilityId", "root/button");
     let wheelPrevented = false;
 
@@ -1886,7 +2044,9 @@ test("chain mode captures the wheel when a region under the pointer can scroll",
     // and scrolled to the top, so a downward wheel has headroom.
     const result = await wheelScenario({
       wheelMode: "chain",
-      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] }],
+      scrollRegions: [
+        { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
+      ],
       wheel: { clientX: 5, clientY: 5, deltaY: 20 },
     });
     expect(result.captured).toBe(true);
@@ -1904,7 +2064,9 @@ test("chain mode lets the wheel fall through at the region's scroll edge", async
     // so a further downward wheel has no headroom and must chain to the page.
     const result = await wheelScenario({
       wheelMode: "chain",
-      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] }],
+      scrollRegions: [
+        { id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] },
+      ],
       wheel: { clientX: 5, clientY: 5, deltaY: 20 },
     });
     expect(result.captured).toBe(false);
@@ -1921,7 +2083,9 @@ test("chain mode captures an upward wheel when scrolled away from the top", asyn
     // At the bottom edge, downward chains but upward still has headroom.
     const result = await wheelScenario({
       wheelMode: "chain",
-      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] }],
+      scrollRegions: [
+        { id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] },
+      ],
       wheel: { clientX: 5, clientY: 5, deltaY: -20 },
     });
     expect(result.captured).toBe(true);
@@ -1938,7 +2102,9 @@ test("chain mode falls through when the pointer is outside every scroll region",
     // Region only covers the right half (cells x>=2); wheel at cell (0,0).
     const result = await wheelScenario({
       wheelMode: "chain",
-      scrollRegions: [{ id: "list", rect: [2, 0, 2, 2], offset: [0, 0], content: [2, 10] }],
+      scrollRegions: [
+        { id: "list", rect: [2, 0, 2, 2], offset: [0, 0], content: [2, 10] },
+      ],
       wheel: { clientX: 5, clientY: 5, deltaY: 20 },
     });
     expect(result.captured).toBe(false);
@@ -2000,7 +2166,9 @@ test("legacy captureWheelInput:false maps to passive mode", async () => {
     const result = await wheelScenario({
       captureWheelInput: false,
       // A scrollable region is published, but passive never captures.
-      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] }],
+      scrollRegions: [
+        { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
+      ],
       wheel: { clientX: 5, clientY: 5, deltaY: 20 },
     });
     expect(result.captured).toBe(false);
@@ -2017,7 +2185,9 @@ test("default wheel mode is chain: captures over a scrollable region", async () 
     // Neither wheelMode nor captureWheelInput set — the runtime must default to
     // "chain", so the wheel is captured while the region has headroom.
     const result = await wheelScenario({
-      scrollRegions: [{ id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] }],
+      scrollRegions: [
+        { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
+      ],
       wheel: { clientX: 5, clientY: 5, deltaY: 20 },
     });
     expect(result.captured).toBe(true);
@@ -2061,18 +2231,24 @@ test("runtime preserves pointer movement within one cell", async () => {
     await runtime.mount();
     runtime.resize(10, 4);
 
-    runtime.terminalMount.dispatch("pointermove", pointerEvent({
-      buttons: 1,
-      clientX: 21,
-      clientY: 27,
-      pointerId: 7,
-    }));
-    runtime.terminalMount.dispatch("pointermove", pointerEvent({
-      buttons: 1,
-      clientX: 27,
-      clientY: 27,
-      pointerId: 7,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointermove",
+      pointerEvent({
+        buttons: 1,
+        clientX: 21,
+        clientY: 27,
+        pointerId: 7,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointermove",
+      pointerEvent({
+        buttons: 1,
+        clientX: 27,
+        clientY: 27,
+        pointerId: 7,
+      }),
+    );
 
     expect(inputs).toEqual([
       "\u001Emouse:dragged:2.1:1:primary:0:0:0\n",
@@ -2100,26 +2276,35 @@ test("runtime completes captured drags when pointerup lands outside the grid", a
     await runtime.mount();
     runtime.resize(10, 4);
 
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0,
-      buttons: 1,
-      clientX: 25,
-      clientY: 10,
-      pointerId: 7,
-    }));
-    runtime.terminalMount.dispatch("pointermove", pointerEvent({
-      buttons: 1,
-      clientX: 35,
-      clientY: 30,
-      pointerId: 7,
-    }));
-    runtime.terminalMount.dispatch("pointerup", pointerEvent({
-      button: 0,
-      buttons: 0,
-      clientX: 125,
-      clientY: 30,
-      pointerId: 7,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 25,
+        clientY: 10,
+        pointerId: 7,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointermove",
+      pointerEvent({
+        buttons: 1,
+        clientX: 35,
+        clientY: 30,
+        pointerId: 7,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointerup",
+      pointerEvent({
+        button: 0,
+        buttons: 0,
+        clientX: 125,
+        clientY: 30,
+        pointerId: 7,
+      }),
+    );
 
     expect(inputs).toEqual([
       "\u001Emouse:down:2.5:0.37037037037037035:primary:0:0:0\n",
@@ -2156,44 +2341,101 @@ test("clicking a hyperlink cell opens its target through the handler", async () 
     });
 
     await runtime.mount();
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[[0, "a", 1, 0], [1, "b", 1, 0], [2, "c", 1, 0]], []],
-      links: [[0, [[0, 2, 0]]]],
-      linkTargets: ["https://a.example/docs"],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [
+            [
+              [0, "a", 1, 0],
+              [1, "b", 1, 0],
+              [2, "c", 1, 0],
+            ],
+            [],
+          ],
+          links: [[0, [[0, 2, 0]]]],
+          linkTargets: ["https://a.example/docs"],
+        }),
+      ),
+    );
 
     // Click (down + up) on the linked run opens its target.
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0, buttons: 1, clientX: 5, clientY: 5, pointerId: 7,
-    }));
-    runtime.terminalMount.dispatch("pointerup", pointerEvent({
-      button: 0, buttons: 0, clientX: 5, clientY: 5, pointerId: 7,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 5,
+        clientY: 5,
+        pointerId: 7,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointerup",
+      pointerEvent({
+        button: 0,
+        buttons: 0,
+        clientX: 5,
+        clientY: 5,
+        pointerId: 7,
+      }),
+    );
     expect(opened).toEqual(["https://a.example/docs"]);
 
     // A drag that leaves the link before release does not open it.
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0, buttons: 1, clientX: 5, clientY: 5, pointerId: 7,
-    }));
-    runtime.terminalMount.dispatch("pointerup", pointerEvent({
-      button: 0, buttons: 0, clientX: 25, clientY: 5, pointerId: 7,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 5,
+        clientY: 5,
+        pointerId: 7,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointerup",
+      pointerEvent({
+        button: 0,
+        buttons: 0,
+        clientX: 25,
+        clientY: 5,
+        pointerId: 7,
+      }),
+    );
     // Neither does a click on an unlinked cell.
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0, buttons: 1, clientX: 25, clientY: 5, pointerId: 7,
-    }));
-    runtime.terminalMount.dispatch("pointerup", pointerEvent({
-      button: 0, buttons: 0, clientX: 25, clientY: 5, pointerId: 7,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 25,
+        clientY: 5,
+        pointerId: 7,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointerup",
+      pointerEvent({
+        button: 0,
+        buttons: 0,
+        clientX: 25,
+        clientY: 5,
+        pointerId: 7,
+      }),
+    );
     expect(opened).toEqual(["https://a.example/docs"]);
 
     // The app still received every pointer message.
-    expect(inputs.filter((message) => message.includes("mouse:down"))).toHaveLength(3);
-    expect(inputs.filter((message) => message.includes("mouse:up"))).toHaveLength(3);
+    expect(
+      inputs.filter((message) => message.includes("mouse:down")),
+    ).toHaveLength(3);
+    expect(
+      inputs.filter((message) => message.includes("mouse:up")),
+    ).toHaveLength(3);
   } finally {
     dom.restore();
   }
@@ -2217,24 +2459,40 @@ test("pointer over a hyperlink shows a pointer cursor", async () => {
     });
 
     await runtime.mount();
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[[0, "a", 1, 0]], []],
-      links: [[0, [[0, 1, 0]]]],
-      linkTargets: ["https://a.example"],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[[0, "a", 1, 0]], []],
+          links: [[0, [[0, 1, 0]]]],
+          linkTargets: ["https://a.example"],
+        }),
+      ),
+    );
 
-    runtime.terminalMount.dispatch("pointermove", pointerEvent({
-      buttons: 0, clientX: 5, clientY: 5, pointerId: 7,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointermove",
+      pointerEvent({
+        buttons: 0,
+        clientX: 5,
+        clientY: 5,
+        pointerId: 7,
+      }),
+    );
     expect(runtime.terminalMount.style.cursor).toBe("pointer");
 
-    runtime.terminalMount.dispatch("pointermove", pointerEvent({
-      buttons: 0, clientX: 25, clientY: 5, pointerId: 7,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointermove",
+      pointerEvent({
+        buttons: 0,
+        clientX: 25,
+        clientY: 5,
+        pointerId: 7,
+      }),
+    );
     expect(runtime.terminalMount.style.cursor).toBe("");
   } finally {
     dom.restore();
@@ -2259,42 +2517,53 @@ test("accessibility nodes marked hidden stay out of the ARIA tree", async () => 
     });
 
     await runtime.mount();
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      accessibilityTree: [
-        { id: "root", rect: [0, 0, 4, 2], role: "group", isFocused: false },
-        {
-          id: "root/ghost",
-          parentId: "root",
-          rect: [0, 0, 1, 1],
-          role: "button",
-          label: "Ghost",
-          hidden: true,
-          isFocused: false,
-        },
-        {
-          id: "root/visible",
-          parentId: "root",
-          rect: [1, 0, 1, 1],
-          role: "button",
-          label: "Visible",
-          isFocused: false,
-        },
-      ],
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          accessibilityTree: [
+            { id: "root", rect: [0, 0, 4, 2], role: "group", isFocused: false },
+            {
+              id: "root/ghost",
+              parentId: "root",
+              rect: [0, 0, 1, 1],
+              role: "button",
+              label: "Ghost",
+              hidden: true,
+              isFocused: false,
+            },
+            {
+              id: "root/visible",
+              parentId: "root",
+              rect: [1, 0, 1, 1],
+              role: "button",
+              label: "Visible",
+              isFocused: false,
+            },
+          ],
+        }),
+      ),
+    );
 
-    const tree = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-tree");
+    const tree = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-tree",
+    );
     const root = childWithData(tree, "accessibilityId", "root");
-    expect(root.children.some(
-      (child) => child.dataset["accessibilityId"] === "root/visible"
-    )).toBe(true);
-    expect(root.children.some(
-      (child) => child.dataset["accessibilityId"] === "root/ghost"
-    )).toBe(false);
+    expect(
+      root.children.some(
+        (child) => child.dataset["accessibilityId"] === "root/visible",
+      ),
+    ).toBe(true);
+    expect(
+      root.children.some(
+        (child) => child.dataset["accessibilityId"] === "root/ghost",
+      ),
+    ).toBe(false);
   } finally {
     dom.restore();
   }
@@ -2321,21 +2590,25 @@ test("runtime exposes focus presentation and preferred grid size", async () => {
     expect(runtime.focusPresentation).toBeUndefined();
     expect(runtime.preferredGridSize).toBeUndefined();
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      focusPresentation: {
-        focusedIdentity: "root/field",
-        semantics: "edit",
-        prefersTextInput: true,
-        hasFocusedRegion: true,
-      },
-      preferredGridWidth: 9,
-      preferredGridHeight: 8,
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          focusPresentation: {
+            focusedIdentity: "root/field",
+            semantics: "edit",
+            prefersTextInput: true,
+            hasFocusedRegion: true,
+          },
+          preferredGridWidth: 9,
+          preferredGridHeight: 8,
+        }),
+      ),
+    );
 
     expect(runtime.focusPresentation).toEqual({
       focusedIdentity: "root/field",
@@ -2345,19 +2618,23 @@ test("runtime exposes focus presentation and preferred grid size", async () => {
     });
     expect(runtime.preferredGridSize).toEqual({ width: 9, height: 8 });
 
-    bridge.stdout.write(encoder.encode(surfaceRecord({
-      version: 2,
-      width: 4,
-      height: 2,
-      styles: [null],
-      rows: [[], []],
-      focusPresentation: {
-        focusedIdentity: "root/future",
-        semantics: "future-focus",
-        prefersTextInput: false,
-        hasFocusedRegion: true,
-      },
-    })));
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          focusPresentation: {
+            focusedIdentity: "root/future",
+            semantics: "future-focus",
+            prefersTextInput: false,
+            hasFocusedRegion: true,
+          },
+        }),
+      ),
+    );
 
     expect(runtime.focusPresentation).toEqual({
       focusedIdentity: "root/future",
@@ -2376,11 +2653,13 @@ test("runtime exposes focus presentation and preferred grid size", async () => {
  * Mounts a 4x2 canvas runtime whose paints wait for the returned manual
  * animation-frame clock. Cell geometry under the fake DOM is 10x27 px.
  */
-async function mountBatchedRuntime(options: {
-  dom: ReturnType<typeof installFakeDOM>;
-  onOpenHyperlink?: (url: string) => void;
-  onInput?: (chunk: Uint8Array) => void;
-} = { dom: installFakeDOM() }): Promise<{
+async function mountBatchedRuntime(
+  options: {
+    dom: ReturnType<typeof installFakeDOM>;
+    onOpenHyperlink?: (url: string) => void;
+    onInput?: (chunk: Uint8Array) => void;
+  } = { dom: installFakeDOM() },
+): Promise<{
   runtime: WebHostSceneRuntime;
   bridge: BrowserWASIBridge;
   clock: ManualAnimationFrameScheduler;
@@ -2388,12 +2667,20 @@ async function mountBatchedRuntime(options: {
   present(frame: Record<string, unknown>): void;
 }> {
   const clock = new ManualAnimationFrameScheduler();
-  const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 4,
+    rows: 2,
+  });
   const mount = new FakeElement("div");
   const runtime = new WebHostSceneRuntime({
     mount: mount as unknown as HTMLElement,
     descriptor: { id: "main", title: "Main", isDefault: true },
-    style: { fontSize: 20, fontFamily: "Test Mono", theme: { background: "#101820" } },
+    style: {
+      fontSize: 20,
+      fontFamily: "Test Mono",
+      theme: { background: "#101820" },
+    },
     bridge,
     onInput: options.onInput ?? (() => {}),
     onOpenHyperlink: options.onOpenHyperlink,
@@ -2408,9 +2695,18 @@ async function mountBatchedRuntime(options: {
     clock,
     context,
     present: (frame) => {
-      bridge.stdout.write(encoder.encode(surfaceRecord({
-        version: 2, epoch: 1, width: 4, height: 2, styles: [null], ...frame,
-      })));
+      bridge.stdout.write(
+        encoder.encode(
+          surfaceRecord({
+            version: 2,
+            epoch: 1,
+            width: 4,
+            height: 2,
+            styles: [null],
+            ...frame,
+          }),
+        ),
+      );
     },
   };
 }
@@ -2418,43 +2714,87 @@ async function mountBatchedRuntime(options: {
 test("a burst of frames within one animation frame paints once, as the newest frame", async () => {
   const dom = installFakeDOM();
   try {
-    const { runtime, clock, context, present } = await mountBatchedRuntime({ dom });
+    const { runtime, clock, context, present } = await mountBatchedRuntime({
+      dom,
+    });
     // Mounting paints the empty surface synchronously; a first frame waits.
     const mountPaints = runtime.paintStatistics.paints;
     context.operations = [];
 
     present({ gen: 1, rows: [[[0, "A", 1, 0]], []] });
-    present({ gen: 2, rows: [[[0, "B", 1, 0]], []],
-      damage: { textRows: [[0, [[0, 1]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
-    present({ gen: 3, rows: [[[0, "C", 1, 0]], [[3, "z", 1, 0]]],
-      damage: { textRows: [[1, [[3, 4]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    present({
+      gen: 2,
+      rows: [[[0, "B", 1, 0]], []],
+      damage: {
+        textRows: [[0, [[0, 1]]]],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    });
+    present({
+      gen: 3,
+      rows: [[[0, "C", 1, 0]], [[3, "z", 1, 0]]],
+      damage: {
+        textRows: [[1, [[3, 4]]]],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    });
 
     expect(context.operations).toEqual([]);
     expect(clock.scheduled).toBe(1);
     expect(runtime.paintStatistics).toEqual({
-      presentedFrames: 3, paints: mountPaints, coalescedFrames: 2, pending: true,
+      presentedFrames: 3,
+      paints: mountPaints,
+      coalescedFrames: 2,
+      pending: true,
     });
 
     clock.tick();
     // Exactly one paint, and it shows the newest frame only: never A or B.
     expect(runtime.paintStatistics).toEqual({
-      presentedFrames: 3, paints: mountPaints + 1, coalescedFrames: 2, pending: false,
+      presentedFrames: 3,
+      paints: mountPaints + 1,
+      coalescedFrames: 2,
+      pending: false,
     });
     expect(fillTextOperations(context, "A")).toEqual([]);
     expect(fillTextOperations(context, "B")).toEqual([]);
     expect(fillTextOperations(context, "C")).toHaveLength(1);
     expect(fillTextOperations(context, "z")).toHaveLength(1);
     // The first frame after mount has no baseline, so the paint is full.
-    expect(context.operations).toContainEqual({ type: "clearRect", x: 0, y: 0, width: 100, height: 108 });
+    expect(context.operations).toContainEqual({
+      type: "clearRect",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 108,
+    });
 
     // With a painted baseline, the next burst repaints only the union of its damage.
     context.operations = [];
-    present({ gen: 4, rows: [[[0, "D", 1, 0]], [[3, "z", 1, 0]]],
-      damage: { textRows: [[0, [[0, 1]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
-    present({ gen: 5, rows: [[[0, "D", 1, 0]], [[3, "y", 1, 0]]],
-      damage: { textRows: [[1, [[3, 4]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    present({
+      gen: 4,
+      rows: [[[0, "D", 1, 0]], [[3, "z", 1, 0]]],
+      damage: {
+        textRows: [[0, [[0, 1]]]],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    });
+    present({
+      gen: 5,
+      rows: [[[0, "D", 1, 0]], [[3, "y", 1, 0]]],
+      damage: {
+        textRows: [[1, [[3, 4]]]],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    });
     clock.tick();
-    expect(context.operations.filter((operation) => operation.type === "clearRect")).toEqual([
+    expect(
+      context.operations.filter((operation) => operation.type === "clearRect"),
+    ).toEqual([
       { type: "clearRect", x: 0, y: 0, width: 10, height: 27 },
       { type: "clearRect", x: 30, y: 27, width: 10, height: 27 },
     ]);
@@ -2471,20 +2811,38 @@ test("pointer geometry and frame getters follow the newest frame before it is pa
   const opened: string[] = [];
   try {
     const { runtime, clock, context, present } = await mountBatchedRuntime({
-      dom, onOpenHyperlink: (url) => { opened.push(url); },
+      dom,
+      onOpenHyperlink: (url) => {
+        opened.push(url);
+      },
     });
-    present({ gen: 1, rows: [[[0, "a", 1, 0]], []],
-      links: [[0, [[0, 1, 0]]]], linkTargets: ["https://a.example/row0"],
-      preferredGridWidth: 10, preferredGridHeight: 3 });
+    present({
+      gen: 1,
+      rows: [[[0, "a", 1, 0]], []],
+      links: [[0, [[0, 1, 0]]]],
+      linkTargets: ["https://a.example/row0"],
+      preferredGridWidth: 10,
+      preferredGridHeight: 3,
+    });
     clock.tick();
     expect(fillTextOperations(context, "a")).toHaveLength(1);
 
     // The link moves to row 1; the paint is still pending.
     context.operations = [];
-    present({ gen: 2, rows: [[], [[0, "b", 1, 0]]],
-      links: [[1, [[0, 1, 0]]]], linkTargets: ["https://b.example/row1"],
-      preferredGridWidth: 12, preferredGridHeight: 5,
-      focusPresentation: { focusedIdentity: "root/b", semantics: "automatic", prefersTextInput: true, hasFocusedRegion: true } });
+    present({
+      gen: 2,
+      rows: [[], [[0, "b", 1, 0]]],
+      links: [[1, [[0, 1, 0]]]],
+      linkTargets: ["https://b.example/row1"],
+      preferredGridWidth: 12,
+      preferredGridHeight: 5,
+      focusPresentation: {
+        focusedIdentity: "root/b",
+        semantics: "automatic",
+        prefersTextInput: true,
+        hasFocusedRegion: true,
+      },
+    });
     expect(context.operations).toEqual([]);
 
     expect(runtime.preferredGridSize).toEqual({ width: 12, height: 5 });
@@ -2492,11 +2850,47 @@ test("pointer geometry and frame getters follow the newest frame before it is pa
 
     // Clicking where the link *was* opens nothing; clicking where the app now
     // has it opens the new target — the app already lives in frame 2.
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({ button: 0, buttons: 1, clientX: 5, clientY: 5, pointerId: 1 }));
-    runtime.terminalMount.dispatch("pointerup", pointerEvent({ button: 0, buttons: 0, clientX: 5, clientY: 5, pointerId: 1 }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 5,
+        clientY: 5,
+        pointerId: 1,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointerup",
+      pointerEvent({
+        button: 0,
+        buttons: 0,
+        clientX: 5,
+        clientY: 5,
+        pointerId: 1,
+      }),
+    );
     expect(opened).toEqual([]);
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({ button: 0, buttons: 1, clientX: 5, clientY: 30, pointerId: 1 }));
-    runtime.terminalMount.dispatch("pointerup", pointerEvent({ button: 0, buttons: 0, clientX: 5, clientY: 30, pointerId: 1 }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 5,
+        clientY: 30,
+        pointerId: 1,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointerup",
+      pointerEvent({
+        button: 0,
+        buttons: 0,
+        clientX: 5,
+        clientY: 30,
+        pointerId: 1,
+      }),
+    );
     expect(opened).toEqual(["https://b.example/row1"]);
 
     clock.tick();
@@ -2510,28 +2904,61 @@ test("the ARIA sidecar advances with the paint and loses no coalesced announceme
   const dom = installFakeDOM();
   try {
     const { runtime, clock, present } = await mountBatchedRuntime({ dom });
-    const announcer = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-announcer");
-    const tree = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-tree");
-    const node = (label: string) => [{
-      id: "root", rect: [0, 0, 4, 2] as [number, number, number, number], role: "status", label, isFocused: false,
-    }];
+    const announcer = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-announcer",
+    );
+    const tree = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-tree",
+    );
+    const node = (label: string) => [
+      {
+        id: "root",
+        rect: [0, 0, 4, 2] as [number, number, number, number],
+        role: "status",
+        label,
+        isFocused: false,
+      },
+    ];
 
-    present({ gen: 1, rows: [[], []], accessibilityTree: node("one"),
-      accessibilityAnnouncements: [{ message: "first", politeness: "polite" }] });
+    present({
+      gen: 1,
+      rows: [[], []],
+      accessibilityTree: node("one"),
+      accessibilityAnnouncements: [{ message: "first", politeness: "polite" }],
+    });
     clock.tick();
-    expect(childWithData(tree, "accessibilityId", "root").getAttribute("aria-label")).toBe("one");
+    expect(
+      childWithData(tree, "accessibilityId", "root").getAttribute("aria-label"),
+    ).toBe("one");
     expect(announcer.textContent).toBe("first");
 
-    present({ gen: 2, rows: [[], []], accessibilityTree: node("two"),
-      accessibilityAnnouncements: [{ message: "second", politeness: "polite" }] });
-    present({ gen: 3, rows: [[], []], accessibilityTree: node("three"),
-      accessibilityAnnouncements: [{ message: "third", politeness: "assertive" }, { message: "fourth", politeness: "polite" }] });
+    present({
+      gen: 2,
+      rows: [[], []],
+      accessibilityTree: node("two"),
+      accessibilityAnnouncements: [{ message: "second", politeness: "polite" }],
+    });
+    present({
+      gen: 3,
+      rows: [[], []],
+      accessibilityTree: node("three"),
+      accessibilityAnnouncements: [
+        { message: "third", politeness: "assertive" },
+        { message: "fourth", politeness: "polite" },
+      ],
+    });
     // Nothing moved yet: the sidecar describes what is on screen.
-    expect(childWithData(tree, "accessibilityId", "root").getAttribute("aria-label")).toBe("one");
+    expect(
+      childWithData(tree, "accessibilityId", "root").getAttribute("aria-label"),
+    ).toBe("one");
     expect(announcer.textContent).toBe("first");
 
     clock.tick();
-    expect(childWithData(tree, "accessibilityId", "root").getAttribute("aria-label")).toBe("three");
+    expect(
+      childWithData(tree, "accessibilityId", "root").getAttribute("aria-label"),
+    ).toBe("three");
     // Assertive first, then polite, each group in transport order.
     expect(announcer.getAttribute("aria-live")).toBe("assertive");
     expect(announcer.textContent).toBe("third\nsecond\nfourth");
@@ -2554,27 +2981,47 @@ test("an image payload carried only by a coalesced frame decodes without a recov
     },
   });
   try {
-    const { runtime, bridge, clock, context, present } = await mountBatchedRuntime({ dom });
+    const { runtime, bridge, clock, context, present } =
+      await mountBatchedRuntime({ dom });
     const controlMessages: string[] = [];
     const unsubscribe = bridge.stdin.subscribe((chunk) => {
       controlMessages.push(decoder.decode(chunk));
       return true;
     });
-    const onePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=";
+    const onePixelPNG =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=";
     const image = {
-      id: "png:carried", format: "png", bounds: [1, 0, 2, 2], visibleBounds: [1, 0, 2, 2], scalingMode: "stretch",
+      id: "png:carried",
+      format: "png",
+      bounds: [1, 0, 2, 2],
+      visibleBounds: [1, 0, 2, 2],
+      scalingMode: "stretch",
     };
-    present({ gen: 1, rows: [[], []], images: [{ ...image, dataBase64: onePixelPNG }] });
+    present({
+      gen: 1,
+      rows: [[], []],
+      images: [{ ...image, dataBase64: onePixelPNG }],
+    });
     // The content-addressed repeat omits the bytes the sender already emitted.
-    present({ gen: 2, rows: [[], []], images: [image],
-      damage: { textRows: [], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    present({
+      gen: 2,
+      rows: [[], []],
+      images: [image],
+      damage: {
+        textRows: [],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    });
     clock.tick();
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await flushPromises();
     }
 
     expect(decodeAttempts).toBe(1);
-    expect(controlMessages.filter((message) => message.startsWith("\u001Eresync:"))).toEqual([]);
+    expect(
+      controlMessages.filter((message) => message.startsWith("\u001Eresync:")),
+    ).toEqual([]);
     // Decode completion asks for a repaint through the scheduler, not now.
     expect(drawImageOperations(context)).toEqual([]);
     expect(runtime.paintStatistics.pending).toBe(true);
@@ -2590,7 +3037,9 @@ test("an image payload carried only by a coalesced frame decodes without a recov
 test("dispose cancels a pending paint and later frames are ignored", async () => {
   const dom = installFakeDOM();
   try {
-    const { runtime, clock, context, present } = await mountBatchedRuntime({ dom });
+    const { runtime, clock, context, present } = await mountBatchedRuntime({
+      dom,
+    });
     context.operations = [];
     present({ gen: 1, rows: [[[0, "A", 1, 0]], []] });
     expect(clock.scheduled).toBe(1);
@@ -2610,12 +3059,21 @@ test("dispose cancels a pending paint and later frames are ignored", async () =>
 test("a resize paints the pending frame synchronously and fully", async () => {
   const dom = installFakeDOM();
   try {
-    const { runtime, clock, context, present } = await mountBatchedRuntime({ dom });
+    const { runtime, clock, context, present } = await mountBatchedRuntime({
+      dom,
+    });
     present({ gen: 1, rows: [[[0, "A", 1, 0]], []] });
     clock.tick();
     context.operations = [];
-    present({ gen: 2, rows: [[[0, "B", 1, 0]], []],
-      damage: { textRows: [[0, [[0, 1]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    present({
+      gen: 2,
+      rows: [[[0, "B", 1, 0]], []],
+      damage: {
+        textRows: [[0, [[0, 1]]]],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    });
     expect(clock.scheduled).toBe(1);
 
     dom.triggerResize();
@@ -2623,7 +3081,13 @@ test("a resize paints the pending frame synchronously and fully", async () => {
     expect(clock.scheduled).toBe(0);
     expect(clock.cancels).toBe(1);
     expect(fillTextOperations(context, "B")).toHaveLength(1);
-    expect(context.operations).toContainEqual({ type: "clearRect", x: 0, y: 0, width: 100, height: 108 });
+    expect(context.operations).toContainEqual({
+      type: "clearRect",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 108,
+    });
     expect(runtime.paintStatistics.pending).toBe(false);
 
     context.operations = [];
@@ -2637,21 +3101,36 @@ test("a resize paints the pending frame synchronously and fully", async () => {
 test("a document becoming visible paints frames that arrived while it was hidden", async () => {
   const dom = installFakeDOM();
   try {
-    const { runtime, clock, context, present } = await mountBatchedRuntime({ dom });
+    const { runtime, clock, context, present } = await mountBatchedRuntime({
+      dom,
+    });
     present({ gen: 1, rows: [[[0, "A", 1, 0]], []] });
     clock.tick();
 
     runtime.setDocumentVisible(false);
     context.operations = [];
-    present({ gen: 2, rows: [[[0, "B", 1, 0]], []],
-      damage: { textRows: [[0, [[0, 1]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    present({
+      gen: 2,
+      rows: [[[0, "B", 1, 0]], []],
+      damage: {
+        textRows: [[0, [[0, 1]]]],
+        requiresFullTextRepaint: false,
+        requiresFullGraphicsReplay: false,
+      },
+    });
     // A hidden document never ticks its animation frames.
     expect(context.operations).toEqual([]);
 
     runtime.setDocumentVisible(true);
     expect(clock.scheduled).toBe(0);
     expect(fillTextOperations(context, "B")).toHaveLength(1);
-    expect(context.operations).toContainEqual({ type: "clearRect", x: 0, y: 0, width: 100, height: 108 });
+    expect(context.operations).toContainEqual({
+      type: "clearRect",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 108,
+    });
 
     // Becoming visible with nothing pending paints nothing.
     context.operations = [];
@@ -2663,7 +3142,7 @@ test("a document becoming visible paints frames that arrived while it was hidden
   }
 });
 
-test("the default scheduler is the global animation frame; \"synchronous\" opts out", async () => {
+test('the default scheduler is the global animation frame; "synchronous" opts out', async () => {
   const dom = installFakeDOM();
   const previousRequest = globalThis.requestAnimationFrame;
   const previousCancel = globalThis.cancelAnimationFrame;
@@ -2673,16 +3152,28 @@ test("the default scheduler is the global animation frame; \"synchronous\" opts 
   globalThis.cancelAnimationFrame = ((handle: number) =>
     clock.cancelAnimationFrame(handle)) as typeof cancelAnimationFrame;
   try {
-    const frame = { version: 2, width: 4, height: 2, styles: [null], rows: [[[0, "A", 1, 0]], []] };
+    const frame = {
+      version: 2,
+      width: 4,
+      height: 2,
+      styles: [null],
+      rows: [[[0, "A", 1, 0]], []],
+    };
     for (const scheduling of ["default", "synchronous"] as const) {
-      const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+      const bridge = new BrowserWASIBridge({
+        sceneId: "main",
+        columns: 4,
+        rows: 2,
+      });
       const runtime = new WebHostSceneRuntime({
         mount: new FakeElement("div") as unknown as HTMLElement,
         descriptor: { id: "main", title: "Main", isDefault: true },
         style: { fontSize: 20 },
         bridge,
         onInput: () => {},
-        ...(scheduling === "synchronous" ? { paintScheduling: "synchronous" as const } : {}),
+        ...(scheduling === "synchronous"
+          ? { paintScheduling: "synchronous" as const }
+          : {}),
       });
       await runtime.mount();
       const context = dom.canvases[dom.canvases.length - 1]!.context;
@@ -2706,7 +3197,7 @@ test("the default scheduler is the global animation frame; \"synchronous\" opts 
 });
 
 function pointerEvent(
-  overrides: Record<string, unknown>
+  overrides: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
     button: 0,
@@ -2724,31 +3215,32 @@ function pointerEvent(
 
 function fillTextOperations(
   context: RecordingCanvasContext,
-  text: string
+  text: string,
 ): RecordingCanvasOperation[] {
   return context.operations.filter(
-    (operation) => operation.type === "fillText" && operation.text === text
+    (operation) => operation.type === "fillText" && operation.text === text,
   );
 }
 
 function fillRectOperations(
   context: RecordingCanvasContext,
-  fillStyle: string
+  fillStyle: string,
 ): RecordingCanvasOperation[] {
   return context.operations.filter(
-    (operation) => operation.type === "fillRect" && operation.fillStyle === fillStyle
+    (operation) =>
+      operation.type === "fillRect" && operation.fillStyle === fillStyle,
   );
 }
 
 function drawImageOperations(
-  context: RecordingCanvasContext
+  context: RecordingCanvasContext,
 ): RecordingCanvasOperation[] {
-  return context.operations.filter((operation) => operation.type === "drawImage");
+  return context.operations.filter(
+    (operation) => operation.type === "drawImage",
+  );
 }
 
-function readCanvasTextLikePixels(
-  canvas: FakeCanvasElement
-): string {
+function readCanvasTextLikePixels(canvas: FakeCanvasElement): string {
   const textSamples = new Map<string, { x: number; y: number; text: string }>();
 
   for (const operation of canvas.context.operations) {
@@ -2789,23 +3281,23 @@ function readCanvasTextLikePixels(
       row
         .sort((lhs, rhs) => lhs.x - rhs.x)
         .map((sample) => sample.text)
-        .join("")
+        .join(""),
     )
     .join("\n");
 }
 
 function operationRect(
-  operation: RecordingCanvasOperation
+  operation: RecordingCanvasOperation,
 ): { x: number; y: number; width: number; height: number } | undefined {
   const x = Number(operation.x);
   const y = Number(operation.y);
   const width = Number(operation.width);
   const height = Number(operation.height);
   if (
-    !Number.isFinite(x)
-    || !Number.isFinite(y)
-    || !Number.isFinite(width)
-    || !Number.isFinite(height)
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height)
   ) {
     return undefined;
   }
@@ -2814,18 +3306,17 @@ function operationRect(
 
 function textSampleInRect(
   sample: { x: number; y: number },
-  rect: { x: number; y: number; width: number; height: number }
+  rect: { x: number; y: number; width: number; height: number },
 ): boolean {
-  return sample.x >= rect.x
-    && sample.x < rect.x + rect.width
-    && sample.y >= rect.y
-    && sample.y < rect.y + rect.height;
+  return (
+    sample.x >= rect.x &&
+    sample.x < rect.x + rect.width &&
+    sample.y >= rect.y &&
+    sample.y < rect.y + rect.height
+  );
 }
 
-function childWithClass(
-  element: FakeElement,
-  className: string
-): FakeElement {
+function childWithClass(element: FakeElement, className: string): FakeElement {
   const child = element.children.find((child) => child.className === className);
   if (!child) {
     throw new Error(`missing child with class ${className}`);
@@ -2836,7 +3327,7 @@ function childWithClass(
 function childWithData(
   element: FakeElement,
   key: string,
-  value: string
+  value: string,
 ): FakeElement {
   const child = element.children.find((child) => child.dataset[key] === value);
   if (!child) {
@@ -2854,7 +3345,7 @@ async function flushPromises(): Promise<void> {
 /// reads. Bounded by turns rather than by a sleep.
 async function drainExactly(
   reader: SharedInputQueueReader,
-  byteCount: number
+  byteCount: number,
 ): Promise<Uint8Array> {
   const received: number[] = [];
   for (let turn = 0; turn < 4_096 && received.length < byteCount; turn += 1) {
@@ -2870,14 +3361,14 @@ async function drainExactly(
   }
   if (received.length !== byteCount) {
     throw new Error(
-      `timed out draining shared input: got ${received.length} of ${byteCount} bytes`
+      `timed out draining shared input: got ${received.length} of ${byteCount} bytes`,
     );
   }
   return new Uint8Array(received);
 }
 
 async function waitForAvailableInput(
-  reader: SharedInputQueueReader
+  reader: SharedInputQueueReader,
 ): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (reader.availableBytes() > 0) {
@@ -2905,7 +3396,11 @@ async function wheelScenario(options: {
   overscrollBehavior: string;
 }> {
   const inputs: string[] = [];
-  const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 4,
+    rows: 2,
+  });
   const mount = new FakeElement("div");
   const runtime = new WebHostSceneRuntime({
     mount: mount as unknown as HTMLElement,
@@ -2954,9 +3449,7 @@ async function wheelScenario(options: {
   };
 }
 
-function surfaceRecord(
-  frame: Record<string, unknown>
-): string {
+function surfaceRecord(frame: Record<string, unknown>): string {
   return `\u001Esurface:${JSON.stringify(frame)}\n`;
 }
 
@@ -2985,14 +3478,14 @@ class FakeMediaQueryList {
 
   addEventListener(
     _type: "change",
-    listener: (event: { matches: boolean }) => void
+    listener: (event: { matches: boolean }) => void,
   ): void {
     this.listeners.add(listener);
   }
 
   removeEventListener(
     _type: "change",
-    listener: (event: { matches: boolean }) => void
+    listener: (event: { matches: boolean }) => void,
   ): void {
     this.listeners.delete(listener);
   }
@@ -3005,9 +3498,7 @@ class FakeMediaQueryList {
   }
 }
 
-function installFakeDOM(
-  options: FakeDOMOptions = {}
-): {
+function installFakeDOM(options: FakeDOMOptions = {}): {
   canvases: FakeCanvasElement[];
   triggerResize(): void;
   restore(): void;
@@ -3040,7 +3531,8 @@ function installFakeDOM(
     }
   } as unknown as typeof ResizeObserver;
   if (options.createImageBitmap) {
-    globalThis.createImageBitmap = options.createImageBitmap as typeof createImageBitmap;
+    globalThis.createImageBitmap =
+      options.createImageBitmap as typeof createImageBitmap;
   }
   if (options.coarsePointer) {
     const coarsePointer = options.coarsePointer;
@@ -3084,24 +3576,16 @@ class FakeStyle {
   private readonly values = new Map<string, string>();
   private readonly priorities = new Map<string, string>();
 
-  setProperty(
-    name: string,
-    value: string,
-    priority?: string
-  ): void {
+  setProperty(name: string, value: string, priority?: string): void {
     this.values.set(name, value);
     this.priorities.set(name, priority ?? "");
   }
 
-  getPropertyValue(
-    name: string
-  ): string {
+  getPropertyValue(name: string): string {
     return this.values.get(name) ?? "";
   }
 
-  getPropertyPriority(
-    name: string
-  ): string {
+  getPropertyPriority(name: string): string {
     return this.priorities.get(name) ?? "";
   }
 }
@@ -3111,7 +3595,10 @@ class FakeElement {
   readonly style = new FakeStyle();
   readonly dataset: Record<string, string> = {};
   readonly children: FakeElement[] = [];
-  private readonly eventListeners = new Map<string, Set<(event: Record<string, unknown>) => void>>();
+  private readonly eventListeners = new Map<
+    string,
+    Set<(event: Record<string, unknown>) => void>
+  >();
   private readonly attributes = new Map<string, string>();
 
   className = "";
@@ -3134,22 +3621,16 @@ class FakeElement {
     this.tagName = tagName.toUpperCase();
   }
 
-  append(
-    ...children: FakeElement[]
-  ): void {
+  append(...children: FakeElement[]): void {
     this.children.push(...children);
   }
 
-  appendChild(
-    child: FakeElement
-  ): FakeElement {
+  appendChild(child: FakeElement): FakeElement {
     this.children.push(child);
     return child;
   }
 
-  replaceChildren(
-    ...children: FakeElement[]
-  ): void {
+  replaceChildren(...children: FakeElement[]): void {
     this.children.splice(0, this.children.length, ...children);
   }
 
@@ -3161,22 +3642,15 @@ class FakeElement {
   setPointerCapture(): void {}
   releasePointerCapture(): void {}
 
-  setAttribute(
-    name: string,
-    value: string
-  ): void {
+  setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
   }
 
-  getAttribute(
-    name: string
-  ): string | null {
+  getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }
 
-  removeAttribute(
-    name: string
-  ): void {
+  removeAttribute(name: string): void {
     this.attributes.delete(name);
   }
 
@@ -3186,7 +3660,7 @@ class FakeElement {
 
   addEventListener(
     type: string,
-    listener: (event: Record<string, unknown>) => void
+    listener: (event: Record<string, unknown>) => void,
   ): void {
     let listeners = this.eventListeners.get(type);
     if (!listeners) {
@@ -3198,15 +3672,12 @@ class FakeElement {
 
   removeEventListener(
     type: string,
-    listener: (event: Record<string, unknown>) => void
+    listener: (event: Record<string, unknown>) => void,
   ): void {
     this.eventListeners.get(type)?.delete(listener);
   }
 
-  dispatch(
-    type: string,
-    event: Record<string, unknown>
-  ): void {
+  dispatch(type: string, event: Record<string, unknown>): void {
     for (const listener of this.eventListeners.get(type) ?? []) {
       listener(event);
     }
@@ -3230,9 +3701,7 @@ class FakeCanvasElement extends FakeElement {
     };
   }
 
-  getContext(
-    contextId: string
-  ): RecordingCanvasContext | undefined {
+  getContext(contextId: string): RecordingCanvasContext | undefined {
     return contextId === "2d" ? this.context : undefined;
   }
 }
@@ -3252,9 +3721,7 @@ class RecordingCanvasContext {
   private lineDash: number[] = [];
   private path: Array<[string, ...number[]]> = [];
 
-  measureText(
-    text: string
-  ): { width: number } {
+  measureText(text: string): { width: number } {
     return { width: Math.max(1, Array.from(text).length) * 10 };
   }
 
@@ -3264,26 +3731,16 @@ class RecordingCanvasContext {
     c: number,
     d: number,
     e: number,
-    f: number
+    f: number,
   ): void {
     this.operations.push({ type: "setTransform", a, b, c, d, e, f });
   }
 
-  clearRect(
-    x: number,
-    y: number,
-    width: number,
-    height: number
-  ): void {
+  clearRect(x: number, y: number, width: number, height: number): void {
     this.operations.push({ type: "clearRect", x, y, width, height });
   }
 
-  fillRect(
-    x: number,
-    y: number,
-    width: number,
-    height: number
-  ): void {
+  fillRect(x: number, y: number, width: number, height: number): void {
     this.operations.push({
       type: "fillRect",
       x,
@@ -3295,11 +3752,7 @@ class RecordingCanvasContext {
     });
   }
 
-  fillText(
-    text: string,
-    x: number,
-    y: number
-  ): void {
+  fillText(text: string, x: number, y: number): void {
     this.operations.push({
       type: "fillText",
       text,
@@ -3323,12 +3776,7 @@ class RecordingCanvasContext {
     this.operations.push({ type: "restore" });
   }
 
-  rect(
-    x: number,
-    y: number,
-    width: number,
-    height: number
-  ): void {
+  rect(x: number, y: number, width: number, height: number): void {
     this.path.push(["rect", x, y, width, height]);
     this.operations.push({ type: "rect", x, y, width, height });
   }
@@ -3345,13 +3793,14 @@ class RecordingCanvasContext {
     x: number,
     y: number,
     width: number,
-    height: number
+    height: number,
   ): void {
     this.operations.push({
       type: "drawImage",
-      imageId: image && typeof image === "object" && "imageId" in image
-        ? (image as { imageId: unknown }).imageId
-        : undefined,
+      imageId:
+        image && typeof image === "object" && "imageId" in image
+          ? (image as { imageId: unknown }).imageId
+          : undefined,
       x,
       y,
       width,
@@ -3359,17 +3808,11 @@ class RecordingCanvasContext {
     });
   }
 
-  moveTo(
-    x: number,
-    y: number
-  ): void {
+  moveTo(x: number, y: number): void {
     this.path.push(["moveTo", x, y]);
   }
 
-  lineTo(
-    x: number,
-    y: number
-  ): void {
+  lineTo(x: number, y: number): void {
     this.path.push(["lineTo", x, y]);
   }
 
@@ -3379,9 +3822,17 @@ class RecordingCanvasContext {
     control2X: number,
     control2Y: number,
     x: number,
-    y: number
+    y: number,
   ): void {
-    this.path.push(["bezierCurveTo", control1X, control1Y, control2X, control2Y, x, y]);
+    this.path.push([
+      "bezierCurveTo",
+      control1X,
+      control1Y,
+      control2X,
+      control2Y,
+      x,
+      y,
+    ]);
   }
 
   stroke(): void {
@@ -3394,9 +3845,7 @@ class RecordingCanvasContext {
     });
   }
 
-  setLineDash(
-    lineDash: number[]
-  ): void {
+  setLineDash(lineDash: number[]): void {
     this.lineDash = [...lineDash];
   }
 }
@@ -3406,9 +3855,7 @@ test("scene and document visibility drive the runtime suspension hook", () => {
   try {
     const events: boolean[] = [];
     class SuspensionProbeRuntime extends WebHostSceneRuntime {
-      protected override onRuntimeSuspensionChange(
-        suspended: boolean
-      ): void {
+      protected override onRuntimeSuspensionChange(suspended: boolean): void {
         events.push(suspended);
       }
     }
@@ -3450,9 +3897,7 @@ test("suspendWhenHidden: false keeps hidden scenes running", () => {
   try {
     const events: boolean[] = [];
     class SuspensionProbeRuntime extends WebHostSceneRuntime {
-      protected override onRuntimeSuspensionChange(
-        suspended: boolean
-      ): void {
+      protected override onRuntimeSuspensionChange(suspended: boolean): void {
         events.push(suspended);
       }
     }
@@ -3505,7 +3950,9 @@ test("dom renderer mounts a DOM surface and renders decoded frames as text eleme
     const terminalMount = runtime.terminalMount as unknown as FakeElement;
     const surface = terminalMount.children[0]!;
     expect(surface.tagName).toBe("DIV");
-    expect(surface.className).toBe("webhost-scene__surface webhost-scene__surface--dom");
+    expect(surface.className).toBe(
+      "webhost-scene__surface webhost-scene__surface--dom",
+    );
     expect(surface.getAttribute("aria-hidden")).toBe("true");
 
     bridge.stdout.write(encoder.encode(transportFixture("web-surface-styled")));
@@ -3618,38 +4065,50 @@ test("dom renderer leaves Alt-drag pointer input to native text selection", asyn
     await runtime.mount();
 
     let prevented = 0;
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0,
-      buttons: 1,
-      clientX: 25,
-      clientY: 10,
-      altKey: true,
-      preventDefault: () => {
-        prevented += 1;
-      },
-    }));
-    runtime.terminalMount.dispatch("pointermove", pointerEvent({
-      buttons: 1,
-      clientX: 40,
-      clientY: 10,
-      altKey: true,
-    }));
-    runtime.terminalMount.dispatch("pointerup", pointerEvent({
-      button: 0,
-      clientX: 40,
-      clientY: 10,
-      altKey: true,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 25,
+        clientY: 10,
+        altKey: true,
+        preventDefault: () => {
+          prevented += 1;
+        },
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointermove",
+      pointerEvent({
+        buttons: 1,
+        clientX: 40,
+        clientY: 10,
+        altKey: true,
+      }),
+    );
+    runtime.terminalMount.dispatch(
+      "pointerup",
+      pointerEvent({
+        button: 0,
+        clientX: 40,
+        clientY: 10,
+        altKey: true,
+      }),
+    );
     expect(inputs).toHaveLength(0);
     expect(prevented).toBe(0);
 
     // Without Alt, pointer input is forwarded to the app as usual.
-    runtime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0,
-      buttons: 1,
-      clientX: 25,
-      clientY: 10,
-    }));
+    runtime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 25,
+        clientY: 10,
+      }),
+    );
     expect(inputs.length).toBeGreaterThan(0);
 
     // The canvas renderer has no text nodes to select — Alt-drag still
@@ -3663,13 +4122,16 @@ test("dom renderer leaves Alt-drag pointer input to native text selection", asyn
       onInput: (chunk) => canvasInputs.push(chunk),
     });
     await canvasRuntime.mount();
-    canvasRuntime.terminalMount.dispatch("pointerdown", pointerEvent({
-      button: 0,
-      buttons: 1,
-      clientX: 25,
-      clientY: 10,
-      altKey: true,
-    }));
+    canvasRuntime.terminalMount.dispatch(
+      "pointerdown",
+      pointerEvent({
+        button: 0,
+        buttons: 1,
+        clientX: 25,
+        clientY: 10,
+        altKey: true,
+      }),
+    );
     expect(canvasInputs.length).toBeGreaterThan(0);
   } finally {
     dom.restore();

@@ -33,6 +33,33 @@ Image opacity is wire placement state: both painters apply it on every replay,
 while decoded payloads remain cached by image id so alpha-only updates do not
 repeat or re-decode `dataBase64` bytes.
 
+## Formatting and pre-commit hooks
+
+Sources are formatted and linted by [Biome](https://biomejs.dev) at the version
+pinned in `prek.toml`, with the repo's `biome.json`. The hooks run through
+[`prek`](https://prek.j178.dev) and are installed per checkout, so run this once
+after cloning (and once per additional checkout or worktree):
+
+```bash
+prek install
+```
+
+The `pre-commit` hook runs `biome check --write` on the staged JavaScript and
+TypeScript files — it reformats them and applies Biome's safe fixes in place,
+and fails the commit on remaining lint *errors* (warnings pass). Stage the
+rewritten files and commit again if it changed anything. The `commit-msg` hook
+rejects AI attribution trailers. To check or format the whole tree by hand:
+
+```bash
+git ls-files '*.ts' '*.js' | xargs bunx @biomejs/biome@2.5.8 check           # report
+git ls-files '*.ts' '*.js' | xargs bunx @biomejs/biome@2.5.8 check --write   # fix
+```
+
+The `bun run ci` gate does not run the hooks; it relies on committed sources
+being formatted. `packages/web/src/BoxDrawingRenderer.ts` opts out of
+`useSimpleNumberKeys` because its glyph tables are keyed by Unicode code point
+and read as hex.
+
 Per-package development commands live in `packages/web/AGENTS.md` and
 `packages/build/AGENTS.md`.
 

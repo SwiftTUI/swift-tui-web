@@ -16,8 +16,11 @@ async function runCli(argv: string[]): Promise<void> {
   const flags = parseFlags(argv.slice(1));
   const packagePath = resolve(flags["package-path"] ?? "../../");
   const distPath = resolve(flags["dist"] ?? "./dist");
-  const appExecutable = flags.app ?? flags.product ?? flags["app-product"] ?? "";
-  const wasmConfiguration = parseWasmBuildConfiguration(flags.configuration ?? "release");
+  const appExecutable =
+    flags.app ?? flags.product ?? flags["app-product"] ?? "";
+  const wasmConfiguration = parseWasmBuildConfiguration(
+    flags.configuration ?? "release",
+  );
 
   switch (command) {
     case "build:manifest":
@@ -67,13 +70,7 @@ async function bunBuildWeb(options: {
 }): Promise<void> {
   await mkdir(options.outputDirectory, { recursive: true });
   const proc = Bun.spawn({
-    cmd: [
-      "bun",
-      "build",
-      "./index.html",
-      "--outdir",
-      options.outputDirectory,
-    ],
+    cmd: ["bun", "build", "./index.html", "--outdir", options.outputDirectory],
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -84,14 +81,13 @@ async function bunBuildWeb(options: {
   ]);
 
   if (exitCode !== 0) {
-    throw new Error([stdout, stderr].filter(Boolean).join("\n").trim() || "web build failed");
+    throw new Error(
+      [stdout, stderr].filter(Boolean).join("\n").trim() || "web build failed",
+    );
   }
 }
 
-async function bunServe(
-  packagePath: string,
-  distPath: string
-): Promise<void> {
+async function bunServe(packagePath: string, distPath: string): Promise<void> {
   const server = Bun.serve({
     port: Number(process.env.PORT ?? "3000"),
     development: {
@@ -120,9 +116,7 @@ async function bunServe(
   await new Promise<void>(() => {});
 }
 
-function parseFlags(
-  argv: string[]
-): Record<string, string> {
+function parseFlags(argv: string[]): Record<string, string> {
   const flags: Record<string, string> = {};
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -146,9 +140,7 @@ function parseFlags(
   return flags;
 }
 
-function parseWasmBuildConfiguration(
-  value: string
-): WasmBuildConfiguration {
+function parseWasmBuildConfiguration(value: string): WasmBuildConfiguration {
   switch (value) {
     case "debug":
       return "debug";
@@ -159,9 +151,7 @@ function parseWasmBuildConfiguration(
   }
 }
 
-function assertAppExecutable(
-  value: string
-): asserts value is string {
+function assertAppExecutable(value: string): asserts value is string {
   if (!value) {
     throw new Error("missing --app or --product flag");
   }

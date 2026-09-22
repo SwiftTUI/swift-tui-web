@@ -1,14 +1,13 @@
 import { expect, test } from "bun:test";
 import { Worker } from "node:worker_threads";
-
+import { encodePasteInputMessage } from "../WebHostSurfaceTransport.ts";
 import {
+  createSharedInputQueue,
+  type SharedInputQueueBuffers,
   SharedInputQueueReader,
   SharedInputQueueWriter,
-  type SharedInputQueueBuffers,
-  createSharedInputQueue,
   sharedInputQueueDefaultCapacity,
 } from "./SharedInputQueue.ts";
-import { encodePasteInputMessage } from "../WebHostSurfaceTransport.ts";
 
 const pasteOverflowCharacterizations = [
   {
@@ -50,7 +49,7 @@ test("shared input queue retains the legacy three-word control-buffer ABI", () =
   const reader = new SharedInputQueueReader(queue);
 
   expect(createSharedInputQueue(8).controlBuffer.byteLength).toBe(
-    Int32Array.BYTES_PER_ELEMENT * 3
+    Int32Array.BYTES_PER_ELEMENT * 3,
   );
   writer.write("legacy");
   expect(decode(reader.readAvailable(8))).toBe("legacy");
@@ -206,22 +205,26 @@ test("characterization: percent-encoded paste records overflow at the pinned 64 
     const writer = new SharedInputQueueWriter(queue);
     const reader = new SharedInputQueueReader(queue);
     const maximumFittingRecord = encodePasteInputMessage(
-      characterization.character.repeat(characterization.maximumFittingCharacters)
+      characterization.character.repeat(
+        characterization.maximumFittingCharacters,
+      ),
     );
     const firstOverflowingRecord = encodePasteInputMessage(
-      characterization.character.repeat(characterization.firstOverflowingCharacters)
+      characterization.character.repeat(
+        characterization.firstOverflowingCharacters,
+      ),
     );
 
     expect(maximumFittingRecord.byteLength).toBe(
-      characterization.maximumFittingRecordBytes
+      characterization.maximumFittingRecordBytes,
     );
     expect(firstOverflowingRecord.byteLength).toBe(
-      characterization.firstOverflowingRecordBytes
+      characterization.firstOverflowingRecordBytes,
     );
 
     writer.write(maximumFittingRecord);
     expect(reader.availableBytes()).toBe(
-      characterization.maximumFittingRecordBytes
+      characterization.maximumFittingRecordBytes,
     );
     reader.readAvailable(sharedInputQueueDefaultCapacity);
     expect(reader.availableBytes()).toBe(0);
@@ -230,7 +233,7 @@ test("characterization: percent-encoded paste records overflow at the pinned 64 
     // the worker-side, non-suspending entry point. `writeAsync` is the
     // main-thread path that streams it instead; see the tests below.
     expect(() => writer.write(firstOverflowingRecord)).toThrow(
-      `Shared input queue overflow: cannot enqueue ${characterization.firstOverflowingRecordBytes} byte(s) into ${sharedInputQueueDefaultCapacity} byte(s) of free space.`
+      `Shared input queue overflow: cannot enqueue ${characterization.firstOverflowingRecordBytes} byte(s) into ${sharedInputQueueDefaultCapacity} byte(s) of free space.`,
     );
     expect(reader.availableBytes()).toBe(0);
   }
@@ -241,7 +244,7 @@ test("writeAsync streams a paste larger than the ring, in order", async () => {
     // 128 KiB of ASCII and 64 KiB of CJK: two records each larger than the
     // 64 KiB ring, one of them by 2x.
     encodePasteInputMessage("a".repeat(128 * 1024)),
-    encodePasteInputMessage("界".repeat(64 * 1024 / 3)),
+    encodePasteInputMessage("界".repeat((64 * 1024) / 3)),
   ]) {
     expect(bytes.byteLength).toBeGreaterThan(sharedInputQueueDefaultCapacity);
 
@@ -253,7 +256,11 @@ test("writeAsync streams a paste larger than the ring, in order", async () => {
     // times before completing.
     const received: number[] = [];
     const write = writer.writeAsync(bytes);
-    for (let turn = 0; turn < 4_096 && received.length < bytes.byteLength; turn += 1) {
+    for (
+      let turn = 0;
+      turn < 4_096 && received.length < bytes.byteLength;
+      turn += 1
+    ) {
       const chunk = reader.readAvailable(4 * 1024);
       if (chunk) {
         received.push(...chunk);
@@ -303,7 +310,7 @@ test("writeAsync preserves order across concurrent logical writes", async () => 
     { status: "written" },
   ]);
   expect(new Uint8Array(received)).toEqual(
-    new Uint8Array([...first, ...second])
+    new Uint8Array([...first, ...second]),
   );
 });
 
@@ -330,7 +337,7 @@ test("writeAsync reports a partial write once its deadline expires", async () =>
   // Everything that fit was delivered; only the remainder was dropped.
   expect(outcome.bytesWritten).toBe(sharedInputQueueDefaultCapacity);
   expect(outcome.bytesRemaining).toBe(
-    bytes.byteLength - sharedInputQueueDefaultCapacity
+    bytes.byteLength - sharedInputQueueDefaultCapacity,
   );
 });
 
@@ -351,28 +358,27 @@ test("the main-thread writer never blocks on Atomics.wait", async () => {
   // wrong value: blocking on the main thread throws in browsers, and a test
   // that only checked outputs would not see the difference.
   const source = await Bun.file(
-    new URL("./SharedInputQueue.ts", import.meta.url)
+    new URL("./SharedInputQueue.ts", import.meta.url),
   ).text();
   const writerSource = source.slice(
     source.indexOf("export class SharedInputQueueWriter"),
-    source.indexOf("export class SharedInputQueueReader")
+    source.indexOf("export class SharedInputQueueReader"),
   );
   expect(writerSource).not.toContain("Atomics.wait(");
   expect(writerSource).toContain("Atomics.waitAsync");
 });
 
-function decode(
-  chunk: Uint8Array | undefined
-): string | undefined {
+function decode(chunk: Uint8Array | undefined): string | undefined {
   return chunk ? new TextDecoder().decode(chunk) : undefined;
 }
 
 function writeInputFromWorker(
   queue: SharedInputQueueBuffers,
   text: string,
-  delayMilliseconds: number
+  delayMilliseconds: number,
 ): Worker {
-  return new Worker(`
+  return new Worker(
+    `
     const { workerData } = require("node:worker_threads");
     const control = new Int32Array(workerData.controlBuffer);
     const data = new Uint8Array(workerData.dataBuffer);
@@ -383,33 +389,38 @@ function writeInputFromWorker(
       Atomics.store(control, 1, writeIndex + bytes.length);
       Atomics.notify(control, 1);
     }, workerData.delayMilliseconds);
-  `, {
-    eval: true,
-    workerData: {
-      controlBuffer: queue.controlBuffer,
-      dataBuffer: queue.dataBuffer,
-      delayMilliseconds,
-      text,
+  `,
+    {
+      eval: true,
+      workerData: {
+        controlBuffer: queue.controlBuffer,
+        dataBuffer: queue.dataBuffer,
+        delayMilliseconds,
+        text,
+      },
     },
-  });
+  );
 }
 
 function closeInputFromWorker(
   queue: SharedInputQueueBuffers,
-  delayMilliseconds: number
+  delayMilliseconds: number,
 ): Worker {
-  return new Worker(`
+  return new Worker(
+    `
     const { workerData } = require("node:worker_threads");
     const control = new Int32Array(workerData.controlBuffer);
     setTimeout(() => {
       Atomics.store(control, 2, 1);
       Atomics.notify(control, 1);
     }, workerData.delayMilliseconds);
-  `, {
-    eval: true,
-    workerData: {
-      controlBuffer: queue.controlBuffer,
-      delayMilliseconds,
+  `,
+    {
+      eval: true,
+      workerData: {
+        controlBuffer: queue.controlBuffer,
+        delayMilliseconds,
+      },
     },
-  });
+  );
 }

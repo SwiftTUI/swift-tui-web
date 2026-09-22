@@ -1,5 +1,5 @@
-import { createWebHostApp, type WebHostTerminalStyle } from "./WebHostApp.ts";
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
+import { createWebHostApp, type WebHostTerminalStyle } from "./WebHostApp.ts";
 import type { WebHostSceneFrameMode } from "./WebHostSceneRuntime.ts";
 
 declare global {
@@ -27,10 +27,13 @@ async function bootstrap(): Promise<void> {
 
   const config = window.__WEBTUI__ ?? {};
   const pageURL = new URL(globalThis.location?.href ?? import.meta.url);
-  const embeddedToken = config.embeddedHost?.token ?? pageURL.searchParams.get("token") ?? undefined;
+  const embeddedToken =
+    config.embeddedHost?.token ??
+    pageURL.searchParams.get("token") ??
+    undefined;
   const manifestUrl = tokenizedURL(
     config.manifestUrl ?? new URL("./scene-manifest.json", pageURL),
-    embeddedToken
+    embeddedToken,
   );
   const controller = await createWebHostApp({
     mount,
@@ -45,7 +48,9 @@ async function bootstrap(): Promise<void> {
     embeddedHost: embeddedToken
       ? {
           token: embeddedToken,
-          webSocketBaseURL: config.embeddedHost?.webSocketBaseURL ?? new URL("./", pageURL).href,
+          webSocketBaseURL:
+            config.embeddedHost?.webSocketBaseURL ??
+            new URL("./", pageURL).href,
         }
       : undefined,
   });
@@ -57,7 +62,7 @@ void bootstrap();
 
 // Allowlisted so a page URL can only choose a shipped presenter.
 function rendererFromQuery(
-  pageURL: URL
+  pageURL: URL,
 ): WebHostSurfaceRendererKind | undefined {
   const renderer = pageURL.searchParams.get("renderer");
   return renderer === "dom" || renderer === "canvas" ? renderer : undefined;
@@ -65,12 +70,15 @@ function rendererFromQuery(
 
 function tokenizedURL(
   value: string | URL,
-  token: string | undefined
+  token: string | undefined,
 ): string | URL {
   if (!token) {
     return value;
   }
-  const url = new URL(String(value), globalThis.location?.href ?? import.meta.url);
+  const url = new URL(
+    String(value),
+    globalThis.location?.href ?? import.meta.url,
+  );
   url.searchParams.set("token", token);
   return url;
 }

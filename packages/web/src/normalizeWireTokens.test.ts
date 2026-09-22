@@ -8,14 +8,24 @@ import {
 } from "./normalizeWireTokens.ts";
 
 test("wire token normalizers preserve every frozen token", () => {
-  expect(["none", "automatic", "activate", "edit"].map(normalizeSemantics))
-    .toEqual(["none", "automatic", "activate", "edit"]);
-  expect(["off", "polite", "assertive"].map(normalizePoliteness))
-    .toEqual(["off", "polite", "assertive"]);
-  expect(["off", "polite", "assertive"].map(normalizeLiveRegion))
-    .toEqual(["off", "polite", "assertive"]);
-  expect(["stretch", "fit", "fill"].map(normalizeScalingMode))
-    .toEqual(["stretch", "fit", "fill"]);
+  expect(
+    ["none", "automatic", "activate", "edit"].map(normalizeSemantics),
+  ).toEqual(["none", "automatic", "activate", "edit"]);
+  expect(["off", "polite", "assertive"].map(normalizePoliteness)).toEqual([
+    "off",
+    "polite",
+    "assertive",
+  ]);
+  expect(["off", "polite", "assertive"].map(normalizeLiveRegion)).toEqual([
+    "off",
+    "polite",
+    "assertive",
+  ]);
+  expect(["stretch", "fit", "fill"].map(normalizeScalingMode)).toEqual([
+    "stretch",
+    "fit",
+    "fill",
+  ]);
 });
 
 test("wire token normalizers apply the open-world defaults", () => {

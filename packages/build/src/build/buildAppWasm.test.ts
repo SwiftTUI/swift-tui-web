@@ -1,12 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { packageBrowserValidatedWasm } from "./buildAppWasm.ts";
 
 const minimalWasmBytes = new Uint8Array([
-  0x00, 0x61, 0x73, 0x6d,
-  0x01, 0x00, 0x00, 0x00,
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
 ]);
 
 const temporaryDirectories: string[] = [];
@@ -31,12 +30,15 @@ test("falls back to the original wasm when strip tooling throws", async () => {
     onWarning: (warning) => warnings.push(warning),
   });
 
-  expect(await Bun.file(fixture.outputWasmPath).bytes())
-    .toEqual(minimalWasmBytes);
+  expect(await Bun.file(fixture.outputWasmPath).bytes()).toEqual(
+    minimalWasmBytes,
+  );
   expect(warnings).toHaveLength(1);
   expect(warnings[0]).toContain("keeping unstripped wasm");
   expect(warnings[0]).toContain("missing llvm-objcopy");
-  await WebAssembly.compile(await Bun.file(fixture.outputWasmPath).arrayBuffer());
+  await WebAssembly.compile(
+    await Bun.file(fixture.outputWasmPath).arrayBuffer(),
+  );
 });
 
 test("falls back to the original wasm when stripping corrupts the artifact", async () => {
@@ -53,12 +55,16 @@ test("falls back to the original wasm when stripping corrupts the artifact", asy
     onWarning: (warning) => warnings.push(warning),
   });
 
-  expect(await Bun.file(fixture.outputWasmPath).bytes())
-    .toEqual(minimalWasmBytes);
+  expect(await Bun.file(fixture.outputWasmPath).bytes()).toEqual(
+    minimalWasmBytes,
+  );
   expect(warnings).toHaveLength(1);
-  expect(warnings[0])
-    .toContain("stripped wasm does not parse in browser WebAssembly");
-  await WebAssembly.compile(await Bun.file(fixture.outputWasmPath).arrayBuffer());
+  expect(warnings[0]).toContain(
+    "stripped wasm does not parse in browser WebAssembly",
+  );
+  await WebAssembly.compile(
+    await Bun.file(fixture.outputWasmPath).arrayBuffer(),
+  );
 });
 
 test("fails when the source wasm itself is not browser-parseable", async () => {
@@ -70,7 +76,7 @@ test("fails when the source wasm itself is not browser-parseable", async () => {
       sourceWasmPath: fixture.sourceWasmPath,
       outputWasmPath: fixture.outputWasmPath,
       strip: async () => {},
-    })
+    }),
   ).rejects.toThrow("generated wasm does not parse in browser WebAssembly");
   await expect(
     packageBrowserValidatedWasm({
@@ -78,7 +84,7 @@ test("fails when the source wasm itself is not browser-parseable", async () => {
       sourceWasmPath: fixture.sourceWasmPath,
       outputWasmPath: fixture.outputWasmPath,
       strip: async () => {},
-    })
+    }),
   ).rejects.toThrow("maxTypeParameterCount=1001");
   await expect(
     packageBrowserValidatedWasm({
@@ -86,7 +92,7 @@ test("fails when the source wasm itself is not browser-parseable", async () => {
       sourceWasmPath: fixture.sourceWasmPath,
       outputWasmPath: fixture.outputWasmPath,
       strip: async () => {},
-    })
+    }),
   ).rejects.toThrow("overBrowserLimitTypes=0");
 });
 
@@ -102,8 +108,9 @@ test("uses optimized wasm when the raw compiler output is not browser-parseable"
     strip: async () => {},
   });
 
-  expect(await Bun.file(fixture.outputWasmPath).bytes())
-    .toEqual(minimalWasmBytes);
+  expect(await Bun.file(fixture.outputWasmPath).bytes()).toEqual(
+    minimalWasmBytes,
+  );
 });
 
 test("reports the optimization failure when the raw wasm is still invalid", async () => {
@@ -117,12 +124,12 @@ test("reports the optimization failure when the raw wasm is still invalid", asyn
       sourceWasmPath: fixture.sourceWasmPath,
       outputWasmPath: fixture.outputWasmPath,
       strip: async () => {},
-    })
+    }),
   ).rejects.toThrow("wasm optimization step failed: missing wasm-opt");
 });
 
 async function createFixture(
-  sourceBytes: Uint8Array = minimalWasmBytes
+  sourceBytes: Uint8Array = minimalWasmBytes,
 ): Promise<{ sourceWasmPath: string; outputWasmPath: string }> {
   const directory = await mkdtemp(join(tmpdir(), "webhost-wasm-"));
   temporaryDirectories.push(directory);
@@ -137,9 +144,7 @@ async function createFixture(
   };
 }
 
-function buildHugeFunctionTypeWasm(
-  parameterCount: number
-): Uint8Array {
+function buildHugeFunctionTypeWasm(parameterCount: number): Uint8Array {
   const payload = [
     ...encodeUnsignedLEB128(1),
     0x60,
@@ -156,9 +161,7 @@ function buildHugeFunctionTypeWasm(
   ]);
 }
 
-function encodeUnsignedLEB128(
-  value: number
-): number[] {
+function encodeUnsignedLEB128(value: number): number[] {
   if (value < 0) {
     throw new Error("LEB128 values must be non-negative");
   }

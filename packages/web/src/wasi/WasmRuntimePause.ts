@@ -26,9 +26,7 @@ export class PausableMonotonicClock {
     return BigInt(Math.round(this.nowMilliseconds() * 1e6));
   }
 
-  addPausedMilliseconds(
-    milliseconds: number
-  ): void {
+  addPausedMilliseconds(milliseconds: number): void {
     if (milliseconds > 0) {
       this.accumulatedPauseMilliseconds += milliseconds;
     }
@@ -47,7 +45,7 @@ export class PausableMonotonicClock {
 export function createWasmPauseCell(): SharedArrayBuffer {
   if (typeof SharedArrayBuffer === "undefined") {
     throw new Error(
-      "SharedArrayBuffer is unavailable. Serve the app with COOP/COEP headers so worker-mode pause can work."
+      "SharedArrayBuffer is unavailable. Serve the app with COOP/COEP headers so worker-mode pause can work.",
     );
   }
   return new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
@@ -55,7 +53,7 @@ export function createWasmPauseCell(): SharedArrayBuffer {
 
 export function setWasmPauseCellPaused(
   cell: SharedArrayBuffer,
-  paused: boolean
+  paused: boolean,
 ): void {
   const flags = new Int32Array(cell);
   Atomics.store(flags, 0, paused ? pausedFlagValue : 0);
@@ -64,9 +62,7 @@ export function setWasmPauseCellPaused(
   }
 }
 
-export function isWasmPauseCellPaused(
-  cell: SharedArrayBuffer
-): boolean {
+export function isWasmPauseCellPaused(cell: SharedArrayBuffer): boolean {
   return Atomics.load(new Int32Array(cell), 0) === pausedFlagValue;
 }
 
@@ -83,7 +79,7 @@ export class WorkerWasmPauseGate {
   constructor(
     cell: SharedArrayBuffer,
     clock: PausableMonotonicClock,
-    rawNowMilliseconds: () => number = () => performance.now()
+    rawNowMilliseconds: () => number = () => performance.now(),
   ) {
     this.flags = new Int32Array(cell);
     this.clock = clock;
@@ -114,7 +110,7 @@ export class MainThreadWasmPauseGate {
 
   constructor(
     clock: PausableMonotonicClock,
-    rawNowMilliseconds: () => number = () => performance.now()
+    rawNowMilliseconds: () => number = () => performance.now(),
   ) {
     this.clock = clock;
     this.rawNowMilliseconds = rawNowMilliseconds;
@@ -124,9 +120,7 @@ export class MainThreadWasmPauseGate {
     return this.paused;
   }
 
-  setPaused(
-    paused: boolean
-  ): void {
+  setPaused(paused: boolean): void {
     if (this.paused === paused) {
       return;
     }
@@ -153,7 +147,11 @@ export class MainThreadWasmPauseGate {
   }
 }
 
-type ClockTimeGet = (clockid: number, precision: bigint, timePtr: number) => number;
+type ClockTimeGet = (
+  clockid: number,
+  precision: bigint,
+  timePtr: number,
+) => number;
 
 /**
  * Redirects the WASI `clock_time_get` import's MONOTONIC reads through the
@@ -164,7 +162,7 @@ type ClockTimeGet = (clockid: number, precision: bigint, timePtr: number) => num
 export function installPausableClockTimeGet(
   wasiImport: Record<string, unknown>,
   memory: () => WebAssembly.Memory | undefined,
-  clock: PausableMonotonicClock
+  clock: PausableMonotonicClock,
 ): void {
   const original = wasiImport.clock_time_get as ClockTimeGet | undefined;
   if (typeof original !== "function") {
@@ -173,7 +171,7 @@ export function installPausableClockTimeGet(
   wasiImport.clock_time_get = (
     clockid: number,
     precision: bigint,
-    timePtr: number
+    timePtr: number,
   ): number => {
     if (clockid !== wasi.CLOCKID_MONOTONIC) {
       return original(clockid, precision, timePtr);
@@ -182,7 +180,11 @@ export function installPausableClockTimeGet(
     if (!currentMemory) {
       return original(clockid, precision, timePtr);
     }
-    new DataView(currentMemory.buffer).setBigUint64(timePtr, clock.nowNanoseconds(), true);
+    new DataView(currentMemory.buffer).setBigUint64(
+      timePtr,
+      clock.nowNanoseconds(),
+      true,
+    );
     return wasi.ERRNO_SUCCESS;
   };
 }

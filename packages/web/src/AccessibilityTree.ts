@@ -1,11 +1,11 @@
-import type {
-  WebHostAccessibilityAnnouncement,
-  WebHostAccessibilityNode,
-} from "./WebHostSurfaceTransport.ts";
 import {
   normalizeLiveRegion,
   normalizePoliteness,
 } from "./normalizeWireTokens.ts";
+import type {
+  WebHostAccessibilityAnnouncement,
+  WebHostAccessibilityNode,
+} from "./WebHostSurfaceTransport.ts";
 
 interface AccessibilityTreeMetrics {
   cellWidth: number;
@@ -44,7 +44,7 @@ export class AccessibilityTreeMounter {
     nodes: WebHostAccessibilityNode[],
     metrics: AccessibilityTreeMetrics,
     announcements: WebHostAccessibilityAnnouncement[] = [],
-    options: AccessibilityTreePresentationOptions = {}
+    options: AccessibilityTreePresentationOptions = {},
   ): void {
     // Nodes the app marked hidden stay out of the assistive-technology tree,
     // mirroring the Android host's overlay filter. Hidden is per-node on the
@@ -98,7 +98,7 @@ export class AccessibilityTreeMounter {
   private applyNodeAttributes(
     element: HTMLElement,
     node: WebHostAccessibilityNode,
-    metrics: AccessibilityTreeMetrics
+    metrics: AccessibilityTreeMetrics,
   ): void {
     element.id = `swifttui-a11y-${stableDOMId(node.id)}`;
     element.dataset.accessibilityId = node.id;
@@ -109,7 +109,7 @@ export class AccessibilityTreeMounter {
     setOrRemoveAttribute(
       element,
       "aria-level",
-      role.level !== undefined ? String(role.level) : undefined
+      role.level !== undefined ? String(role.level) : undefined,
     );
     setOrRemoveAttribute(element, "aria-label", node.label || undefined);
     setOrRemoveAttribute(element, "aria-description", node.hint || undefined);
@@ -130,17 +130,19 @@ export class AccessibilityTreeMounter {
 
   private announceLiveRegionChanges(
     nodes: WebHostAccessibilityNode[],
-    announcements: WebHostAccessibilityAnnouncement[]
+    announcements: WebHostAccessibilityAnnouncement[],
   ): void {
     const candidates = nodes.filter(
-      (node) => node.liveRegion && node.liveRegion !== "off" && node.label
+      (node) => node.liveRegion && node.liveRegion !== "off" && node.label,
     );
-    const currentLabelsById = new Map(candidates.map((node) => [node.id, node.label ?? ""]));
+    const currentLabelsById = new Map(
+      candidates.map((node) => [node.id, node.label ?? ""]),
+    );
     const imperativeAssertive = announcements.filter(
-      (announcement) => announcement.politeness === "assertive"
+      (announcement) => announcement.politeness === "assertive",
     );
     const imperativePolite = announcements.filter(
-      (announcement) => announcement.politeness === "polite"
+      (announcement) => announcement.politeness === "polite",
     );
 
     if (!this.hasLiveRegionBaseline) {
@@ -158,37 +160,50 @@ export class AccessibilityTreeMounter {
 
     const assertive = changed.filter((node) => node.liveRegion === "assertive");
     const polite = changed.filter((node) => node.liveRegion === "polite");
-    this.publishAnnouncements(assertive, imperativeAssertive, polite, imperativePolite);
+    this.publishAnnouncements(
+      assertive,
+      imperativeAssertive,
+      polite,
+      imperativePolite,
+    );
   }
 
   private publishAnnouncements(
     assertive: WebHostAccessibilityNode[],
     imperativeAssertive: WebHostAccessibilityAnnouncement[],
     polite: WebHostAccessibilityNode[],
-    imperativePolite: WebHostAccessibilityAnnouncement[]
+    imperativePolite: WebHostAccessibilityAnnouncement[],
   ): void {
-    const ordered = [...assertive, ...imperativeAssertive, ...polite, ...imperativePolite];
+    const ordered = [
+      ...assertive,
+      ...imperativeAssertive,
+      ...polite,
+      ...imperativePolite,
+    ];
     if (ordered.length === 0) {
       return;
     }
 
-    const politeness = assertive.length > 0 || imperativeAssertive.length > 0
-      ? "assertive"
-      : "polite";
+    const politeness =
+      assertive.length > 0 || imperativeAssertive.length > 0
+        ? "assertive"
+        : "polite";
     this.announcerElement.setAttribute("aria-live", politeness);
-    this.announcerElement.textContent = ordered.map((entry) => {
-      if ("message" in entry) {
-        return entry.message;
-      }
-      return entry.label ?? "";
-    }).join("\n");
+    this.announcerElement.textContent = ordered
+      .map((entry) => {
+        if ("message" in entry) {
+          return entry.message;
+        }
+        return entry.label ?? "";
+      })
+      .join("\n");
   }
 }
 
 function setOrRemoveAttribute(
   element: HTMLElement,
   name: string,
-  value: string | undefined
+  value: string | undefined,
 ): void {
   if (value === undefined) {
     element.removeAttribute(name);
@@ -197,9 +212,7 @@ function setOrRemoveAttribute(
   element.setAttribute(name, value);
 }
 
-function applyScreenReaderOnlyStyle(
-  element: HTMLElement
-): void {
+function applyScreenReaderOnlyStyle(element: HTMLElement): void {
   element.style.position = "absolute";
   element.style.left = "0";
   element.style.top = "0";
@@ -210,9 +223,7 @@ function applyScreenReaderOnlyStyle(
   element.style.whiteSpace = "nowrap";
 }
 
-function roleMapping(
-  role: string
-): RoleMapping {
+function roleMapping(role: string): RoleMapping {
   const heading = /^heading\(level: ([0-9]+)\)$/.exec(role);
   if (heading) {
     return {
@@ -227,69 +238,69 @@ function roleMapping(
   }
 
   switch (role) {
-  case "alert":
-  case "button":
-  case "cell":
-  case "checkbox":
-  case "grid":
-  case "group":
-  case "link":
-  case "list":
-  case "menu":
-  case "region":
-  case "separator":
-  case "slider":
-  case "status":
-  case "tab":
-  case "table":
-  case "timer":
-    return { role };
-  case "columnHeader":
-    return { role: "columnheader" };
-  case "confirmationDialog":
-  case "sheet":
-    return { role: "dialog" };
-  case "disclosureGroup":
-  case "scrollView":
-  case "scrollViewWithIndicators":
-  case "section":
-    return { role: "region" };
-  case "image":
-    return { role: "img" };
-  case "menuItem":
-    return { role: "menuitem" };
-  case "picker":
-    return { role: "combobox" };
-  case "progressBar":
-    return { role: "progressbar" };
-  case "rowHeader":
-    return { role: "rowheader" };
-  case "secureField":
-  case "textEditor":
-  case "textField":
-    return { role: "textbox" };
-  case "stepper":
-    return { role: "spinbutton" };
-  case "tabPanel":
-    return { role: "tabpanel" };
-  case "tableRow":
-    return { role: "row" };
-  case "tabView":
-    return { role: "tablist" };
-  case "toggle":
-    return { role: "checkbox" };
-  default:
-    return { role: "group" };
+    case "alert":
+    case "button":
+    case "cell":
+    case "checkbox":
+    case "grid":
+    case "group":
+    case "link":
+    case "list":
+    case "menu":
+    case "region":
+    case "separator":
+    case "slider":
+    case "status":
+    case "tab":
+    case "table":
+    case "timer":
+      return { role };
+    case "columnHeader":
+      return { role: "columnheader" };
+    case "confirmationDialog":
+    case "sheet":
+      return { role: "dialog" };
+    case "disclosureGroup":
+    case "scrollView":
+    case "scrollViewWithIndicators":
+    case "section":
+      return { role: "region" };
+    case "image":
+      return { role: "img" };
+    case "menuItem":
+      return { role: "menuitem" };
+    case "picker":
+      return { role: "combobox" };
+    case "progressBar":
+      return { role: "progressbar" };
+    case "rowHeader":
+      return { role: "rowheader" };
+    case "secureField":
+    case "textEditor":
+    case "textField":
+      return { role: "textbox" };
+    case "stepper":
+      return { role: "spinbutton" };
+    case "tabPanel":
+      return { role: "tabpanel" };
+    case "tableRow":
+      return { role: "row" };
+    case "tabView":
+      return { role: "tablist" };
+    case "toggle":
+      return { role: "checkbox" };
+    default:
+      return { role: "group" };
   }
 }
 
-function stableDOMId(
-  id: string
-): string {
-  return Array.from(id).map((character) => {
-    if (/^[a-zA-Z0-9_-]$/.test(character)) {
-      return character;
-    }
-    return `-${character.codePointAt(0)?.toString(16) ?? "0"}-`;
-  }).join("");
+function stableDOMId(id: string): string {
+  return Array.from(id)
+    .map((character) => {
+      if (/^[a-zA-Z0-9_-]$/.test(character)) {
+        return character;
+      }
+      return `-${character.codePointAt(0)?.toString(16) ?? "0"}-`;
+    })
+    .join("");
 }

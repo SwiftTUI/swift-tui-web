@@ -1,8 +1,8 @@
+import type { CellLocation } from "./InputEventEncoder.ts";
 import type {
   WebHostScrollRegion,
   WebHostSurfaceLinkRow,
 } from "./WebHostSurfaceTransport.ts";
-import type { CellLocation } from "./InputEventEncoder.ts";
 
 /**
  * The cell-grid geometry a pointer hit-test needs: the surface's bounding
@@ -24,7 +24,7 @@ export interface PointerGeometryMetrics {
  */
 export function cellLocationForEvent(
   event: MouseEvent,
-  metrics: PointerGeometryMetrics
+  metrics: PointerGeometryMetrics,
 ): CellLocation | undefined {
   const location = rawCellLocationForEvent(event, metrics);
   if (!location) {
@@ -33,7 +33,12 @@ export function cellLocationForEvent(
 
   const cellX = Math.floor(location.x);
   const cellY = Math.floor(location.y);
-  if (cellX < 0 || cellY < 0 || cellX >= metrics.columns || cellY >= metrics.rows) {
+  if (
+    cellX < 0 ||
+    cellY < 0 ||
+    cellX >= metrics.columns ||
+    cellY >= metrics.rows
+  ) {
     return undefined;
   }
   return location;
@@ -46,7 +51,7 @@ export function cellLocationForEvent(
  */
 export function rawCellLocationForEvent(
   event: MouseEvent,
-  metrics: PointerGeometryMetrics
+  metrics: PointerGeometryMetrics,
 ): CellLocation | undefined {
   const rect = metrics.rect;
   if (!rect) {
@@ -67,7 +72,7 @@ export function rawCellLocationForEvent(
 export function linkTargetAt(
   links: readonly WebHostSurfaceLinkRow[] | undefined,
   linkTargets: readonly string[] | undefined,
-  location: CellLocation
+  location: CellLocation,
 ): string | undefined {
   if (!links || !linkTargets || linkTargets.length === 0) {
     return undefined;
@@ -100,7 +105,7 @@ export function wheelTargetCanScroll(
   regions: readonly WebHostScrollRegion[] | undefined,
   location: CellLocation,
   deltaX: number,
-  deltaY: number
+  deltaY: number,
 ): boolean {
   if (!regions || regions.length === 0) {
     return false;
@@ -134,7 +139,7 @@ export function wheelTargetCanScroll(
 function regionCanScrollInDirection(
   region: WebHostScrollRegion,
   deltaX: number,
-  deltaY: number
+  deltaY: number,
 ): boolean {
   const [, , viewportWidth, viewportHeight] = region.rect;
   const [offsetX, offsetY] = region.offset;

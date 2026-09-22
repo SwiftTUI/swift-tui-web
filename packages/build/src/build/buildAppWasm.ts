@@ -2,8 +2,8 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { optimizePackagedWasm } from "./optimizePackagedWasm.ts";
 import {
-  resolveSwiftArtifacts,
   type ResolveSwiftArtifactsOptions,
+  resolveSwiftArtifacts,
   type SwiftArtifactPaths,
   type WasmBuildConfiguration,
 } from "./resolveSwiftArtifacts.ts";
@@ -18,7 +18,7 @@ export interface BuildAppWasmOptions extends ResolveSwiftArtifactsOptions {
 }
 
 export async function buildAppWasm(
-  options: BuildAppWasmOptions
+  options: BuildAppWasmOptions,
 ): Promise<SwiftArtifactPaths> {
   const artifacts = await resolveSwiftArtifacts(options);
 
@@ -41,7 +41,7 @@ interface PackageBrowserValidatedWasmOptions {
 }
 
 export async function packageBrowserValidatedWasm(
-  options: PackageBrowserValidatedWasmOptions
+  options: PackageBrowserValidatedWasmOptions,
 ): Promise<void> {
   const sourceBytes = await readFile(options.sourceWasmPath);
   await writeFile(options.outputWasmPath, sourceBytes);
@@ -63,11 +63,11 @@ export async function packageBrowserValidatedWasm(
     try {
       await validateBrowserWasm(options.outputWasmPath, "generated wasm");
     } catch (rawError) {
-      const rawMessage = rawError instanceof Error ? rawError.message : String(rawError);
-      throw new Error([
-        rawMessage,
-        `wasm optimization step failed: ${message}`,
-      ].join("\n"));
+      const rawMessage =
+        rawError instanceof Error ? rawError.message : String(rawError);
+      throw new Error(
+        [rawMessage, `wasm optimization step failed: ${message}`].join("\n"),
+      );
     }
 
     const warning = [
@@ -99,7 +99,7 @@ export async function packageBrowserValidatedWasm(
 
 async function validateBrowserWasm(
   wasmPath: string,
-  description: string
+  description: string,
 ): Promise<void> {
   const bytes = await readFile(wasmPath);
   try {
@@ -107,9 +107,11 @@ async function validateBrowserWasm(
     await WebAssembly.compile(bytes);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error([
-      `${description} does not parse in browser WebAssembly (${wasmPath}): ${message}`,
-      formatWasmTypeDiagnostics(bytes),
-    ].join("\n"));
+    throw new Error(
+      [
+        `${description} does not parse in browser WebAssembly (${wasmPath}): ${message}`,
+        formatWasmTypeDiagnostics(bytes),
+      ].join("\n"),
+    );
   }
 }

@@ -2,7 +2,7 @@ const controlSlots = 3;
 const capacityWaitTimeoutMilliseconds = 50;
 const writeDeadlineMilliseconds = 500;
 
-const enum ControlSlot {
+enum ControlSlot {
   readIndex = 0,
   writeIndex = 1,
   closed = 2,
@@ -27,7 +27,11 @@ export type SharedInputReadiness = "readable" | "closed" | "timedOut";
 export type SharedInputWriteOutcome =
   | { readonly status: "written" }
   | { readonly status: "closed"; readonly bytesWritten: number }
-  | { readonly status: "partial"; readonly bytesWritten: number; readonly bytesRemaining: number };
+  | {
+      readonly status: "partial";
+      readonly bytesWritten: number;
+      readonly bytesRemaining: number;
+    };
 
 export interface SharedInputWriteOptions {
   /** Total budget for the whole logical write. Defaults to 500 ms. */
@@ -42,26 +46,30 @@ interface SharedInputQueueState {
 }
 
 export function createSharedInputQueue(
-  capacity: number = sharedInputQueueDefaultCapacity
+  capacity: number = sharedInputQueueDefaultCapacity,
 ): SharedInputQueueBuffers {
   if (typeof SharedArrayBuffer === "undefined") {
     throw new Error(
-      "SharedArrayBuffer is unavailable. Serve the app with COOP/COEP headers so browser WASI stdin can stay live."
+      "SharedArrayBuffer is unavailable. Serve the app with COOP/COEP headers so browser WASI stdin can stay live.",
     );
   }
 
   if (!Number.isInteger(capacity) || capacity <= 0) {
-    throw new Error(`Shared input queue capacity must be a positive integer, received ${capacity}.`);
+    throw new Error(
+      `Shared input queue capacity must be a positive integer, received ${capacity}.`,
+    );
   }
 
   return {
-    controlBuffer: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * controlSlots),
+    controlBuffer: new SharedArrayBuffer(
+      Int32Array.BYTES_PER_ELEMENT * controlSlots,
+    ),
     dataBuffer: new SharedArrayBuffer(capacity),
   };
 }
 
 export function hydrateSharedInputQueue(
-  buffers: SharedInputQueueBuffers
+  buffers: SharedInputQueueBuffers,
 ): SharedInputQueueState {
   return {
     control: new Int32Array(buffers.controlBuffer),
@@ -107,10 +115,10 @@ export class SharedInputQueueWriter {
    */
   writeAsync(
     chunk: Uint8Array | string,
-    options: SharedInputWriteOptions = {}
+    options: SharedInputWriteOptions = {},
   ): Promise<SharedInputWriteOutcome> {
     const bytes = normalizeChunk(chunk);
-    if (bytes.length == 0) {
+    if (bytes.length === 0) {
       return Promise.resolve({ status: "written" });
     }
     if (Atomics.load(this.queue.control, ControlSlot.closed) !== 0) {
@@ -129,7 +137,7 @@ export class SharedInputQueueWriter {
     this.pendingWrites += 1;
     const attempt = this.writeChain.then(
       () => this.performChunkedWrite(bytes, options),
-      () => this.performChunkedWrite(bytes, options)
+      () => this.performChunkedWrite(bytes, options),
     );
     this.writeChain = attempt;
     return attempt.finally(() => {
@@ -139,11 +147,12 @@ export class SharedInputQueueWriter {
 
   private async performChunkedWrite(
     bytes: Uint8Array,
-    options: SharedInputWriteOptions
+    options: SharedInputWriteOptions,
   ): Promise<SharedInputWriteOutcome> {
     const now = options.now ?? (() => Date.now());
-    const deadline = now()
-      + Math.max(0, options.deadlineMilliseconds ?? writeDeadlineMilliseconds);
+    const deadline =
+      now() +
+      Math.max(0, options.deadlineMilliseconds ?? writeDeadlineMilliseconds);
     let written = 0;
 
     while (written < bytes.length) {
@@ -170,7 +179,10 @@ export class SharedInputQueueWriter {
       // `singleWait` keeps the deadline in this loop: without it the helper
       // would spin internally until capacity arrived, ignoring the budget.
       await this.waitForCapacity(1, {
-        timeoutMilliseconds: Math.min(capacityWaitTimeoutMilliseconds, remainingBudget),
+        timeoutMilliseconds: Math.min(
+          capacityWaitTimeoutMilliseconds,
+          remainingBudget,
+        ),
         singleWait: true,
       });
     }
@@ -178,16 +190,14 @@ export class SharedInputQueueWriter {
     return { status: "written" };
   }
 
-  private writeSegment(
-    segment: Uint8Array
-  ): void {
+  private writeSegment(segment: Uint8Array): void {
     const length = this.queue.data.length;
     const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
     writeToRingBuffer(this.queue.data, segment, writeIndex);
     Atomics.store(
       this.queue.control,
       ControlSlot.writeIndex,
-      ringAdvance(writeIndex, segment.length, length)
+      ringAdvance(writeIndex, segment.length, length),
     );
     Atomics.notify(this.queue.control, ControlSlot.writeIndex);
   }
@@ -198,7 +208,7 @@ export class SharedInputQueueWriter {
     }
 
     const bytes = normalizeChunk(chunk);
-    if (bytes.length == 0) {
+    if (bytes.length === 0) {
       return;
     }
 
@@ -210,7 +220,7 @@ export class SharedInputQueueWriter {
 
     if (bytes.length > availableCapacity) {
       throw new Error(
-        `Shared input queue overflow: cannot enqueue ${bytes.length} byte(s) into ${availableCapacity} byte(s) of free space.`
+        `Shared input queue overflow: cannot enqueue ${bytes.length} byte(s) into ${availableCapacity} byte(s) of free space.`,
       );
     }
 
@@ -218,7 +228,7 @@ export class SharedInputQueueWriter {
     Atomics.store(
       this.queue.control,
       ControlSlot.writeIndex,
-      ringAdvance(writeIndex, bytes.length, length)
+      ringAdvance(writeIndex, bytes.length, length),
     );
     Atomics.notify(this.queue.control, ControlSlot.writeIndex);
   }
@@ -232,13 +242,17 @@ export class SharedInputQueueWriter {
 
   async waitForCapacity(
     minimumBytes: number,
-    options: { readonly timeoutMilliseconds?: number; readonly singleWait?: boolean } = {}
+    options: {
+      readonly timeoutMilliseconds?: number;
+      readonly singleWait?: boolean;
+    } = {},
   ): Promise<boolean> {
     const required = Math.max(0, Math.ceil(minimumBytes));
     if (required > this.queue.data.length) {
       return false;
     }
-    const timeout = options.timeoutMilliseconds ?? capacityWaitTimeoutMilliseconds;
+    const timeout =
+      options.timeoutMilliseconds ?? capacityWaitTimeoutMilliseconds;
 
     while (true) {
       const readIndex = Atomics.load(this.queue.control, ControlSlot.readIndex);
@@ -254,7 +268,7 @@ export class SharedInputQueueWriter {
           this.queue.control,
           ControlSlot.readIndex,
           readIndex,
-          timeout
+          timeout,
         );
         if (waiting.async) {
           await waiting.value;
@@ -299,7 +313,10 @@ export class SharedInputQueueReader {
         return undefined;
       }
 
-      const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
+      const writeIndex = Atomics.load(
+        this.queue.control,
+        ControlSlot.writeIndex,
+      );
       Atomics.wait(this.queue.control, ControlSlot.writeIndex, writeIndex);
     }
   }
@@ -323,7 +340,7 @@ export class SharedInputQueueReader {
     Atomics.store(
       this.queue.control,
       ControlSlot.readIndex,
-      ringAdvance(readIndex, byteCount, length)
+      ringAdvance(readIndex, byteCount, length),
     );
     Atomics.notify(this.queue.control, ControlSlot.readIndex);
     return chunk;
@@ -335,9 +352,7 @@ export class SharedInputQueueReader {
     return ringUsed(readIndex, writeIndex, this.queue.data.length);
   }
 
-  waitForReadable(
-    timeoutMilliseconds?: number
-  ): SharedInputReadiness {
+  waitForReadable(timeoutMilliseconds?: number): SharedInputReadiness {
     while (true) {
       if (this.availableBytes() > 0) {
         return "readable";
@@ -346,12 +361,15 @@ export class SharedInputQueueReader {
         return "closed";
       }
 
-      const writeIndex = Atomics.load(this.queue.control, ControlSlot.writeIndex);
+      const writeIndex = Atomics.load(
+        this.queue.control,
+        ControlSlot.writeIndex,
+      );
       const result = Atomics.wait(
         this.queue.control,
         ControlSlot.writeIndex,
         writeIndex,
-        timeoutMilliseconds
+        timeoutMilliseconds,
       );
       if (result === "timed-out") {
         return "timedOut";
@@ -364,10 +382,10 @@ export class SharedInputQueueReader {
   }
 }
 
-function normalizeChunk(
-  chunk: Uint8Array | string
-): Uint8Array {
-  return typeof chunk == "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk);
+function normalizeChunk(chunk: Uint8Array | string): Uint8Array {
+  return typeof chunk === "string"
+    ? new TextEncoder().encode(chunk)
+    : new Uint8Array(chunk);
 }
 
 // The read/write cursors are kept in the half-open range [0, 2 * length) — the
@@ -378,24 +396,20 @@ function normalizeChunk(
 function ringUsed(
   readIndex: number,
   writeIndex: number,
-  length: number
+  length: number,
 ): number {
   const span = 2 * length;
-  return ((writeIndex - readIndex) % span + span) % span;
+  return (((writeIndex - readIndex) % span) + span) % span;
 }
 
-function ringAdvance(
-  index: number,
-  delta: number,
-  length: number
-): number {
+function ringAdvance(index: number, delta: number, length: number): number {
   return (index + delta) % (2 * length);
 }
 
 function writeToRingBuffer(
   buffer: Uint8Array,
   chunk: Uint8Array,
-  startIndex: number
+  startIndex: number,
 ): void {
   const offset = startIndex % buffer.length;
   const firstSegmentLength = Math.min(chunk.length, buffer.length - offset);
@@ -408,14 +422,17 @@ function writeToRingBuffer(
 function readFromRingBuffer(
   buffer: Uint8Array,
   startIndex: number,
-  byteCount: number
+  byteCount: number,
 ): Uint8Array {
   const chunk = new Uint8Array(byteCount);
   const offset = startIndex % buffer.length;
   const firstSegmentLength = Math.min(byteCount, buffer.length - offset);
   chunk.set(buffer.subarray(offset, offset + firstSegmentLength), 0);
   if (firstSegmentLength < byteCount) {
-    chunk.set(buffer.subarray(0, byteCount - firstSegmentLength), firstSegmentLength);
+    chunk.set(
+      buffer.subarray(0, byteCount - firstSegmentLength),
+      firstSegmentLength,
+    );
   }
   return chunk;
 }

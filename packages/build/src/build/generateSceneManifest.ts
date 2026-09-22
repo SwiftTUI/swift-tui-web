@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   loadWebHostSceneManifest,
-  webTUISceneManifestToJSON,
   type WebHostSceneManifest,
+  webTUISceneManifestToJSON,
 } from "@swifttui/web/manifest";
 import { runCommand } from "./runCommand.ts";
 import { swiftCommandPrefix } from "./swiftCommandPrefix.ts";
@@ -16,7 +16,7 @@ export interface GenerateSceneManifestOptions {
 }
 
 export async function generateSceneManifest(
-  options: GenerateSceneManifestOptions
+  options: GenerateSceneManifestOptions,
 ): Promise<WebHostSceneManifest> {
   const output = await runManifestCommand(options);
   const manifest = await loadWebHostSceneManifest(output.trim());
@@ -26,7 +26,7 @@ export async function generateSceneManifest(
 }
 
 async function runManifestCommand(
-  options: GenerateSceneManifestOptions
+  options: GenerateSceneManifestOptions,
 ): Promise<string> {
   return await runCommand(
     [
@@ -41,6 +41,6 @@ async function runManifestCommand(
         ...process.env,
         SWIFTTUI_MODE: "manifest",
       },
-    }
+    },
   );
 }

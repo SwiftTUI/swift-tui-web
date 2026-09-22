@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 
 import { createWebHostApp, type WebHostAppOptions } from "./WebHostApp.ts";
-import type { WebSocketSceneSocket } from "./WebSocketSceneBridge.ts";
+import type { WebHostSceneRuntimeOptions } from "./WebHostSceneRuntime.ts";
 import type {
   ResolvedWebHostTerminalStyle,
   WebHostTerminalStyle,
 } from "./WebHostTerminalStyle.ts";
-import type { WebHostSceneRuntimeOptions } from "./WebHostSceneRuntime.ts";
+import type { WebSocketSceneSocket } from "./WebSocketSceneBridge.ts";
 
 class FakeRuntime {
   readonly descriptorId: string;
@@ -27,9 +27,7 @@ class FakeRuntime {
     this.visible = visible;
   }
 
-  setStyle(
-    style: WebHostTerminalStyle | ResolvedWebHostTerminalStyle
-  ): void {
+  setStyle(style: WebHostTerminalStyle | ResolvedWebHostTerminalStyle): void {
     this.styleUpdates.push(style);
   }
 
@@ -81,7 +79,8 @@ test("app controller switches scenes and propagates active styles", async () => 
         muted: "#57606a",
       },
     },
-    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    createElement: (tagName: string) =>
+      makeElement(tagName) as unknown as HTMLElement,
     sceneRuntimeFactory: (runtimeOptions: WebHostSceneRuntimeOptions) => {
       const runtime = new FakeRuntime(runtimeOptions.descriptor.id);
       runtimes.set(runtimeOptions.descriptor.id, runtime);
@@ -140,7 +139,8 @@ test("app accepts existing custom bridges without the optional image recovery se
       scenes: [{ id: "main", title: "Main", isDefault: true }],
     },
     bridgeFactory: () => bridge,
-    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    createElement: (tagName: string) =>
+      makeElement(tagName) as unknown as HTMLElement,
     sceneRuntimeFactory: (options) => {
       runtimeOptions = options;
       return new FakeRuntime(options.descriptor.id) as unknown as never;
@@ -227,7 +227,8 @@ test("app controller forwards paintScheduling to each scene runtime", async () =
         scenes: [{ id: "main", title: "Main", isDefault: true }],
       },
       ...(paintScheduling === undefined ? {} : { paintScheduling }),
-      createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+      createElement: (tagName: string) =>
+        makeElement(tagName) as unknown as HTMLElement,
       sceneRuntimeFactory: (options) => {
         forwarded.push(options.paintScheduling);
         return new FakeRuntime(options.descriptor.id) as unknown as never;
@@ -260,7 +261,8 @@ test("app controller uses the embedded WebSocket bridge when configured", async 
         return socket;
       },
     },
-    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    createElement: (tagName: string) =>
+      makeElement(tagName) as unknown as HTMLElement,
     sceneRuntimeFactory: (options: WebHostSceneRuntimeOptions) => {
       runtimeOptions = options;
       return new FakeRuntime(options.descriptor.id) as unknown as never;
@@ -273,7 +275,7 @@ test("app controller uses the embedded WebSocket bridge when configured", async 
   runtimeOptions?.onInput(new TextEncoder().encode("input-record"));
   // The bridge's capability declaration always flushes first on open.
   expect(new TextDecoder().decode(socket.sent[0])).toBe(
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n'
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
   );
   expect(new TextDecoder().decode(socket.sent[1])).toBe("input-record");
 
@@ -281,9 +283,7 @@ test("app controller uses the embedded WebSocket bridge when configured", async 
   expect(socket.closed).toBe(true);
 });
 
-function makeElement(
-  tagName: string
-): Record<string, unknown> {
+function makeElement(tagName: string): Record<string, unknown> {
   return {
     tagName,
     className: "",
@@ -306,9 +306,7 @@ class FakeSocket implements WebSocketSceneSocket {
 
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
-  send(
-    data: string | ArrayBufferLike | Blob | ArrayBufferView
-  ): void {
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
     if (typeof data === "string") {
       this.sent.push(new TextEncoder().encode(data));
     } else if (data instanceof Uint8Array) {
@@ -316,7 +314,9 @@ class FakeSocket implements WebSocketSceneSocket {
     } else if (data instanceof ArrayBuffer) {
       this.sent.push(new Uint8Array(data));
     } else if (ArrayBuffer.isView(data)) {
-      this.sent.push(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+      this.sent.push(
+        new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+      );
     }
   }
 
@@ -324,19 +324,13 @@ class FakeSocket implements WebSocketSceneSocket {
     this.closed = true;
   }
 
-  addEventListener(
-    type: string,
-    listener: (event: unknown) => void
-  ): void {
+  addEventListener(type: string, listener: (event: unknown) => void): void {
     const listeners = this.listeners.get(type) ?? new Set();
     listeners.add(listener);
     this.listeners.set(type, listeners);
   }
 
-  removeEventListener(
-    type: string,
-    listener: (event: unknown) => void
-  ): void {
+  removeEventListener(type: string, listener: (event: unknown) => void): void {
     this.listeners.get(type)?.delete(listener);
   }
 
@@ -372,7 +366,8 @@ test("app controller forwards document visibility to every scene runtime", async
         { id: "controls", title: "Controls", isDefault: false },
       ],
     },
-    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    createElement: (tagName: string) =>
+      makeElement(tagName) as unknown as HTMLElement,
     sceneRuntimeFactory: (runtimeOptions: WebHostSceneRuntimeOptions) => {
       const runtime = new FakeRuntime(runtimeOptions.descriptor.id);
       runtimes.set(runtimeOptions.descriptor.id, runtime);
@@ -384,7 +379,9 @@ test("app controller forwards document visibility to every scene runtime", async
 
   expect(listeners.size).toBe(1);
   expect(runtimes.get("dashboard")?.documentVisible).toBe(true);
-  expect(seenRuntimeOptions.get("dashboard")?.suspendWhenHidden).toBeUndefined();
+  expect(
+    seenRuntimeOptions.get("dashboard")?.suspendWhenHidden,
+  ).toBeUndefined();
 
   visibilityDocument.hidden = true;
   for (const listener of [...listeners]) {
@@ -417,7 +414,8 @@ test("app controller forwards suspendHiddenScenes to runtime options", async () 
       defaultSceneId: "main",
       scenes: [{ id: "main", title: "Main", isDefault: true }],
     },
-    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    createElement: (tagName: string) =>
+      makeElement(tagName) as unknown as HTMLElement,
     sceneRuntimeFactory: (runtimeOptions: WebHostSceneRuntimeOptions) => {
       seenRuntimeOptions.set(runtimeOptions.descriptor.id, runtimeOptions);
       return new FakeRuntime(runtimeOptions.descriptor.id) as unknown as never;
@@ -442,7 +440,8 @@ test("app controller forwards the renderer choice to every scene runtime", async
       ],
     },
     renderer: "dom",
-    createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+    createElement: (tagName: string) =>
+      makeElement(tagName) as unknown as HTMLElement,
     sceneRuntimeFactory: (runtimeOptions: WebHostSceneRuntimeOptions) => {
       seenRuntimeOptions.push(runtimeOptions);
       return new FakeRuntime(runtimeOptions.descriptor.id) as unknown as never;
@@ -451,6 +450,8 @@ test("app controller forwards the renderer choice to every scene runtime", async
 
   await controller.switchScene("second");
   expect(seenRuntimeOptions).toHaveLength(2);
-  expect(seenRuntimeOptions.every((options) => options.renderer === "dom")).toBe(true);
+  expect(
+    seenRuntimeOptions.every((options) => options.renderer === "dom"),
+  ).toBe(true);
   await controller.dispose();
 });

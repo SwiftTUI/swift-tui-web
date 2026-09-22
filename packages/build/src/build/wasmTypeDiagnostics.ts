@@ -30,9 +30,7 @@ interface WasmTypeSummary {
   typeCount?: number;
 }
 
-export function formatWasmTypeDiagnostics(
-  bytes: Uint8Array
-): string {
+export function formatWasmTypeDiagnostics(bytes: Uint8Array): string {
   const summary = summarizeWasmTypes(bytes);
   const components = [
     `size=${bytes.byteLength} bytes`,
@@ -46,14 +44,18 @@ export function formatWasmTypeDiagnostics(
     components.push(`maxTypeParameterCount=${summary.maxTypeParameterCount}`);
   }
   if (summary.maxTypeParameterTypeIndex !== undefined) {
-    components.push(`maxTypeParameterTypeIndex=${summary.maxTypeParameterTypeIndex}`);
+    components.push(
+      `maxTypeParameterTypeIndex=${summary.maxTypeParameterTypeIndex}`,
+    );
   }
   if (summary.overBrowserLimitTypes.length > 0) {
-    components.push(`overBrowserLimitTypes=${summary.overBrowserLimitTypes.join(",")}`);
+    components.push(
+      `overBrowserLimitTypes=${summary.overBrowserLimitTypes.join(",")}`,
+    );
   }
   if (summary.topParameterCounts.length > 0) {
     components.push(
-      `largestTypes=${summary.topParameterCounts.map(formatLargestTypeSummary).join(";")}`
+      `largestTypes=${summary.topParameterCounts.map(formatLargestTypeSummary).join(";")}`,
     );
   }
   if (summary.note) {
@@ -63,15 +65,14 @@ export function formatWasmTypeDiagnostics(
   return `wasm diagnostics: ${components.join(", ")}`;
 }
 
-function formatLargestTypeSummary(
-  summary: { parameterCount: number; typeIndex: number }
-): string {
+function formatLargestTypeSummary(summary: {
+  parameterCount: number;
+  typeIndex: number;
+}): string {
   return `${summary.typeIndex}:${summary.parameterCount}`;
 }
 
-function summarizeWasmTypes(
-  bytes: Uint8Array
-): WasmTypeSummary {
+function summarizeWasmTypes(bytes: Uint8Array): WasmTypeSummary {
   if (!hasExpectedPrefix(bytes, 0, wasmMagic)) {
     return {
       note: "missing wasm magic header",
@@ -101,7 +102,11 @@ function summarizeWasmTypes(
     }
 
     if (sectionHeader.id === typeSectionID) {
-      return summarizeTypeSection(bytes, sectionHeader.startOffset, sectionHeader.nextOffset);
+      return summarizeTypeSection(
+        bytes,
+        sectionHeader.startOffset,
+        sectionHeader.nextOffset,
+      );
     }
 
     offset = sectionHeader.nextOffset;
@@ -117,7 +122,7 @@ function summarizeWasmTypes(
 function summarizeTypeSection(
   bytes: Uint8Array,
   startOffset: number,
-  endOffset: number
+  endOffset: number,
 ): WasmTypeSummary {
   let offset = startOffset;
   let typeCount: number;
@@ -137,7 +142,10 @@ function summarizeTypeSection(
   let maxTypeParameterCount = -1;
   let maxTypeParameterTypeIndex = -1;
   const overBrowserLimitTypes: number[] = [];
-  const topParameterCounts: Array<{ parameterCount: number; typeIndex: number }> = [];
+  const topParameterCounts: Array<{
+    parameterCount: number;
+    typeIndex: number;
+  }> = [];
 
   for (let typeIndex = 0; typeIndex < typeCount; typeIndex += 1) {
     if (offset >= endOffset) {
@@ -219,8 +227,10 @@ function summarizeTypeSection(
   }
 
   return {
-    maxTypeParameterCount: maxTypeParameterCount >= 0 ? maxTypeParameterCount : undefined,
-    maxTypeParameterTypeIndex: maxTypeParameterTypeIndex >= 0 ? maxTypeParameterTypeIndex : undefined,
+    maxTypeParameterCount:
+      maxTypeParameterCount >= 0 ? maxTypeParameterCount : undefined,
+    maxTypeParameterTypeIndex:
+      maxTypeParameterTypeIndex >= 0 ? maxTypeParameterTypeIndex : undefined,
     overBrowserLimitTypes,
     topParameterCounts,
     typeCount,
@@ -230,7 +240,7 @@ function summarizeTypeSection(
 function updateLargestTypeSummaries(
   summaries: Array<{ parameterCount: number; typeIndex: number }>,
   typeIndex: number,
-  parameterCount: number
+  parameterCount: number,
 ): void {
   summaries.push({ parameterCount, typeIndex });
   summaries.sort((left, right) => {
@@ -242,10 +252,7 @@ function updateLargestTypeSummaries(
   summaries.splice(5);
 }
 
-function readSectionHeader(
-  bytes: Uint8Array,
-  offset: number
-): SectionHeader {
+function readSectionHeader(bytes: Uint8Array, offset: number): SectionHeader {
   if (offset >= bytes.length) {
     throw new Error("unexpected end of file");
   }
@@ -268,7 +275,7 @@ function readSectionHeader(
 
 function readUnsignedLEB128(
   bytes: Uint8Array,
-  offset: number
+  offset: number,
 ): ReadUnsignedLEB128Result {
   let shift = 0;
   let value = 0;
@@ -293,7 +300,7 @@ function readUnsignedLEB128(
 function hasExpectedPrefix(
   bytes: Uint8Array,
   startOffset: number,
-  expected: readonly number[]
+  expected: readonly number[],
 ): boolean {
   if (startOffset + expected.length > bytes.length) {
     return false;

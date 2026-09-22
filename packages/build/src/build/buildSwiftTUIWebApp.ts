@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { buildAppWasm, type BuildAppWasmOptions } from "./buildAppWasm.ts";
+import { type BuildAppWasmOptions, buildAppWasm } from "./buildAppWasm.ts";
 import { generateSceneManifest } from "./generateSceneManifest.ts";
 
 export interface BuildSwiftTUIWebAppOptions extends BuildAppWasmOptions {
@@ -8,7 +8,7 @@ export interface BuildSwiftTUIWebAppOptions extends BuildAppWasmOptions {
 }
 
 export async function buildSwiftTUIWebApp(
-  options: BuildSwiftTUIWebAppOptions
+  options: BuildSwiftTUIWebAppOptions,
 ): Promise<void> {
   await rm(options.outputDirectory, { recursive: true, force: true });
   await mkdir(options.outputDirectory, { recursive: true });

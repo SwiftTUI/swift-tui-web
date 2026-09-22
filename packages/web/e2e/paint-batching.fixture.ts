@@ -306,7 +306,9 @@ for (const type of ["pointermove", "pointerdown"] as const) {
  */
 window.runPaintInputJourney = async () => {
   if (realPointerId === undefined) {
-    throw new Error("Move the real mouse over the page before running the input journey");
+    throw new Error(
+      "Move the real mouse over the page before running the input journey",
+    );
   }
   const pointerId = realPointerId;
   const opened: string[] = [];

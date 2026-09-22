@@ -1,12 +1,18 @@
-import { ConsoleStdout, Fd, WASI, WASIProcExit, wasi } from "@bjorn3/browser_wasi_shim";
+import {
+  ConsoleStdout,
+  Fd,
+  WASI,
+  WASIProcExit,
+  wasi,
+} from "@bjorn3/browser_wasi_shim";
 
 import { MainThreadInputQueue } from "./MainThreadInputQueue.ts";
 import { SuspendingWasiPollScheduler } from "./WasiPollScheduler.ts";
 import { jspiConstructors } from "./WasmEngineCapabilities.ts";
 import {
+  installPausableClockTimeGet,
   MainThreadWasmPauseGate,
   PausableMonotonicClock,
-  installPausableClockTimeGet,
 } from "./WasmRuntimePause.ts";
 
 export interface MainThreadWasmExecutorOptions {
@@ -56,9 +62,7 @@ export class MainThreadWasmExecutor {
    * `poll_oneoff` waits and the app's monotonic clock freezes, so a hidden
    * scene costs no CPU and resumes without a deadline catch-up burst.
    */
-  setSuspended(
-    suspended: boolean
-  ): void {
+  setSuspended(suspended: boolean): void {
     this.pauseGate.setPaused(suspended);
   }
 
@@ -74,28 +78,33 @@ export class MainThreadWasmExecutor {
       const jspi = jspiConstructors();
       if (!jspi) {
         throw new Error(
-          "WebAssembly JSPI (Suspending/promising) is unavailable in this engine"
+          "WebAssembly JSPI (Suspending/promising) is unavailable in this engine",
         );
       }
 
       const shim = new WASI(
         ["app.wasm"],
-        Object.entries(this.options.environment).map(([key, value]) => `${key}=${value}`),
+        Object.entries(this.options.environment).map(
+          ([key, value]) => `${key}=${value}`,
+        ),
         [
           new MainThreadInputFileDescriptor(this.stdin),
           new ConsoleStdout((chunk) => this.options.onStdout(chunk)),
           new ConsoleStdout((chunk) => this.options.onStderr(chunk)),
-        ]
+        ],
       );
 
       const instanceExports = (): { memory?: WebAssembly.Memory } | undefined =>
-        (shim as unknown as { inst?: { exports: { memory?: WebAssembly.Memory } } }).inst
-          ?.exports;
+        (
+          shim as unknown as {
+            inst?: { exports: { memory?: WebAssembly.Memory } };
+          }
+        ).inst?.exports;
       const originalPoll = shim.wasiImport.poll_oneoff as (
         inPtr: number,
         outPtr: number,
         nsubscriptions: number,
-        neventsPtr?: number
+        neventsPtr?: number,
       ) => number;
       const scheduler = new SuspendingWasiPollScheduler({
         memory: () => instanceExports()?.memory,
@@ -110,13 +119,13 @@ export class MainThreadWasmExecutor {
       installPausableClockTimeGet(
         shim.wasiImport,
         () => instanceExports()?.memory,
-        this.pauseClock
+        this.pauseClock,
       );
 
       const response = await fetch(this.options.wasmURL);
       if (!response.ok) {
         throw new Error(
-          `failed to load ${String(this.options.wasmURL)}: ${response.status} ${response.statusText}`
+          `failed to load ${String(this.options.wasmURL)}: ${response.status} ${response.statusText}`,
         );
       }
       const module = await WebAssembly.compile(await response.arrayBuffer());
@@ -124,8 +133,13 @@ export class MainThreadWasmExecutor {
         wasi_snapshot_preview1: {
           ...shim.wasiImport,
           poll_oneoff: new jspi.Suspending(
-            (inPtr: number, outPtr: number, nsubscriptions: number, neventsPtr: number) =>
-              scheduler.pollOneOff(inPtr, outPtr, nsubscriptions, neventsPtr)
+            (
+              inPtr: number,
+              outPtr: number,
+              nsubscriptions: number,
+              neventsPtr: number,
+            ) =>
+              scheduler.pollOneOff(inPtr, outPtr, nsubscriptions, neventsPtr),
           ),
         },
       });
@@ -133,7 +147,7 @@ export class MainThreadWasmExecutor {
         instance as WebAssembly.Instance;
 
       const start = jspi.promising(
-        (instance as WebAssembly.Instance).exports._start
+        (instance as WebAssembly.Instance).exports._start,
       );
       try {
         await start();
@@ -146,7 +160,9 @@ export class MainThreadWasmExecutor {
         throw error;
       }
     } catch (error) {
-      this.options.onError?.(error instanceof Error ? error.message : String(error));
+      this.options.onError?.(
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 }

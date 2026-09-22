@@ -56,8 +56,8 @@ test("terminal style resolves host-owned theme payloads", () => {
   expect(encodeWebHostTerminalRenderStyleBase64(style)).toBeDefined();
   expect(
     decodeWebHostTerminalRenderStyleBase64(
-      encodeWebHostTerminalRenderStyleBase64(style)
-    )?.appearance.backgroundColor
+      encodeWebHostTerminalRenderStyleBase64(style),
+    )?.appearance.backgroundColor,
   ).toBe("#fafafa");
 });
 
@@ -89,35 +89,39 @@ test("terminal style maps to surface palette and translucent background", () => 
     },
   };
 
-  expect(normalizeWebHostTerminalStyle(style).palette.foreground).toBe("#ededed");
-  expect(normalizeWebHostTerminalStyle(style).palette.background).toBe("#202020");
+  expect(normalizeWebHostTerminalStyle(style).palette.foreground).toBe(
+    "#ededed",
+  );
+  expect(normalizeWebHostTerminalStyle(style).palette.background).toBe(
+    "#202020",
+  );
   expect(webTUITerminalBackgroundColor(style)).toBe("rgba(32, 32, 32, 0.5)");
-  expect(resolveWebHostTerminalRenderStyle(style).appearance.palette["0"]).toBe("#20242c");
+  expect(resolveWebHostTerminalRenderStyle(style).appearance.palette["0"]).toBe(
+    "#20242c",
+  );
 });
 
 test("shared default transport fixtures stay in sync with WebHost encoding", () => {
   const fixture = transportFixture("terminal-render-style-default");
 
-  expect(JSON.stringify(resolveWebHostTerminalRenderStyle({}))).toBe(fixture.json);
+  expect(JSON.stringify(resolveWebHostTerminalRenderStyle({}))).toBe(
+    fixture.json,
+  );
   expect(encodeWebHostTerminalRenderStyleBase64({})).toBe(fixture.base64);
   expect(
-    JSON.stringify(decodeWebHostTerminalRenderStyleBase64(fixture.base64))
+    JSON.stringify(decodeWebHostTerminalRenderStyleBase64(fixture.base64)),
   ).toBe(fixture.json);
 });
 
-function transportFixture(
-  basename: string
-): { json: string; base64: string } {
+function transportFixture(basename: string): { json: string; base64: string } {
   const json = readTransportFixture(`${basename}.json`);
   const base64 = readTransportFixture(`${basename}.base64.txt`);
   return { json, base64 };
 }
 
-function readTransportFixture(
-  name: string
-): string {
+function readTransportFixture(name: string): string {
   return readFileSync(
     new URL(`../../../Fixtures/Transport/${name}`, import.meta.url),
-    "utf8"
+    "utf8",
   ).trim();
 }

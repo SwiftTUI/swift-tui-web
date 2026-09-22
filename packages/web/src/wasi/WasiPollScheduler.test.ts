@@ -1,18 +1,17 @@
 import { expect, test } from "bun:test";
 import { Worker } from "node:worker_threads";
 import { wasi } from "@bjorn3/browser_wasi_shim";
-
-import {
-  SharedInputQueueReader,
-  type SharedInputQueueBuffers,
-  createSharedInputQueue,
-} from "./SharedInputQueue.ts";
 import { MainThreadInputQueue } from "./MainThreadInputQueue.ts";
 import {
-  SuspendingWasiPollScheduler,
-  WasiPollScheduler,
-  type WasiPollReadableSource,
+  createSharedInputQueue,
+  type SharedInputQueueBuffers,
+  SharedInputQueueReader,
+} from "./SharedInputQueue.ts";
+import {
   readPollEventsForTesting,
+  SuspendingWasiPollScheduler,
+  type WasiPollReadableSource,
+  WasiPollScheduler,
   writeClockSubscriptionForTesting,
   writeFdReadSubscriptionForTesting,
 } from "./WasiPollScheduler.ts";
@@ -33,7 +32,11 @@ test("scheduler completes a relative monotonic clock subscription", () => {
 
   expect(scheduler.pollOneOff(0, 128, 1, 256)).toBe(wasi.ERRNO_SUCCESS);
   expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-    { userdata: 1n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+    {
+      userdata: 1n,
+      errno: wasi.ERRNO_SUCCESS,
+      eventtype: wasi.EVENTTYPE_CLOCK,
+    },
   ]);
   expect(view.getUint32(256, true)).toBe(1);
 });
@@ -56,7 +59,11 @@ test("scheduler wakes stdin-only poll on stdin readability", async () => {
   try {
     expect(scheduler.pollOneOff(0, 128, 1, 256)).toBe(wasi.ERRNO_SUCCESS);
     expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-      { userdata: 10n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_FD_READ },
+      {
+        userdata: 10n,
+        errno: wasi.ERRNO_SUCCESS,
+        eventtype: wasi.EVENTTYPE_FD_READ,
+      },
     ]);
     expect(view.getBigUint64(128 + 16, true)).toBe(1n);
     expect(view.getUint16(128 + 24, true)).toBe(0);
@@ -88,7 +95,11 @@ test("scheduler wakes mixed stdin and clock poll on stdin readability", async ()
   try {
     expect(scheduler.pollOneOff(0, 128, 2, 256)).toBe(wasi.ERRNO_SUCCESS);
     expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-      { userdata: 10n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_FD_READ },
+      {
+        userdata: 10n,
+        errno: wasi.ERRNO_SUCCESS,
+        eventtype: wasi.EVENTTYPE_FD_READ,
+      },
     ]);
     expect(view.getUint32(256, true)).toBe(1);
   } finally {
@@ -116,7 +127,11 @@ test("scheduler wakes mixed stdin and clock poll on timeout", () => {
 
   expect(scheduler.pollOneOff(0, 128, 2, 256)).toBe(wasi.ERRNO_SUCCESS);
   expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-    { userdata: 11n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+    {
+      userdata: 11n,
+      errno: wasi.ERRNO_SUCCESS,
+      eventtype: wasi.EVENTTYPE_CLOCK,
+    },
   ]);
   expect(view.getUint32(256, true)).toBe(1);
 });
@@ -135,10 +150,16 @@ test("scheduler reports closed stdin as readable hangup", () => {
 
   expect(scheduler.pollOneOff(0, 128, 1, 256)).toBe(wasi.ERRNO_SUCCESS);
   expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-    { userdata: 10n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_FD_READ },
+    {
+      userdata: 10n,
+      errno: wasi.ERRNO_SUCCESS,
+      eventtype: wasi.EVENTTYPE_FD_READ,
+    },
   ]);
   expect(view.getBigUint64(128 + 16, true)).toBe(0n);
-  expect(view.getUint16(128 + 24, true)).toBe(wasi.EVENTRWFLAGS_FD_READWRITE_HANGUP);
+  expect(view.getUint16(128 + 24, true)).toBe(
+    wasi.EVENTRWFLAGS_FD_READWRITE_HANGUP,
+  );
   expect(view.getUint32(256, true)).toBe(1);
 });
 
@@ -153,9 +174,10 @@ function closedSource(): WasiPollReadableSource {
 function writeInputFromWorker(
   queue: SharedInputQueueBuffers,
   text: string,
-  delayMilliseconds: number
+  delayMilliseconds: number,
 ): Worker {
-  return new Worker(`
+  return new Worker(
+    `
     const { workerData } = require("node:worker_threads");
     const control = new Int32Array(workerData.controlBuffer);
     const data = new Uint8Array(workerData.dataBuffer);
@@ -166,15 +188,17 @@ function writeInputFromWorker(
       Atomics.store(control, 1, writeIndex + bytes.length);
       Atomics.notify(control, 1);
     }, workerData.delayMilliseconds);
-  `, {
-    eval: true,
-    workerData: {
-      controlBuffer: queue.controlBuffer,
-      dataBuffer: queue.dataBuffer,
-      delayMilliseconds,
-      text,
+  `,
+    {
+      eval: true,
+      workerData: {
+        controlBuffer: queue.controlBuffer,
+        dataBuffer: queue.dataBuffer,
+        delayMilliseconds,
+        text,
+      },
     },
-  });
+  );
 }
 
 test("suspending scheduler completes a relative monotonic clock subscription", async () => {
@@ -193,7 +217,11 @@ test("suspending scheduler completes a relative monotonic clock subscription", a
 
   expect(await scheduler.pollOneOff(0, 128, 1, 256)).toBe(wasi.ERRNO_SUCCESS);
   expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-    { userdata: 21n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+    {
+      userdata: 21n,
+      errno: wasi.ERRNO_SUCCESS,
+      eventtype: wasi.EVENTTYPE_CLOCK,
+    },
   ]);
   expect(view.getUint32(256, true)).toBe(1);
 });
@@ -214,7 +242,11 @@ test("suspending scheduler wakes stdin-only poll on queue write", async () => {
   setTimeout(() => queue.write(new Uint8Array([120])), 5);
   expect(await poll).toBe(wasi.ERRNO_SUCCESS);
   expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-    { userdata: 22n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_FD_READ },
+    {
+      userdata: 22n,
+      errno: wasi.ERRNO_SUCCESS,
+      eventtype: wasi.EVENTTYPE_FD_READ,
+    },
   ]);
 });
 
@@ -235,7 +267,11 @@ test("suspending scheduler fires the clock leg of a mixed poll without input", a
 
   expect(await scheduler.pollOneOff(0, 128, 2, 256)).toBe(wasi.ERRNO_SUCCESS);
   expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-    { userdata: 23n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+    {
+      userdata: 23n,
+      errno: wasi.ERRNO_SUCCESS,
+      eventtype: wasi.EVENTTYPE_CLOCK,
+    },
   ]);
   expect(view.getUint32(256, true)).toBe(1);
 });
@@ -270,7 +306,11 @@ test("scheduler consults the pause gate before evaluating readiness", () => {
   expect(scheduler.pollOneOff(0, 128, 1, 256)).toBe(wasi.ERRNO_SUCCESS);
   expect(gateCalls).toBe(2);
   expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-    { userdata: 31n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+    {
+      userdata: 31n,
+      errno: wasi.ERRNO_SUCCESS,
+      eventtype: wasi.EVENTTYPE_CLOCK,
+    },
   ]);
   expect(view.getUint32(256, true)).toBe(1);
 });
@@ -317,7 +357,11 @@ test("suspending scheduler stays parked until the pause gate releases", async ()
   release?.();
   expect(await poll).toBe(wasi.ERRNO_SUCCESS);
   expect(readPollEventsForTesting(view, 128, 1)).toEqual([
-    { userdata: 32n, errno: wasi.ERRNO_SUCCESS, eventtype: wasi.EVENTTYPE_CLOCK },
+    {
+      userdata: 32n,
+      errno: wasi.ERRNO_SUCCESS,
+      eventtype: wasi.EVENTTYPE_CLOCK,
+    },
   ]);
 });
 

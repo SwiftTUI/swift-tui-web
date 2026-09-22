@@ -3,8 +3,8 @@ import { expect, test } from "bun:test";
 import { encodeRenderStyleControlMessage } from "./WebHostSurfaceTransport.ts";
 import {
   WebSocketSceneBridge,
-  webSocketSceneURL,
   type WebSocketSceneSocket,
+  webSocketSceneURL,
 } from "./WebSocketSceneBridge.ts";
 
 const encoder = new TextEncoder();
@@ -12,21 +12,37 @@ const decoder = new TextDecoder();
 
 test("oversized websocket envelopes are refused before conversion and recover once", async () => {
   const socket = new FakeWebSocket();
-  const bridge = new WebSocketSceneBridge({ sceneId: "main", token: "test-token",
-    baseURL: "http://127.0.0.1:9123/", webSocketFactory: () => socket });
+  const bridge = new WebSocketSceneBridge({
+    sceneId: "main",
+    token: "test-token",
+    baseURL: "http://127.0.0.1:9123/",
+    webSocketFactory: () => socket,
+  });
   const frames: unknown[] = [];
-  bridge.bindOutput({ presentSurface: frame => { frames.push(frame); } });
+  bridge.bindOutput({
+    presentSurface: (frame) => {
+      frames.push(frame);
+    },
+  });
   socket.open();
   const oversized = new Blob([new Uint8Array(8 * 1024 * 1024 + 1)]);
   let copies = 0;
-  oversized.arrayBuffer = async () => { copies++; throw new Error("must not copy oversized Blob"); };
+  oversized.arrayBuffer = async () => {
+    copies++;
+    throw new Error("must not copy oversized Blob");
+  };
   socket.message(oversized);
   socket.message("é".repeat(4 * 1024 * 1024 + 1));
   await Promise.resolve();
   expect(copies).toBe(0);
-  expect(socket.sent.map(value => decoder.decode(value)).filter(value => value.includes("resync:")))
-    .toEqual(['\u001Eresync:{"scope":"keyframe"}\n']);
-  socket.message('\u001Esurface:{"version":2,"width":1,"height":1,"styles":[null],"rows":[[]]}\n');
+  expect(
+    socket.sent
+      .map((value) => decoder.decode(value))
+      .filter((value) => value.includes("resync:")),
+  ).toEqual(['\u001Eresync:{"scope":"keyframe"}\n']);
+  socket.message(
+    '\u001Esurface:{"version":2,"width":1,"height":1,"styles":[null],"rows":[[]]}\n',
+  );
   await Promise.resolve();
   expect(frames).toHaveLength(1);
   bridge.dispose();
@@ -43,9 +59,7 @@ class FakeWebSocket implements WebSocketSceneSocket {
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
   private sendAttempts = 0;
 
-  send(
-    data: string | ArrayBufferLike | Blob | ArrayBufferView
-  ): void {
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
     this.sendAttempts += 1;
     if (this.sendAttempts === this.failSendAttempt) {
       throw new Error("injected send failure");
@@ -57,34 +71,27 @@ class FakeWebSocket implements WebSocketSceneSocket {
     } else if (data instanceof ArrayBuffer) {
       this.sent.push(new Uint8Array(data));
     } else if (ArrayBuffer.isView(data)) {
-      this.sent.push(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+      this.sent.push(
+        new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+      );
     } else {
       throw new Error("fake socket does not support Blob sends");
     }
   }
 
-  close(
-    code?: number,
-    reason?: string
-  ): void {
+  close(code?: number, reason?: string): void {
     this.closeCode = code;
     this.closeReason = reason;
     this.readyState = 3;
   }
 
-  addEventListener(
-    type: string,
-    listener: (event: unknown) => void
-  ): void {
+  addEventListener(type: string, listener: (event: unknown) => void): void {
     const listeners = this.listeners.get(type) ?? new Set();
     listeners.add(listener);
     this.listeners.set(type, listeners);
   }
 
-  removeEventListener(
-    type: string,
-    listener: (event: unknown) => void
-  ): void {
+  removeEventListener(type: string, listener: (event: unknown) => void): void {
     this.listeners.get(type)?.delete(listener);
   }
 
@@ -93,23 +100,16 @@ class FakeWebSocket implements WebSocketSceneSocket {
     this.emit("open", {});
   }
 
-  message(
-    data: unknown
-  ): void {
+  message(data: unknown): void {
     this.emit("message", { data });
   }
 
-  serverClose(
-    code: number
-  ): void {
+  serverClose(code: number): void {
     this.readyState = 3;
     this.emit("close", { code });
   }
 
-  private emit(
-    type: string,
-    event: unknown
-  ): void {
+  private emit(type: string, event: unknown): void {
     for (const listener of this.listeners.get(type) ?? []) {
       listener(event);
     }
@@ -117,17 +117,25 @@ class FakeWebSocket implements WebSocketSceneSocket {
 }
 
 test("websocket scene URLs use the embedded host path and token", () => {
-  expect(String(webSocketSceneURL({
-    sceneId: "main",
-    token: "test-token",
-    baseURL: "http://127.0.0.1:9123/",
-  }))).toBe("ws://127.0.0.1:9123/ws/scene/main?token=test-token");
+  expect(
+    String(
+      webSocketSceneURL({
+        sceneId: "main",
+        token: "test-token",
+        baseURL: "http://127.0.0.1:9123/",
+      }),
+    ),
+  ).toBe("ws://127.0.0.1:9123/ws/scene/main?token=test-token");
 
-  expect(String(webSocketSceneURL({
-    sceneId: "main",
-    token: "secure-token",
-    baseURL: "https://localhost:9443/app/",
-  }))).toBe("wss://localhost:9443/app/ws/scene/main?token=secure-token");
+  expect(
+    String(
+      webSocketSceneURL({
+        sceneId: "main",
+        token: "secure-token",
+        baseURL: "https://localhost:9443/app/",
+      }),
+    ),
+  ).toBe("wss://localhost:9443/app/ws/scene/main?token=secure-token");
 });
 
 test("bridge decodes websocket output and sends queued input when the socket opens", async () => {
@@ -159,23 +167,25 @@ test("bridge decodes websocket output and sends queued input when the socket ope
   // The capability declaration always flushes first (queued at
   // construction), ahead of any caller-queued record.
   expect(decoder.decode(socket.sent[0])).toBe(
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n'
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
   );
   expect(decoder.decode(socket.sent[1])).toBe("\u001Eresize:100:32:9:18\n");
 
-  socket.message(encoder.encode(
-    '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,'
-      + '"styles":[null],"deltaRows":[[0,[]]]}\n'
-      + '\u001Esurface:{"version":2,"width":2,"height":1,"styles":[null],"rows":[[]],'
-      + '"accessibilityTree":[{"id":"root","rect":[0,0,2,1],"role":"group"}]}\n'
-      + '\u001Eclipboard:{"text":"copied text"}\n'
-      + '\u001EruntimeIssue:{"severity":"warning","code":"toolbar.unhostedItems",'
-      + '"message":"Toolbar item was not rendered",'
-      + '"description":"SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered"}\n'
-      + '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",'
-      + '"header":["frame","total_ms"],"fields":["7","14.20"]}\n'
-      + "legacy output\n"
-  ));
+  socket.message(
+    encoder.encode(
+      '\u001Esurface:{"version":3,"encoding":"delta","width":2,"height":1,' +
+        '"styles":[null],"deltaRows":[[0,[]]]}\n' +
+        '\u001Esurface:{"version":2,"width":2,"height":1,"styles":[null],"rows":[[]],' +
+        '"accessibilityTree":[{"id":"root","rect":[0,0,2,1],"role":"group"}]}\n' +
+        '\u001Eclipboard:{"text":"copied text"}\n' +
+        '\u001EruntimeIssue:{"severity":"warning","code":"toolbar.unhostedItems",' +
+        '"message":"Toolbar item was not rendered",' +
+        '"description":"SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered"}\n' +
+        '\u001EframeDiagnostic:{"format":"swift-tui-frame-diagnostics-v1",' +
+        '"header":["frame","total_ms"],"fields":["7","14.20"]}\n' +
+        "legacy output\n",
+    ),
+  );
   await Promise.resolve();
 
   expect(frames).toHaveLength(1);
@@ -190,7 +200,8 @@ test("bridge decodes websocket output and sends queued input when the socket ope
       severity: "warning",
       code: "toolbar.unhostedItems",
       message: "Toolbar item was not rendered",
-      description: "SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered",
+      description:
+        "SwiftTUI runtime warning [toolbar.unhostedItems] Toolbar item was not rendered",
     },
   ]);
   expect(frameDiagnostics).toEqual([
@@ -220,9 +231,11 @@ test("bridge buffers output until a runtime binds a sink", async () => {
   });
   const frames: unknown[] = [];
 
-  socket.message(encoder.encode(
-    '\u001Esurface:{"version":1,"width":3,"height":1,"styles":[null],"rows":[[]]}\n'
-  ));
+  socket.message(
+    encoder.encode(
+      '\u001Esurface:{"version":1,"width":3,"height":1,"styles":[null],"rows":[[]]}\n',
+    ),
+  );
   await Promise.resolve();
 
   bridge.bindOutput({
@@ -254,65 +267,83 @@ test("bridge dedupes keyframe requests until a stamped baseline recovers", async
   });
   socket.open();
 
-  socket.message(encoder.encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 3,
-      encoding: "delta",
-      epoch: 29,
-      gen: 2,
-      baselineGen: 1,
-      width: 2,
-      height: 1,
-      styles: [null],
-      deltaRows: [[0, [[0, "lost-baseline", 1, 0]]]],
-    }) + "\n"
-  ));
+  socket.message(
+    encoder.encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 29,
+          gen: 2,
+          baselineGen: 1,
+          width: 2,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "lost-baseline", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
   await Promise.resolve();
 
   expect(frames).toHaveLength(0);
-  expect(decoder.decode(socket.sent.at(-1)))
-    .toBe('\u001Eresync:{"scope":"keyframe"}\n');
+  expect(decoder.decode(socket.sent.at(-1))).toBe(
+    '\u001Eresync:{"scope":"keyframe"}\n',
+  );
 
-  socket.message(encoder.encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 3,
-      encoding: "delta",
-      epoch: 29,
-      gen: 2,
-      baselineGen: 1,
-      width: 2,
-      height: 1,
-      styles: [null],
-      deltaRows: [[0, [[0, "still-lost", 1, 0]]]],
-    }) + "\n"
-  ));
+  socket.message(
+    encoder.encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 29,
+          gen: 2,
+          baselineGen: 1,
+          width: 2,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "still-lost", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
   await Promise.resolve();
-  expect(socket.sent.filter(
-    (chunk) => decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n'
-  )).toHaveLength(1);
+  expect(
+    socket.sent.filter(
+      (chunk) =>
+        decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n',
+    ),
+  ).toHaveLength(1);
 
-  socket.message(encoder.encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 2,
-      epoch: 29,
-      gen: 3,
-      width: 2,
-      height: 1,
-      styles: [null],
-      rows: [[[0, "B", 1, 0]]],
-    }) + "\n"
-      + "\u001Esurface:" + JSON.stringify({
-        version: 3,
-        encoding: "delta",
-        epoch: 29,
-        gen: 4,
-        baselineGen: 3,
-        width: 2,
-        height: 1,
-        styles: [null],
-        deltaRows: [[0, [[0, "C", 1, 0]]]],
-      }) + "\n"
-  ));
+  socket.message(
+    encoder.encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 2,
+          epoch: 29,
+          gen: 3,
+          width: 2,
+          height: 1,
+          styles: [null],
+          rows: [[[0, "B", 1, 0]]],
+        }) +
+        "\n" +
+        "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 29,
+          gen: 4,
+          baselineGen: 3,
+          width: 2,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "C", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
   await Promise.resolve();
 
   expect(frames).toHaveLength(2);
@@ -321,27 +352,37 @@ test("bridge dedupes keyframe requests until a stamped baseline recovers", async
     gen: 4,
     rows: [[[0, "C", 1, 0]]],
   });
-  expect(socket.sent.filter(
-    (chunk) => decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n'
-  )).toHaveLength(1);
+  expect(
+    socket.sent.filter(
+      (chunk) =>
+        decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n',
+    ),
+  ).toHaveLength(1);
 
-  socket.message(encoder.encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 3,
-      encoding: "delta",
-      epoch: 29,
-      gen: 6,
-      baselineGen: 5,
-      width: 2,
-      height: 1,
-      styles: [null],
-      deltaRows: [[0, [[0, "new-loss", 1, 0]]]],
-    }) + "\n"
-  ));
+  socket.message(
+    encoder.encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 3,
+          encoding: "delta",
+          epoch: 29,
+          gen: 6,
+          baselineGen: 5,
+          width: 2,
+          height: 1,
+          styles: [null],
+          deltaRows: [[0, [[0, "new-loss", 1, 0]]]],
+        }) +
+        "\n",
+    ),
+  );
   await Promise.resolve();
-  expect(socket.sent.filter(
-    (chunk) => decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n'
-  )).toHaveLength(2);
+  expect(
+    socket.sent.filter(
+      (chunk) =>
+        decoder.decode(chunk) === '\u001Eresync:{"scope":"keyframe"}\n',
+    ),
+  ).toHaveLength(2);
 
   bridge.dispose();
 });
@@ -356,17 +397,21 @@ test("websocket bridge sends coalesced image recovery and suppresses repeats unt
   });
   bridge.bindOutput({ presentSurface: () => {} });
   socket.open();
-  socket.message(encoder.encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 2,
-      epoch: 70,
-      gen: 1,
-      width: 2,
-      height: 1,
-      styles: [null],
-      rows: [[]],
-    }) + "\n"
-  ));
+  socket.message(
+    encoder.encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 2,
+          epoch: 70,
+          gen: 1,
+          width: 2,
+          height: 1,
+          styles: [null],
+          rows: [[]],
+        }) +
+        "\n",
+    ),
+  );
   await Promise.resolve();
 
   bridge.requestImagePayloads(["png:z", "png:a", "png:z"]);
@@ -376,34 +421,38 @@ test("websocket bridge sends coalesced image recovery and suppresses repeats unt
     '\u001Eresync:{"scope":"images","ids":["png:a","png:z"]}\n',
   ]);
 
-  socket.message(encoder.encode(
-    "\u001Esurface:" + JSON.stringify({
-      version: 2,
-      epoch: 70,
-      gen: 2,
-      width: 2,
-      height: 1,
-      styles: [null],
-      rows: [[]],
-      images: [
-        {
-          id: "png:a",
-          format: "png",
-          bounds: [0, 0, 1, 1],
-          visibleBounds: [0, 0, 1, 1],
-          scalingMode: "stretch",
-          dataBase64: "QUJD",
-        },
-        {
-          id: "png:z",
-          format: "png",
-          bounds: [1, 0, 1, 1],
-          visibleBounds: [1, 0, 1, 1],
-          scalingMode: "stretch",
-        },
-      ],
-    }) + "\n"
-  ));
+  socket.message(
+    encoder.encode(
+      "\u001Esurface:" +
+        JSON.stringify({
+          version: 2,
+          epoch: 70,
+          gen: 2,
+          width: 2,
+          height: 1,
+          styles: [null],
+          rows: [[]],
+          images: [
+            {
+              id: "png:a",
+              format: "png",
+              bounds: [0, 0, 1, 1],
+              visibleBounds: [0, 0, 1, 1],
+              scalingMode: "stretch",
+              dataBase64: "QUJD",
+            },
+            {
+              id: "png:z",
+              format: "png",
+              bounds: [1, 0, 1, 1],
+              visibleBounds: [1, 0, 1, 1],
+              scalingMode: "stretch",
+            },
+          ],
+        }) +
+        "\n",
+    ),
+  );
   await Promise.resolve();
   bridge.requestImagePayloads(["png:a", "png:z"]);
 
@@ -426,9 +475,10 @@ test("same-chunk payload repair clears the earlier payload-less miss in presenta
   socket.open();
   bridge.bindOutput({
     presentSurface: (frame) => {
-      const missing = frame.images?.filter(
-        (image) => image.dataBase64 === undefined
-      ).map((image) => image.id) ?? [];
+      const missing =
+        frame.images
+          ?.filter((image) => image.dataBase64 === undefined)
+          .map((image) => image.id) ?? [];
       if (missing.length > 0) {
         bridge.requestImagePayloads(missing);
       }
@@ -460,9 +510,10 @@ test("pre-bind payload repair backlog clears the earlier miss when finally prese
 
   bridge.bindOutput({
     presentSurface: (frame) => {
-      const missing = frame.images?.filter(
-        (image) => image.dataBase64 === undefined
-      ).map((image) => image.id) ?? [];
+      const missing =
+        frame.images
+          ?.filter((image) => image.dataBase64 === undefined)
+          .map((image) => image.id) ?? [];
       if (missing.length > 0) {
         bridge.requestImagePayloads(missing);
       }
@@ -541,9 +592,11 @@ test("abnormal close reconnects with the handshake ahead of queued input", async
   ]);
 
   // Output from the new connection flows into the bound sink.
-  sockets[1]!.message(encoder.encode(
-    'surface:{"version":1,"width":3,"height":1,"styles":[null],"rows":[[]]}\n'
-  ));
+  sockets[1]!.message(
+    encoder.encode(
+      'surface:{"version":1,"width":3,"height":1,"styles":[null],"rows":[[]]}\n',
+    ),
+  );
   await Promise.resolve();
   expect(frames).toHaveLength(1);
 
@@ -621,20 +674,20 @@ test("repeated abnormal closes keep reconnecting with fresh handshakes", async (
   expect(sockets).toHaveLength(3);
   sockets[2]!.open();
   expect(decoder.decode(sockets[2]!.sent[0])).toBe(
-    'caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n'
+    'caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
   );
   // Exactly one capability declaration: each reconnect's handshake replaces
   // the previous attempt's queued one rather than stacking duplicates.
-  expect(sockets[2]!.sent.map((chunk) => decoder.decode(chunk)).filter(
-    (message) => message.startsWith("caps:")
-  )).toHaveLength(1);
+  expect(
+    sockets[2]!.sent
+      .map((chunk) => decoder.decode(chunk))
+      .filter((message) => message.startsWith("caps:")),
+  ).toHaveLength(1);
 
   bridge.dispose();
 });
 
-function payloadMissThenRepairChunk(
-  epoch: number
-): string {
+function payloadMissThenRepairChunk(epoch: number): string {
   const image = {
     id: "png:same-chunk",
     format: "png",
@@ -642,17 +695,21 @@ function payloadMissThenRepairChunk(
     visibleBounds: [0, 0, 1, 1],
     scalingMode: "stretch",
   };
-  return "\u001Esurface:" + JSON.stringify({
-    version: 2,
-    epoch,
-    gen: 1,
-    width: 2,
-    height: 1,
-    styles: [null],
-    rows: [[]],
-    images: [image],
-  }) + "\n"
-    + "\u001Esurface:" + JSON.stringify({
+  return (
+    "\u001Esurface:" +
+    JSON.stringify({
+      version: 2,
+      epoch,
+      gen: 1,
+      width: 2,
+      height: 1,
+      styles: [null],
+      rows: [[]],
+      images: [image],
+    }) +
+    "\n" +
+    "\u001Esurface:" +
+    JSON.stringify({
       version: 2,
       epoch,
       gen: 2,
@@ -661,12 +718,13 @@ function payloadMissThenRepairChunk(
       styles: [null],
       rows: [[]],
       images: [{ ...image, dataBase64: "QUJD" }],
-    }) + "\n";
+    }) +
+    "\n"
+  );
 }
 
-function resyncMessages(
-  socket: FakeWebSocket
-): string[] {
-  return socket.sent.map((chunk) => decoder.decode(chunk))
+function resyncMessages(socket: FakeWebSocket): string[] {
+  return socket.sent
+    .map((chunk) => decoder.decode(chunk))
     .filter((message) => message.startsWith("\u001Eresync:"));
 }

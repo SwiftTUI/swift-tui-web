@@ -6,12 +6,12 @@ import {
   MAX_UNRESOLVED_IMAGE_CACHE_ENTRIES,
 } from "./CanvasSurfacePainter.ts";
 import type { SurfaceMetrics } from "./SurfaceRenderer.ts";
-import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 import {
   MAX_IMAGE_RECOVERY_ID_BYTES,
   type WebHostSurfaceFrame,
   type WebHostSurfaceImage,
 } from "./WebHostSurfaceTransport.ts";
+import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
 test("transient image decode failures retry on later paints up to three total attempts", async () => {
   const context = new RecordingCanvasContext();
@@ -61,7 +61,10 @@ test("alpha-only updates reuse decoded image bytes and apply placement opacity",
   });
   painter.attach(fakeCanvas(context), () => {});
 
-  painter.paint(metrics, imageFrame(image({ dataBase64: "QUJD", opacity: 0.25 })));
+  painter.paint(
+    metrics,
+    imageFrame(image({ dataBase64: "QUJD", opacity: 0.25 })),
+  );
   await flushPromises();
   painter.paint(metrics, imageFrame(image({ opacity: 0.25 })));
   painter.paint(metrics, imageFrame(image({ opacity: 0.75 })));
@@ -133,10 +136,15 @@ test("equivalent payloads across distinct frames share one three-attempt budget"
   painter.attach(fakeCanvas(new RecordingCanvasContext()), () => {});
 
   for (let frameIndex = 0; frameIndex < 5; frameIndex += 1) {
-    painter.paint(metrics, imageFrame(image({
-      id: "png:stable",
-      dataBase64: "QUJD",
-    })));
+    painter.paint(
+      metrics,
+      imageFrame(
+        image({
+          id: "png:stable",
+          dataBase64: "QUJD",
+        }),
+      ),
+    );
     await flushPromises();
   }
 
@@ -174,12 +182,7 @@ test("an empty-damage recovery frame applies one acknowledged payload generation
     requiresFullTextRepaint: false,
     requiresFullGraphicsReplay: false,
   };
-  painter.paint(
-    metrics,
-    resynced,
-    resynced.damage,
-    ["png:recover"]
-  );
+  painter.paint(metrics, resynced, resynced.damage, ["png:recover"]);
   await flushPromises();
   painter.paint(metrics, imageFrame(image({ id: "png:recover" })));
 
@@ -199,10 +202,12 @@ test("one identical recovery response opens only one new bounded retry generatio
     onImagePayloadMiss: (ids) => misses.push([...ids]),
   });
   painter.attach(fakeCanvas(new RecordingCanvasContext()), () => {});
-  const frame = imageFrame(image({
-    id: "png:bounded-recovery",
-    dataBase64: "QUJD",
-  }));
+  const frame = imageFrame(
+    image({
+      id: "png:bounded-recovery",
+      dataBase64: "QUJD",
+    }),
+  );
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     painter.paint(metrics, frame);
@@ -216,10 +221,7 @@ test("one identical recovery response opens only one new bounded retry generatio
   }
 
   expect(attempts).toBe(2 * MAX_IMAGE_DECODE_ATTEMPTS);
-  expect(misses).toEqual([
-    ["png:bounded-recovery"],
-    ["png:bounded-recovery"],
-  ]);
+  expect(misses).toEqual([["png:bounded-recovery"], ["png:bounded-recovery"]]);
 });
 
 test("payload-less visible Canvas misses report immediately and reset with the wire epoch", () => {
@@ -230,10 +232,7 @@ test("payload-less visible Canvas misses report immediately and reset with the w
   });
   painter.attach(fakeCanvas(new RecordingCanvasContext()), () => {});
 
-  const firstEpoch = imageFrame(
-    image({ id: "png:z" }),
-    image({ id: "png:a" })
-  );
+  const firstEpoch = imageFrame(image({ id: "png:z" }), image({ id: "png:a" }));
   firstEpoch.epoch = 7;
   painter.paint(metrics, firstEpoch);
   painter.paint(metrics, firstEpoch);
@@ -242,10 +241,7 @@ test("payload-less visible Canvas misses report immediately and reset with the w
   nextEpoch.epoch = 8;
   painter.paint(metrics, nextEpoch);
 
-  expect(misses).toEqual([
-    ["png:a", "png:z"],
-    ["png:a"],
-  ]);
+  expect(misses).toEqual([["png:a", "png:z"], ["png:a"]]);
 });
 
 test("Canvas retries image payload IDs rejected by partial admission", () => {
@@ -255,9 +251,10 @@ test("Canvas retries image payload IDs rejected by partial admission", () => {
   }> = [];
   const painter = new CanvasSurfacePainter({
     onImagePayloadMiss: (ids) => {
-      const accepted = admissionAttempts.length === 0
-        ? ids.filter((id) => id === "png:a")
-        : [...ids];
+      const accepted =
+        admissionAttempts.length === 0
+          ? ids.filter((id) => id === "png:a")
+          : [...ids];
       admissionAttempts.push({
         candidates: [...ids],
         accepted: [...accepted],
@@ -266,10 +263,7 @@ test("Canvas retries image payload IDs rejected by partial admission", () => {
     },
   });
   painter.attach(fakeCanvas(new RecordingCanvasContext()), () => {});
-  const frame = imageFrame(
-    image({ id: "png:b" }),
-    image({ id: "png:a" })
-  );
+  const frame = imageFrame(image({ id: "png:b" }), image({ id: "png:a" }));
 
   painter.paint(metrics, frame);
   painter.paint(metrics, frame);
@@ -299,11 +293,14 @@ test("Canvas ignores missing payloads for unsupported or non-positive-area image
   });
   painter.attach(fakeCanvas(new RecordingCanvasContext()), () => {});
 
-  painter.paint(metrics, imageFrame(
-    image({ id: "future", format: "future-format" }),
-    image({ id: "zero-bounds", bounds: [0, 0, 0, 1] }),
-    image({ id: "invisible", visibleBounds: [0, 0, 1, 0] }),
-  ));
+  painter.paint(
+    metrics,
+    imageFrame(
+      image({ id: "future", format: "future-format" }),
+      image({ id: "zero-bounds", bounds: [0, 0, 0, 1] }),
+      image({ id: "invisible", visibleBounds: [0, 0, 1, 0] }),
+    ),
+  );
 
   expect(attempts).toBe(0);
   expect(misses).toEqual([]);
@@ -324,10 +321,15 @@ test("Canvas renders supplied payloads whose image ids exceed the recovery limit
   painter.attach(fakeCanvas(context), () => {});
   const longId = `png:${"x".repeat(MAX_IMAGE_RECOVERY_ID_BYTES + 1)}`;
 
-  painter.paint(metrics, imageFrame(image({
-    id: longId,
-    dataBase64: "QUJD",
-  })));
+  painter.paint(
+    metrics,
+    imageFrame(
+      image({
+        id: longId,
+        dataBase64: "QUJD",
+      }),
+    ),
+  );
   await flushPromises();
   painter.paint(metrics, imageFrame(image({ id: longId })));
 
@@ -351,10 +353,15 @@ test("Canvas retains a pending long-id decode across a payload-less repeat", asy
   painter.attach(fakeCanvas(context), () => {});
   const longId = `png:${"x".repeat(MAX_IMAGE_RECOVERY_ID_BYTES + 1)}`;
 
-  painter.paint(metrics, imageFrame(image({
-    id: longId,
-    dataBase64: "QUJD",
-  })));
+  painter.paint(
+    metrics,
+    imageFrame(
+      image({
+        id: longId,
+        dataBase64: "QUJD",
+      }),
+    ),
+  );
   painter.paint(metrics, imageFrame(image({ id: longId })));
   resolveDecode?.(decodedImage);
   await flushPromises();
@@ -372,7 +379,7 @@ test("Canvas bounds unresolved entries and sweeps disappeared image ids", () => 
   painter.attach(fakeCanvas(new RecordingCanvasContext()), () => {});
   const images = Array.from(
     { length: MAX_UNRESOLVED_IMAGE_CACHE_ENTRIES + 1 },
-    (_, index) => image({ id: `png:${String(index).padStart(4, "0")}` })
+    (_, index) => image({ id: `png:${String(index).padStart(4, "0")}` }),
   );
   const overflow = images.at(-1)!;
 
@@ -397,10 +404,15 @@ test("Canvas unresolved sweeping preserves successfully decoded image cache entr
   });
   painter.attach(fakeCanvas(context), () => {});
 
-  painter.paint(metrics, imageFrame(image({
-    id: "png:successful",
-    dataBase64: "QUJD",
-  })));
+  painter.paint(
+    metrics,
+    imageFrame(
+      image({
+        id: "png:successful",
+        dataBase64: "QUJD",
+      }),
+    ),
+  );
   await flushPromises();
   painter.paint(metrics, imageFrame());
   painter.paint(metrics, imageFrame(image({ id: "png:successful" })));
@@ -418,7 +430,7 @@ const metrics: SurfaceMetrics = {
 };
 
 function image(
-  overrides: Partial<WebHostSurfaceImage> = {}
+  overrides: Partial<WebHostSurfaceImage> = {},
 ): WebHostSurfaceImage {
   return {
     id: "png:test",
@@ -430,9 +442,7 @@ function image(
   };
 }
 
-function imageFrame(
-  ...images: WebHostSurfaceImage[]
-): WebHostSurfaceFrame {
+function imageFrame(...images: WebHostSurfaceImage[]): WebHostSurfaceFrame {
   return {
     version: 2,
     width: 4,
@@ -443,13 +453,11 @@ function imageFrame(
   };
 }
 
-function fakeCanvas(
-  context: RecordingCanvasContext
-): HTMLCanvasElement {
+function fakeCanvas(context: RecordingCanvasContext): HTMLCanvasElement {
   return {
     width: 32,
     height: 36,
-    getContext: (kind: string) => kind === "2d" ? context : null,
+    getContext: (kind: string) => (kind === "2d" ? context : null),
   } as unknown as HTMLCanvasElement;
 }
 
@@ -476,9 +484,7 @@ class RecordingCanvasContext {
   lineTo(): void {}
   setLineDash(): void {}
 
-  drawImage(
-    image: CanvasImageSource
-  ): void {
+  drawImage(image: CanvasImageSource): void {
     this.drawnImages.push(image);
     this.drawnImageOpacities.push(this.globalAlpha);
   }

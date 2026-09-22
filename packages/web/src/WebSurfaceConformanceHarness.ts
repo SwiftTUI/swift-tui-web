@@ -1,21 +1,4 @@
-import {
-  CanvasSurfacePainter,
-} from "./CanvasSurfacePainter.ts";
-import {
-  DomSurfacePainter,
-} from "./DomSurfacePainter.ts";
-import {
-  canvasSurfacePainterConformanceControl,
-  domSurfacePainterConformanceControl,
-} from "./SurfacePainterConformanceControl.ts";
-import type { SurfaceMetrics } from "./SurfaceRenderer.ts";
-import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
-import {
-  WebHostOutputDecoder,
-  type WebHostResyncRequest,
-  type WebHostSurfaceFrame,
-  type WebHostSurfaceStyle,
-} from "./WebHostSurfaceTransport.ts";
+import { CanvasSurfacePainter } from "./CanvasSurfacePainter.ts";
 import type {
   ConformanceExpectation,
   ConformanceFixture,
@@ -23,6 +6,19 @@ import type {
   ConformanceStyleRun,
   WebConformanceRunner,
 } from "./ConformanceFixtureLoader.ts";
+import { DomSurfacePainter } from "./DomSurfacePainter.ts";
+import {
+  canvasSurfacePainterConformanceControl,
+  domSurfacePainterConformanceControl,
+} from "./SurfacePainterConformanceControl.ts";
+import type { SurfaceMetrics } from "./SurfaceRenderer.ts";
+import {
+  WebHostOutputDecoder,
+  type WebHostResyncRequest,
+  type WebHostSurfaceFrame,
+  type WebHostSurfaceStyle,
+} from "./WebHostSurfaceTransport.ts";
+import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
 export interface WebConformanceObservation {
   rows: ConformanceGridRow[];
@@ -39,10 +35,12 @@ export interface WebConformanceRunResult {
 
 export async function runWebConformanceFixture(
   fixture: ConformanceFixture,
-  runner: WebConformanceRunner
+  runner: WebConformanceRunner,
 ): Promise<WebConformanceRunResult> {
   if (!fixture.entry.runners.includes(runner)) {
-    throw new Error(`${fixture.entry.scenario}: runner ${runner} is not applicable`);
+    throw new Error(
+      `${fixture.entry.scenario}: runner ${runner} is not applicable`,
+    );
   }
   const environment = new WebSurfaceConformanceEnvironment(runner);
   const observations: WebConformanceObservation[] = [];
@@ -50,53 +48,65 @@ export async function runWebConformanceFixture(
     for (let index = 0; index < fixture.steps.length; index += 1) {
       const step = fixture.steps[index]!;
       switch (step.type) {
-      case "emit":
-        if (!fixture.droppedEmitIndexes.has(index)) {
-          environment.emit(step.record);
+        case "emit":
+          if (!fixture.droppedEmitIndexes.has(index)) {
+            environment.emit(step.record);
+            await environment.drainToQuiescence();
+          }
+          break;
+        case "drop":
+          break;
+        case "evictImages":
+          environment.evictImages(step.ids);
           await environment.drainToQuiescence();
+          break;
+        case "reconnect":
+          if (step.capsAfter !== undefined) {
+            throw new Error(
+              `${fixture.entry.scenario}: web runner cannot execute capsAfter`,
+            );
+          }
+          environment.reconnect();
+          await environment.drainToQuiescence();
+          break;
+        case "decodeFailure":
+          if (runner !== "web-canvas") {
+            throw new Error(
+              `${fixture.entry.scenario}: decodeFailure requires web-canvas`,
+            );
+          }
+          environment.addDecodePlan(step.id, step.outcomes);
+          await environment.drainToQuiescence();
+          break;
+        case "expect": {
+          const expected = step.expectation;
+          if (!expected) {
+            throw new Error(
+              `${fixture.entry.scenario}: missing web expectation`,
+            );
+          }
+          environment.assertDecodePlansConsumed("expect");
+          const observation = environment.observe(
+            expected.styleRuns !== undefined,
+          );
+          assertWebConformanceObservation(expected, observation);
+          observations.push(observation);
+          environment.consumeResyncRequests();
+          break;
         }
-        break;
-      case "drop":
-        break;
-      case "evictImages":
-        environment.evictImages(step.ids);
-        await environment.drainToQuiescence();
-        break;
-      case "reconnect":
-        if (step.capsAfter !== undefined) {
-          throw new Error(`${fixture.entry.scenario}: web runner cannot execute capsAfter`);
-        }
-        environment.reconnect();
-        await environment.drainToQuiescence();
-        break;
-      case "decodeFailure":
-        if (runner !== "web-canvas") {
-          throw new Error(`${fixture.entry.scenario}: decodeFailure requires web-canvas`);
-        }
-        environment.addDecodePlan(step.id, step.outcomes);
-        await environment.drainToQuiescence();
-        break;
-      case "expect": {
-        const expected = step.expectation;
-        if (!expected) {
-          throw new Error(`${fixture.entry.scenario}: missing web expectation`);
-        }
-        environment.assertDecodePlansConsumed("expect");
-        const observation = environment.observe(expected.styleRuns !== undefined);
-        assertWebConformanceObservation(expected, observation);
-        observations.push(observation);
-        environment.consumeResyncRequests();
-        break;
-      }
-      case "androidABI":
-      case "channel":
-        throw new Error(
-          `${fixture.entry.scenario}: ${step.type} is not executable by ${runner}`
-        );
+        case "androidABI":
+        case "channel":
+          throw new Error(
+            `${fixture.entry.scenario}: ${step.type} is not executable by ${runner}`,
+          );
       }
     }
     environment.assertDecodePlansConsumed("EOF");
-    return { scenario: fixture.entry.scenario, runner, expectations: observations };
+    return {
+      scenario: fixture.entry.scenario,
+      runner,
+      expectations: observations,
+    };
   } finally {
     environment.dispose();
   }
@@ -104,19 +114,21 @@ export async function runWebConformanceFixture(
 
 export function assertWebConformanceObservation(
   expected: ConformanceExpectation,
-  actual: WebConformanceObservation
+  actual: WebConformanceObservation,
 ): void {
   const expectedValue: WebConformanceObservation = {
     rows: expected.rows,
     imagesVisible: expected.imagesVisible,
     resyncRequests: expected.resyncRequests,
-    ...(expected.styleRuns === undefined ? {} : { styleRuns: expected.styleRuns }),
+    ...(expected.styleRuns === undefined
+      ? {}
+      : { styleRuns: expected.styleRuns }),
   };
   if (stableJSON(expectedValue) !== stableJSON(actual)) {
     throw new Error(
-      "web conformance observation mismatch\n"
-      + `expected: ${stableJSON(expectedValue)}\n`
-      + `actual:   ${stableJSON(actual)}`
+      "web conformance observation mismatch\n" +
+        `expected: ${stableJSON(expectedValue)}\n` +
+        `actual:   ${stableJSON(actual)}`,
     );
   }
 }
@@ -137,15 +149,11 @@ class WebSurfaceConformanceEnvironment {
   private fixtureFailure?: Error;
   private fakeDOM?: FakeDOMInstallation;
 
-  constructor(
-    private readonly runner: WebConformanceRunner
-  ) {
+  constructor(private readonly runner: WebConformanceRunner) {
     this.makePainter();
   }
 
-  emit(
-    record: string
-  ): void {
+  emit(record: string): void {
     const decoded = this.decoder.feed(new TextEncoder().encode(record));
     for (const output of decoded) {
       if (output.type === "surface") {
@@ -156,11 +164,11 @@ class WebSurfaceConformanceEnvironment {
     this.collectResyncRequests();
   }
 
-  evictImages(
-    ids: readonly string[]
-  ): void {
+  evictImages(ids: readonly string[]): void {
     if (this.canvasPainter) {
-      canvasSurfacePainterConformanceControl(this.canvasPainter).evictImages(ids);
+      canvasSurfacePainterConformanceControl(this.canvasPainter).evictImages(
+        ids,
+      );
     } else {
       if (this.domPainter) {
         domSurfacePainterConformanceControl(this.domPainter).evictImages(ids);
@@ -175,25 +183,20 @@ class WebSurfaceConformanceEnvironment {
     this.makePainter();
   }
 
-  addDecodePlan(
-    id: string,
-    outcomes: Array<"failure" | "success">
-  ): void {
+  addDecodePlan(id: string, outcomes: Array<"failure" | "success">): void {
     if (this.decodePlans.has(id)) {
       throw new Error(`duplicate active decode plan for ${id}`);
     }
     this.decodePlans.set(id, { outcomes: [...outcomes], nextIndex: 0 });
   }
 
-  assertDecodePlansConsumed(
-    context: string
-  ): void {
+  assertDecodePlansConsumed(context: string): void {
     this.assertHealthy();
     for (const [id, plan] of this.decodePlans) {
       if (plan.nextIndex !== plan.outcomes.length) {
         throw new Error(
-          `${context}: decode plan for ${id} has `
-          + `${plan.outcomes.length - plan.nextIndex} unconsumed outcomes`
+          `${context}: decode plan for ${id} has ` +
+            `${plan.outcomes.length - plan.nextIndex} unconsumed outcomes`,
         );
       }
     }
@@ -226,14 +229,13 @@ class WebSurfaceConformanceEnvironment {
     throw new Error("web conformance runner did not quiesce within 32 turns");
   }
 
-  observe(
-    includesStyleRuns: boolean
-  ): WebConformanceObservation {
+  observe(includesStyleRuns: boolean): WebConformanceObservation {
     const frame = this.currentFrame;
     const images = frame?.images ?? [];
     const imagesVisible = this.canvasPainter
-      ? canvasSurfacePainterConformanceControl(this.canvasPainter)
-        .visibleImageIDs(images)
+      ? canvasSurfacePainterConformanceControl(
+          this.canvasPainter,
+        ).visibleImageIDs(images)
       : this.domPainter
         ? domSurfacePainterConformanceControl(this.domPainter).visibleImageIDs()
         : [];
@@ -267,7 +269,7 @@ class WebSurfaceConformanceEnvironment {
           const outcome = plan.outcomes[plan.nextIndex];
           if (outcome === undefined) {
             this.fixtureFailure = new Error(
-              `unexpected decode attempt after plan exhaustion for ${imageID}`
+              `unexpected decode attempt after plan exhaustion for ${imageID}`,
             );
             throw this.fixtureFailure;
           }
@@ -279,12 +281,9 @@ class WebSurfaceConformanceEnvironment {
         },
         onImagePayloadMiss: (ids) => this.decoder.requestImagePayloads(ids),
       });
-      painter.attach(
-        fakeCanvas(new ConformanceCanvasContext()),
-        () => {
-          this.redrawRequested = true;
-        }
-      );
+      painter.attach(fakeCanvas(new ConformanceCanvasContext()), () => {
+        this.redrawRequested = true;
+      });
       this.canvasPainter = painter;
       this.domPainter = undefined;
       return;
@@ -304,7 +303,8 @@ class WebSurfaceConformanceEnvironment {
     if (!frame) {
       return;
     }
-    const recoveredImagePayloadIDs = this.decoder.prepareToPresentSurface(frame);
+    const recoveredImagePayloadIDs =
+      this.decoder.prepareToPresentSurface(frame);
     const metrics: SurfaceMetrics = {
       columns: frame.width,
       rows: frame.height,
@@ -313,9 +313,19 @@ class WebSurfaceConformanceEnvironment {
       style: normalizeWebHostTerminalStyle({}),
     };
     if (this.canvasPainter) {
-      this.canvasPainter.paint(metrics, frame, frame.damage, recoveredImagePayloadIDs);
+      this.canvasPainter.paint(
+        metrics,
+        frame,
+        frame.damage,
+        recoveredImagePayloadIDs,
+      );
     } else {
-      this.domPainter?.paint(metrics, frame, frame.damage, recoveredImagePayloadIDs);
+      this.domPainter?.paint(
+        metrics,
+        frame,
+        frame.damage,
+        recoveredImagePayloadIDs,
+      );
     }
   }
 
@@ -337,7 +347,7 @@ class WebSurfaceConformanceEnvironment {
 }
 
 function structuredRows(
-  frame: WebHostSurfaceFrame | undefined
+  frame: WebHostSurfaceFrame | undefined,
 ): ConformanceGridRow[] {
   if (!frame) {
     return [];
@@ -357,7 +367,7 @@ function structuredRows(
 }
 
 function styleRuns(
-  frame: WebHostSurfaceFrame | undefined
+  frame: WebHostSurfaceFrame | undefined,
 ): ConformanceStyleRun[] {
   if (!frame) {
     return [];
@@ -371,10 +381,10 @@ function styleRuns(
       }
       const prior = runs.at(-1);
       if (
-        prior
-        && prior.row === row
-        && prior.startColumn + prior.span === column
-        && stableJSON(prior.resolvedStyle) === stableJSON(resolvedStyle)
+        prior &&
+        prior.row === row &&
+        prior.startColumn + prior.span === column &&
+        stableJSON(prior.resolvedStyle) === stableJSON(resolvedStyle)
       ) {
         prior.text += text;
         prior.span += span;
@@ -392,38 +402,33 @@ function styleRuns(
   return runs;
 }
 
-function canonicalStyle(
-  style: WebHostSurfaceStyle
-): Record<string, unknown> {
+function canonicalStyle(style: WebHostSurfaceStyle): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(style)
       .filter(([, value]) => value !== undefined)
-      .sort(([lhs], [rhs]) => lhs.localeCompare(rhs))
+      .sort(([lhs], [rhs]) => lhs.localeCompare(rhs)),
   );
 }
 
-function stableJSON(
-  value: unknown
-): string {
+function stableJSON(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableJSON).join(",")}]`;
   }
   if (value && typeof value === "object") {
     const object = value as Record<string, unknown>;
-    return `{${Object.keys(object).sort().map((key) =>
-      `${JSON.stringify(key)}:${stableJSON(object[key])}`
-    ).join(",")}}`;
+    return `{${Object.keys(object)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJSON(object[key])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value);
 }
 
-function fakeCanvas(
-  context: ConformanceCanvasContext
-): HTMLCanvasElement {
+function fakeCanvas(context: ConformanceCanvasContext): HTMLCanvasElement {
   return {
     width: 8_192,
     height: 8_192,
-    getContext: (kind: string) => kind === "2d" ? context : null,
+    getContext: (kind: string) => (kind === "2d" ? context : null),
   } as unknown as HTMLCanvasElement;
 }
 
@@ -459,9 +464,8 @@ interface FakeDOMInstallation {
 function installFakeDOM(): FakeDOMInstallation {
   const previousDocument = globalThis.document;
   globalThis.document = {
-    createElement: (tagName: string) => tagName === "canvas"
-      ? new FakeCanvasElement()
-      : new FakeElement(tagName),
+    createElement: (tagName: string) =>
+      tagName === "canvas" ? new FakeCanvasElement() : new FakeElement(tagName),
   } as unknown as Document;
   return {
     restore: () => {
@@ -482,21 +486,15 @@ class FakeElement {
   textContent = "";
   private readonly attributes = new Map<string, string>();
 
-  constructor(
-    readonly tagName: string
-  ) {}
+  constructor(readonly tagName: string) {}
 
-  appendChild(
-    child: FakeElement
-  ): FakeElement {
+  appendChild(child: FakeElement): FakeElement {
     child.parent = this;
     this.children.push(child);
     return child;
   }
 
-  replaceChildren(
-    ...children: FakeElement[]
-  ): void {
+  replaceChildren(...children: FakeElement[]): void {
     for (const child of children) {
       child.parent = this;
     }
@@ -514,16 +512,11 @@ class FakeElement {
     }
   }
 
-  setAttribute(
-    name: string,
-    value: string
-  ): void {
+  setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
   }
 
-  getAttribute(
-    name: string
-  ): string | null {
+  getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }
 }
@@ -534,8 +527,10 @@ class FakeCanvasElement extends FakeElement {
   }
 
   getContext(
-    contextID: string
-  ): { font: string; measureText(text: string): { width: number } } | undefined {
+    contextID: string,
+  ):
+    | { font: string; measureText(text: string): { width: number } }
+    | undefined {
     if (contextID !== "2d") {
       return undefined;
     }

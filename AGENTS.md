@@ -35,6 +35,10 @@ bun run build:web      # build the web package's browser demo bundle (dist-demo/
 
 `//:swift_tui_web_native_gate` in the org root runs `bun run ci`.
 
+Run `prek install` once per checkout: the pre-commit hook formats and lints
+staged sources with Biome (`biome.json`, version pinned in `prek.toml`). See
+`docs/DEVELOPMENT.md`.
+
 ## Conventions
 
 `AGENTS.md` is the real file. `CLAUDE.md` is a symlink to it. Edit `AGENTS.md`.

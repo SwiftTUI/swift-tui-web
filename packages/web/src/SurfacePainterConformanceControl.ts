@@ -14,18 +14,21 @@ export interface DomSurfacePainterConformanceControl {
   visibleImageIDs(): string[];
 }
 
-const canvasControls = new WeakMap<object, CanvasSurfacePainterConformanceControl>();
+const canvasControls = new WeakMap<
+  object,
+  CanvasSurfacePainterConformanceControl
+>();
 const domControls = new WeakMap<object, DomSurfacePainterConformanceControl>();
 
 export function registerCanvasSurfacePainterConformanceControl(
   painter: object,
-  control: CanvasSurfacePainterConformanceControl
+  control: CanvasSurfacePainterConformanceControl,
 ): void {
   canvasControls.set(painter, control);
 }
 
 export function canvasSurfacePainterConformanceControl(
-  painter: object
+  painter: object,
 ): CanvasSurfacePainterConformanceControl {
   const control = canvasControls.get(painter);
   if (!control) {
@@ -36,13 +39,13 @@ export function canvasSurfacePainterConformanceControl(
 
 export function registerDomSurfacePainterConformanceControl(
   painter: object,
-  control: DomSurfacePainterConformanceControl
+  control: DomSurfacePainterConformanceControl,
 ): void {
   domControls.set(painter, control);
 }
 
 export function domSurfacePainterConformanceControl(
-  painter: object
+  painter: object,
 ): DomSurfacePainterConformanceControl {
   const control = domControls.get(painter);
   if (!control) {

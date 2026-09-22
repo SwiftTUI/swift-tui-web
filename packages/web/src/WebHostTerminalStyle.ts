@@ -137,7 +137,7 @@ const defaultTheme: Required<WebHostTerminalTheme> = {
 };
 
 export function normalizeWebHostTerminalStyle(
-  style: WebHostTerminalStyle = {}
+  style: WebHostTerminalStyle = {},
 ): ResolvedWebHostTerminalStyle {
   const palette = normalizePalette(style.palette, defaultPalette);
   const theme = normalizeTheme(style.theme, palette, defaultTheme);
@@ -154,19 +154,21 @@ export function normalizeWebHostTerminalStyle(
 
 export function mergeWebHostTerminalStyle(
   base: WebHostTerminalStyle,
-  patch: WebHostTerminalStyle
+  patch: WebHostTerminalStyle,
 ): ResolvedWebHostTerminalStyle {
   const resolvedBase = normalizeWebHostTerminalStyle(base);
   return normalizeWebHostTerminalStyle({
     ...resolvedBase,
     ...patch,
     palette: mergePalette(resolvedBase.palette, patch.palette),
-    theme: patch.theme ? { ...resolvedBase.theme, ...patch.theme } : resolvedBase.theme,
+    theme: patch.theme
+      ? { ...resolvedBase.theme, ...patch.theme }
+      : resolvedBase.theme,
   });
 }
 
 export function resolveWebHostTerminalRenderStyle(
-  style: WebHostTerminalStyle
+  style: WebHostTerminalStyle,
 ): WebHostTerminalRenderStyle {
   const normalized = normalizeWebHostTerminalStyle(style);
   return {
@@ -175,9 +177,13 @@ export function resolveWebHostTerminalRenderStyle(
       backgroundColor: normalized.theme.background,
       tintColor: normalized.theme.tint,
       palette: paletteToIndexedMap(normalized.palette.ansi),
-      colorSchemeContrast: contrastRatio(normalized.theme.foreground, normalized.theme.background) >= 7
-        ? "increased"
-        : "standard",
+      colorSchemeContrast:
+        contrastRatio(
+          normalized.theme.foreground,
+          normalized.theme.background,
+        ) >= 7
+          ? "increased"
+          : "standard",
       source: "override",
     },
     theme: { ...normalized.theme },
@@ -185,13 +191,13 @@ export function resolveWebHostTerminalRenderStyle(
 }
 
 export function encodeWebHostTerminalRenderStyleBase64(
-  style: WebHostTerminalStyle
+  style: WebHostTerminalStyle,
 ): string {
   return encodeBase64(JSON.stringify(resolveWebHostTerminalRenderStyle(style)));
 }
 
 export function decodeWebHostTerminalRenderStyleBase64(
-  encoded: string
+  encoded: string,
 ): WebHostTerminalRenderStyle | undefined {
   const json = decodeBase64(encoded);
   if (!json) {
@@ -206,7 +212,7 @@ export function decodeWebHostTerminalRenderStyleBase64(
 }
 
 export function webTUITerminalBackgroundColor(
-  style: WebHostTerminalStyle
+  style: WebHostTerminalStyle,
 ): string {
   const normalized = normalizeWebHostTerminalStyle(style);
   return hexToRgba(normalized.theme.background, normalized.backgroundOpacity);
@@ -214,28 +220,31 @@ export function webTUITerminalBackgroundColor(
 
 export function applyWebHostTerminalStyle(
   element: HTMLElement,
-  style: WebHostTerminalStyle
+  style: WebHostTerminalStyle,
 ): void {
   const normalized = normalizeWebHostTerminalStyle(style);
   element.style.fontFamily = normalized.fontFamily;
   element.style.fontSize = `${normalized.fontSize}px`;
-  element.style.background = hexToRgba(normalized.theme.background, normalized.backgroundOpacity);
+  element.style.background = hexToRgba(
+    normalized.theme.background,
+    normalized.backgroundOpacity,
+  );
   element.style.color = normalized.theme.foreground;
 }
 
 function normalizePalette(
   input: WebHostTerminalPalette | undefined,
-  defaults: ResolvedWebHostTerminalPalette
+  defaults: ResolvedWebHostTerminalPalette,
 ): ResolvedWebHostTerminalPalette {
   return {
     foreground: normalizeHexColor(input?.foreground ?? defaults.foreground),
     background: normalizeHexColor(input?.background ?? defaults.background),
     cursor: normalizeHexColor(input?.cursor ?? defaults.cursor),
     selectionBackground: normalizeHexColor(
-      input?.selectionBackground ?? defaults.selectionBackground
+      input?.selectionBackground ?? defaults.selectionBackground,
     ),
     selectionForeground: normalizeHexColor(
-      input?.selectionForeground ?? defaults.selectionForeground
+      input?.selectionForeground ?? defaults.selectionForeground,
     ),
     ansi: normalizeANSI(input?.ansi, defaults.ansi),
   };
@@ -243,7 +252,7 @@ function normalizePalette(
 
 function mergePalette(
   base: ResolvedWebHostTerminalPalette,
-  patch: WebHostTerminalPalette | undefined
+  patch: WebHostTerminalPalette | undefined,
 ): WebHostTerminalPalette {
   if (!patch) {
     return base;
@@ -258,7 +267,7 @@ function mergePalette(
 
 function normalizeANSI(
   input: WebHostANSIColors | undefined,
-  defaults: Required<WebHostANSIColors>
+  defaults: Required<WebHostANSIColors>,
 ): Required<WebHostANSIColors> {
   return {
     black: normalizeHexColor(input?.black ?? defaults.black),
@@ -272,9 +281,13 @@ function normalizeANSI(
     brightBlack: normalizeHexColor(input?.brightBlack ?? defaults.brightBlack),
     brightRed: normalizeHexColor(input?.brightRed ?? defaults.brightRed),
     brightGreen: normalizeHexColor(input?.brightGreen ?? defaults.brightGreen),
-    brightYellow: normalizeHexColor(input?.brightYellow ?? defaults.brightYellow),
+    brightYellow: normalizeHexColor(
+      input?.brightYellow ?? defaults.brightYellow,
+    ),
     brightBlue: normalizeHexColor(input?.brightBlue ?? defaults.brightBlue),
-    brightMagenta: normalizeHexColor(input?.brightMagenta ?? defaults.brightMagenta),
+    brightMagenta: normalizeHexColor(
+      input?.brightMagenta ?? defaults.brightMagenta,
+    ),
     brightCyan: normalizeHexColor(input?.brightCyan ?? defaults.brightCyan),
     brightWhite: normalizeHexColor(input?.brightWhite ?? defaults.brightWhite),
   };
@@ -283,7 +296,7 @@ function normalizeANSI(
 function normalizeTheme(
   input: WebHostTerminalTheme | undefined,
   palette: ResolvedWebHostTerminalPalette,
-  defaults: Required<WebHostTerminalTheme>
+  defaults: Required<WebHostTerminalTheme>,
 ): Required<WebHostTerminalTheme> {
   const derived = themeFromPalette(palette, defaults);
   return {
@@ -295,7 +308,9 @@ function normalizeTheme(
     placeholder: normalizeHexColor(input?.placeholder ?? derived.placeholder),
     link: normalizeHexColor(input?.link ?? derived.link),
     fill: normalizeHexColor(input?.fill ?? derived.fill),
-    windowBackground: normalizeHexColor(input?.windowBackground ?? derived.windowBackground),
+    windowBackground: normalizeHexColor(
+      input?.windowBackground ?? derived.windowBackground,
+    ),
     success: normalizeHexColor(input?.success ?? derived.success),
     warning: normalizeHexColor(input?.warning ?? derived.warning),
     danger: normalizeHexColor(input?.danger ?? derived.danger),
@@ -306,7 +321,7 @@ function normalizeTheme(
 
 function themeFromPalette(
   palette: ResolvedWebHostTerminalPalette,
-  defaults: Required<WebHostTerminalTheme>
+  defaults: Required<WebHostTerminalTheme>,
 ): Required<WebHostTerminalTheme> {
   return {
     foreground: palette.foreground,
@@ -327,7 +342,7 @@ function themeFromPalette(
 }
 
 function paletteToIndexedMap(
-  ansi: Required<WebHostANSIColors>
+  ansi: Required<WebHostANSIColors>,
 ): Record<string, string> {
   return {
     0: ansi.black,
@@ -364,17 +379,18 @@ function normalizeOpacity(opacity: number): number {
 function normalizeHexColor(value: string): string {
   const trimmed = value.trim();
   const normalized = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
-  if (!/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(normalized)) {
+  if (
+    !/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(
+      normalized,
+    )
+  ) {
     throw new Error(`Invalid hex color: ${value}`);
   }
 
   return normalized.toLowerCase();
 }
 
-function hexToRgba(
-  color: string,
-  opacity: number
-): string {
+function hexToRgba(color: string, opacity: number): string {
   const normalized = normalizeHexColor(color);
   const alpha = normalizeOpacity(opacity);
   const channels = parseHexColor(normalized);
@@ -386,18 +402,22 @@ function hexToRgba(
   return `rgba(${channels.red}, ${channels.green}, ${channels.blue}, ${finalAlpha})`;
 }
 
-function parseHexColor(
-  color: string
-): {
-  red: number;
-  green: number;
-  blue: number;
-  alpha: number;
-} | undefined {
+function parseHexColor(color: string):
+  | {
+      red: number;
+      green: number;
+      blue: number;
+      alpha: number;
+    }
+  | undefined {
   const hex = color.startsWith("#") ? color.slice(1) : color;
-  const normalized = hex.length === 3 || hex.length === 4
-    ? hex.split("").map((ch) => ch + ch).join("")
-    : hex;
+  const normalized =
+    hex.length === 3 || hex.length === 4
+      ? hex
+          .split("")
+          .map((ch) => ch + ch)
+          .join("")
+      : hex;
 
   if (normalized.length !== 6 && normalized.length !== 8) {
     return undefined;
@@ -406,16 +426,14 @@ function parseHexColor(
   const red = Number.parseInt(normalized.slice(0, 2), 16);
   const green = Number.parseInt(normalized.slice(2, 4), 16);
   const blue = Number.parseInt(normalized.slice(4, 6), 16);
-  const alpha = normalized.length === 8
-    ? Number.parseInt(normalized.slice(6, 8), 16) / 255
-    : 1;
+  const alpha =
+    normalized.length === 8
+      ? Number.parseInt(normalized.slice(6, 8), 16) / 255
+      : 1;
   return { red, green, blue, alpha };
 }
 
-function contrastRatio(
-  foreground: string,
-  background: string
-): number {
+function contrastRatio(foreground: string, background: string): number {
   const fg = relativeLuminance(foreground);
   const bg = relativeLuminance(background);
   const lighter = Math.max(fg, bg);
@@ -431,13 +449,14 @@ function relativeLuminance(color: string): number {
 
   const toLinear = (channel: number) => {
     const value = channel / 255;
-    return value <= 0.03928
-      ? value / 12.92
-      : ((value + 0.055) / 1.055) ** 2.4;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
   };
 
-  return 0.2126 * toLinear(channels.red) + 0.7152 * toLinear(channels.green)
-    + 0.0722 * toLinear(channels.blue);
+  return (
+    0.2126 * toLinear(channels.red) +
+    0.7152 * toLinear(channels.green) +
+    0.0722 * toLinear(channels.blue)
+  );
 }
 
 function encodeBase64(value: string): string {

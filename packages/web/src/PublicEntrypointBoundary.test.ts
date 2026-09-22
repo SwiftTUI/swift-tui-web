@@ -13,7 +13,10 @@ const runtimeEntrypoints = [
 
 test("public browser runtime entrypoints do not import build tooling", async () => {
   for (const entrypoint of runtimeEntrypoints) {
-    const source = await readFile(resolve(import.meta.dir, "..", entrypoint), "utf8");
+    const source = await readFile(
+      resolve(import.meta.dir, "..", entrypoint),
+      "utf8",
+    );
     expect(source).not.toContain("@swifttui/build");
     expect(source).not.toContain("node:");
   }

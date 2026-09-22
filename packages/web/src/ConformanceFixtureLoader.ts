@@ -29,22 +29,26 @@ export async function loadConformanceCorpus(
   overrides: {
     manifestBytes?: Uint8Array;
     fixtureBytes?: Map<string, Uint8Array>;
-  } = {}
+  } = {},
 ): Promise<ConformanceCorpus> {
-  const manifestBytes = overrides.manifestBytes
-    ?? new Uint8Array(await readFile(join(directory, "conformance-manifest.json")));
+  const manifestBytes =
+    overrides.manifestBytes ??
+    new Uint8Array(
+      await readFile(join(directory, "conformance-manifest.json")),
+    );
   validateConformanceTextBytes(manifestBytes, "conformance-manifest.json");
   const manifest = parseManifest(
-    parseConformanceJSON(manifestBytes, "conformance-manifest.json")
+    parseConformanceJSON(manifestBytes, "conformance-manifest.json"),
   );
 
-  const fixtureBytes = overrides.fixtureBytes ?? await readFixtureBytes(directory);
+  const fixtureBytes =
+    overrides.fixtureBytes ?? (await readFixtureBytes(directory));
   const expectedFiles = new Set(manifest.fixtures.map((entry) => entry.file));
   const actualFiles = new Set(fixtureBytes.keys());
   if (!setsEqual(expectedFiles, actualFiles)) {
     fail(
-      `fixture census mismatch: expected ${JSON.stringify([...expectedFiles].sort())}, `
-      + `got ${JSON.stringify([...actualFiles].sort())}`
+      `fixture census mismatch: expected ${JSON.stringify([...expectedFiles].sort())}, ` +
+        `got ${JSON.stringify([...actualFiles].sort())}`,
     );
   }
 
@@ -55,13 +59,16 @@ export async function loadConformanceCorpus(
     if (!bytes) {
       fail(`${entry.file}: missing fixture body`);
     }
-    fixtures.set(entry.file, parseConformanceFixture(entry, bytes, manifestHash));
+    fixtures.set(
+      entry.file,
+      parseConformanceFixture(entry, bytes, manifestHash),
+    );
   }
   return { manifestBytes, manifest, fixtures };
 }
 
 async function readFixtureBytes(
-  directory: string
+  directory: string,
 ): Promise<Map<string, Uint8Array>> {
   const names = (await readdir(directory))
     .filter((name) => /^conformance-.*\.jsonl$/.test(name))
@@ -73,9 +80,7 @@ async function readFixtureBytes(
   return result;
 }
 
-function parseManifest(
-  value: unknown
-): ConformanceManifest {
+function parseManifest(value: unknown): ConformanceManifest {
   const object = exactObject(value, ["formatVersion", "fixtures"], "manifest");
   if (object.formatVersion !== CONFORMANCE_FORMAT_VERSION) {
     fail(`manifest: unsupported formatVersion ${String(object.formatVersion)}`);
@@ -86,15 +91,19 @@ function parseManifest(
 
   const entries = object.fixtures.map((fixture, index) => {
     const context = `manifest.fixtures[${index}]`;
-    const item = exactObject(fixture, [
-      "file",
-      "scenario",
-      "kind",
-      "mutationClass",
-      "bodySHA256",
-      "requiresStage",
-      "runners",
-    ], context);
+    const item = exactObject(
+      fixture,
+      [
+        "file",
+        "scenario",
+        "kind",
+        "mutationClass",
+        "bodySHA256",
+        "requiresStage",
+        "runners",
+      ],
+      context,
+    );
     const entry: ConformanceManifestEntry = {
       file: requiredString(item.file, `${context}.file`),
       scenario: requiredString(item.scenario, `${context}.scenario`),
@@ -102,20 +111,21 @@ function parseManifest(
       mutationClass: enumValue(
         item.mutationClass,
         CONFORMANCE_MUTATION_CLASSES,
-        `${context}.mutationClass`
+        `${context}.mutationClass`,
       ),
       bodySHA256: requiredString(item.bodySHA256, `${context}.bodySHA256`),
       requiresStage: enumValue(
         item.requiresStage,
         CONFORMANCE_STAGES,
-        `${context}.requiresStage`
+        `${context}.requiresStage`,
       ),
       runners: requiredArray(item.runners, `${context}.runners`).map(
-        (runner, runnerIndex) => enumValue(
-          runner,
-          CONFORMANCE_RUNNERS,
-          `${context}.runners[${runnerIndex}]`
-        )
+        (runner, runnerIndex) =>
+          enumValue(
+            runner,
+            CONFORMANCE_RUNNERS,
+            `${context}.runners[${runnerIndex}]`,
+          ),
       ),
     };
     validateManifestEntry(entry, context);
@@ -137,7 +147,7 @@ function parseManifest(
 
 function validateManifestEntry(
   entry: ConformanceManifestEntry,
-  context: string
+  context: string,
 ): void {
   if (!/^conformance-[a-z0-9-]+\.jsonl$/.test(entry.file)) {
     fail(`${context}.file: expected conformance-*.jsonl`);
@@ -148,27 +158,31 @@ function validateManifestEntry(
   if (!/^[0-9a-f]{64}$/.test(entry.bodySHA256)) {
     fail(`${context}.bodySHA256: expected lowercase SHA-256`);
   }
-  const indexes = entry.runners.map((runner) => CONFORMANCE_RUNNERS.indexOf(runner));
+  const indexes = entry.runners.map((runner) =>
+    CONFORMANCE_RUNNERS.indexOf(runner),
+  );
   if (
-    new Set(entry.runners).size !== entry.runners.length
-    || indexes.some((index, offset) => offset > 0 && index <= indexes[offset - 1]!)
+    new Set(entry.runners).size !== entry.runners.length ||
+    indexes.some((index, offset) => offset > 0 && index <= indexes[offset - 1]!)
   ) {
     fail(`${context}.runners: expected duplicate-free canonical order`);
   }
 
   const expected = manifestBinding(entry.mutationClass, entry.kind);
   if (
-    entry.kind !== expected.kind
-    || entry.requiresStage !== expected.stage
-    || entry.runners.join("\0") !== expected.runners.join("\0")
+    entry.kind !== expected.kind ||
+    entry.requiresStage !== expected.stage ||
+    entry.runners.join("\0") !== expected.runners.join("\0")
   ) {
-    fail(`${context}: mutation binding does not match kind, stage, and runners`);
+    fail(
+      `${context}: mutation binding does not match kind, stage, and runners`,
+    );
   }
 }
 
 function manifestBinding(
   mutationClass: ConformanceMutationClass,
-  actualKind: ConformanceKind
+  actualKind: ConformanceKind,
 ): {
   kind: ConformanceKind;
   stage: ConformanceStage;
@@ -181,51 +195,51 @@ function manifestBinding(
     "android",
   ];
   switch (mutationClass) {
-  case "control":
-  case "baseline-loss":
-  case "epoch-reanchor":
-    return { kind: "record", stage: "s1", runners: allRecord };
-  case "image-forget":
-    return actualKind === "record"
-      ? {
+    case "control":
+    case "baseline-loss":
+    case "epoch-reanchor":
+      return { kind: "record", stage: "s1", runners: allRecord };
+    case "image-forget":
+      return actualKind === "record"
+        ? {
+            kind: "record",
+            stage: "s2",
+            runners: ["swift-reference", "android"],
+          }
+        : {
+            kind: "web-painter",
+            stage: "s2",
+            runners: ["web-canvas", "web-dom"],
+          };
+    case "image-decode-failure":
+      return { kind: "web-painter", stage: "s2", runners: ["web-canvas"] };
+    case "unknown-token":
+      return {
         kind: "record",
-        stage: "s2",
-        runners: ["swift-reference", "android"],
-      }
-      : {
-        kind: "web-painter",
-        stage: "s2",
-        runners: ["web-canvas", "web-dom"],
+        stage: "s1",
+        runners: ["web-canvas", "web-dom", "android"],
       };
-  case "image-decode-failure":
-    return { kind: "web-painter", stage: "s2", runners: ["web-canvas"] };
-  case "unknown-token":
-    return {
-      kind: "record",
-      stage: "s1",
-      runners: ["web-canvas", "web-dom", "android"],
-    };
-  case "android-delivery-commit":
-    return {
-      kind: "android-abi",
-      stage: "s3a",
-      runners: ["swift-android-abi"],
-    };
-  case "websocket-detached-backlog":
-    return {
-      kind: "websocket-channel",
-      stage: "s3b",
-      runners: ["swift-websocket-channel"],
-    };
-  case "style-append":
-    return { kind: "record", stage: "s3d", runners: allRecord };
+    case "android-delivery-commit":
+      return {
+        kind: "android-abi",
+        stage: "s3a",
+        runners: ["swift-android-abi"],
+      };
+    case "websocket-detached-backlog":
+      return {
+        kind: "websocket-channel",
+        stage: "s3b",
+        runners: ["swift-websocket-channel"],
+      };
+    case "style-append":
+      return { kind: "record", stage: "s3d", runners: allRecord };
   }
 }
 
 function exactObject(
   value: unknown,
   keys: string[],
-  context: string
+  context: string,
 ): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     fail(`${context}: expected object`);
@@ -234,25 +248,21 @@ function exactObject(
   const actual = Object.keys(object).sort();
   const expected = [...keys].sort();
   if (actual.join("\0") !== expected.join("\0")) {
-    fail(`${context}: expected keys ${expected.join(",")}; got ${actual.join(",")}`);
+    fail(
+      `${context}: expected keys ${expected.join(",")}; got ${actual.join(",")}`,
+    );
   }
   return object;
 }
 
-function requiredArray(
-  value: unknown,
-  context: string
-): unknown[] {
+function requiredArray(value: unknown, context: string): unknown[] {
   if (!Array.isArray(value)) {
     fail(`${context}: expected array`);
   }
   return value;
 }
 
-function requiredString(
-  value: unknown,
-  context: string
-): string {
+function requiredString(value: unknown, context: string): string {
   if (typeof value !== "string") {
     fail(`${context}: expected string`);
   }
@@ -262,23 +272,21 @@ function requiredString(
 function enumValue<const T extends readonly string[]>(
   value: unknown,
   values: T,
-  context: string
+  context: string,
 ): T[number] {
-  if (typeof value !== "string" || !(values as readonly string[]).includes(value)) {
+  if (
+    typeof value !== "string" ||
+    !(values as readonly string[]).includes(value)
+  ) {
     fail(`${context}: unknown value ${String(value)}`);
   }
   return value as T[number];
 }
 
-function setsEqual<T>(
-  lhs: Set<T>,
-  rhs: Set<T>
-): boolean {
+function setsEqual<T>(lhs: Set<T>, rhs: Set<T>): boolean {
   return lhs.size === rhs.size && [...lhs].every((item) => rhs.has(item));
 }
 
-function fail(
-  message: string
-): never {
+function fail(message: string): never {
   throw new Error(`conformance fixture error: ${message}`);
 }

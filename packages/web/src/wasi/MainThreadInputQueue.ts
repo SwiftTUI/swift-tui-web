@@ -50,7 +50,7 @@ export class MainThreadInputQueue implements SuspendingWasiPollReadableSource {
   }
 
   waitForReadableAsync(
-    timeoutMilliseconds?: number
+    timeoutMilliseconds?: number,
   ): Promise<SharedInputReadiness> {
     if (this.chunks.length > 0) {
       return Promise.resolve("readable");
@@ -59,15 +59,24 @@ export class MainThreadInputQueue implements SuspendingWasiPollReadableSource {
       return Promise.resolve("closed");
     }
     return new Promise((resolve) => {
-      const waiter = (readiness: SharedInputReadiness): void => resolve(readiness);
+      const waiter = (readiness: SharedInputReadiness): void =>
+        resolve(readiness);
       this.waiters = [...this.waiters, waiter];
-      if (timeoutMilliseconds !== undefined && Number.isFinite(timeoutMilliseconds)) {
-        setTimeout(() => {
-          if (this.waiters.includes(waiter)) {
-            this.waiters = this.waiters.filter((pending) => pending !== waiter);
-            resolve("timedOut");
-          }
-        }, Math.max(0, timeoutMilliseconds));
+      if (
+        timeoutMilliseconds !== undefined &&
+        Number.isFinite(timeoutMilliseconds)
+      ) {
+        setTimeout(
+          () => {
+            if (this.waiters.includes(waiter)) {
+              this.waiters = this.waiters.filter(
+                (pending) => pending !== waiter,
+              );
+              resolve("timedOut");
+            }
+          },
+          Math.max(0, timeoutMilliseconds),
+        );
       }
     });
   }

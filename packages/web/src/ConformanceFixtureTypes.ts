@@ -29,12 +29,12 @@ export const CONFORMANCE_MUTATION_CLASSES = [
   "style-append",
 ] as const;
 
-export type ConformanceRunner = typeof CONFORMANCE_RUNNERS[number];
-export type WebConformanceRunner = typeof WEB_CONFORMANCE_RUNNERS[number];
-export type ConformanceKind = typeof CONFORMANCE_KINDS[number];
-export type ConformanceStage = typeof CONFORMANCE_STAGES[number];
+export type ConformanceRunner = (typeof CONFORMANCE_RUNNERS)[number];
+export type WebConformanceRunner = (typeof WEB_CONFORMANCE_RUNNERS)[number];
+export type ConformanceKind = (typeof CONFORMANCE_KINDS)[number];
+export type ConformanceStage = (typeof CONFORMANCE_STAGES)[number];
 export type ConformanceMutationClass =
-  typeof CONFORMANCE_MUTATION_CLASSES[number];
+  (typeof CONFORMANCE_MUTATION_CLASSES)[number];
 
 export interface ConformanceManifestEntry {
   file: string;
@@ -82,14 +82,18 @@ export type ConformanceStep =
   | { type: "drop"; count: number }
   | { type: "evictImages"; ids: string[] }
   | { type: "reconnect"; capsAfter?: number }
-  | { type: "decodeFailure"; id: string; outcomes: Array<"failure" | "success"> }
+  | {
+      type: "decodeFailure";
+      id: string;
+      outcomes: Array<"failure" | "success">;
+    }
   | { type: "androidABI"; value: Record<string, unknown> }
   | { type: "channel"; value: Record<string, unknown> }
   | {
-    type: "expect";
-    value: Record<string, unknown>;
-    expectation?: ConformanceExpectation;
-  };
+      type: "expect";
+      value: Record<string, unknown>;
+      expectation?: ConformanceExpectation;
+    };
 
 export interface ConformanceFixture {
   entry: ConformanceManifestEntry;

@@ -1,16 +1,16 @@
-import { HOST_WIRE_MAX_RECORD_BYTES, fitsUTF8 } from "./HostWireBudget.ts";
+import { fitsUTF8, HOST_WIRE_MAX_RECORD_BYTES } from "./HostWireBudget.ts";
+import type { WebHostSceneBridge } from "./WebHostSceneRuntime.ts";
 import {
-  WebHostOutputDecoder,
   encodeCapabilitiesControlMessage,
   encodePointerCapabilitiesControlMessage,
-  encodeResyncControlMessage,
   encodeRenderStyleControlMessage,
   encodeResizeControlMessage,
+  encodeResyncControlMessage,
+  WebHostOutputDecoder,
   type WebHostOutputRecord,
   type WebHostOutputSink,
 } from "./WebHostSurfaceTransport.ts";
 import type { WebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
-import type { WebHostSceneBridge } from "./WebHostSceneRuntime.ts";
 
 export interface WebSocketSceneBridgeOptions {
   sceneId: string;
@@ -27,7 +27,9 @@ export interface WebSocketSceneBridgeOptions {
   reconnectDelayMilliseconds?: (attempt: number) => number;
 }
 
-export type WebSocketSceneBridgeFactory = (url: string | URL) => WebSocketSceneSocket;
+export type WebSocketSceneBridgeFactory = (
+  url: string | URL,
+) => WebSocketSceneSocket;
 
 export interface WebSocketSceneSocket {
   binaryType: BinaryType;
@@ -35,12 +37,21 @@ export interface WebSocketSceneSocket {
   send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void;
   close(code?: number, reason?: string): void;
   addEventListener(type: "open", listener: (event: Event) => void): void;
-  addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
+  addEventListener(
+    type: "message",
+    listener: (event: MessageEvent) => void,
+  ): void;
   addEventListener(type: "close", listener: (event: CloseEvent) => void): void;
   addEventListener(type: "error", listener: (event: Event) => void): void;
   removeEventListener(type: "open", listener: (event: Event) => void): void;
-  removeEventListener(type: "message", listener: (event: MessageEvent) => void): void;
-  removeEventListener(type: "close", listener: (event: CloseEvent) => void): void;
+  removeEventListener(
+    type: "message",
+    listener: (event: MessageEvent) => void,
+  ): void;
+  removeEventListener(
+    type: "close",
+    listener: (event: CloseEvent) => void,
+  ): void;
   removeEventListener(type: "error", listener: (event: Event) => void): void;
 }
 
@@ -116,9 +127,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     this.sendInput(encodeCapabilitiesControlMessage());
   }
 
-  bindOutput(
-    sink: WebHostOutputSink
-  ): void {
+  bindOutput(sink: WebHostOutputSink): void {
     this.sink = sink;
     while (this.queuedOutput.length > 0) {
       this.deliver(this.queuedOutput.shift()!);
@@ -129,32 +138,33 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     columns: number,
     rows: number,
     cellWidth?: number,
-    cellHeight?: number
+    cellHeight?: number,
   ): void {
-    const message = encodeResizeControlMessage(columns, rows, cellWidth, cellHeight);
+    const message = encodeResizeControlMessage(
+      columns,
+      rows,
+      cellWidth,
+      cellHeight,
+    );
     this.lastResizeMessage = message;
     this.sendInput(message);
   }
 
-  updateRenderStyle(
-    style: WebHostTerminalStyle
-  ): void {
+  updateRenderStyle(style: WebHostTerminalStyle): void {
     const message = encodeRenderStyleControlMessage(style);
     this.lastRenderStyleMessage = message;
     this.sendInput(message);
   }
 
-  updatePointerCapabilities(
-    supportsScrollPanning: boolean
-  ): void {
-    const message = encodePointerCapabilitiesControlMessage(supportsScrollPanning);
+  updatePointerCapabilities(supportsScrollPanning: boolean): void {
+    const message = encodePointerCapabilitiesControlMessage(
+      supportsScrollPanning,
+    );
     this.lastPointerCapabilitiesMessage = message;
     this.sendInput(message);
   }
 
-  sendInput(
-    chunk: Uint8Array
-  ): void {
+  sendInput(chunk: Uint8Array): void {
     if (this.disposed) {
       return;
     }
@@ -166,9 +176,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     }
   }
 
-  requestImagePayloads(
-    ids: readonly string[]
-  ): readonly string[] {
+  requestImagePayloads(ids: readonly string[]): readonly string[] {
     if (this.disposed) {
       return [];
     }
@@ -192,9 +200,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     this.socket.close(1000, "WebHost scene disposed");
   }
 
-  private attachSocket(
-    socket: WebSocketSceneSocket
-  ): void {
+  private attachSocket(socket: WebSocketSceneSocket): void {
     socket.binaryType = "arraybuffer";
     socket.addEventListener("open", this.handleOpen);
     socket.addEventListener("message", this.handleMessage);
@@ -202,9 +208,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     socket.addEventListener("error", this.handleError);
   }
 
-  private detachSocket(
-    socket: WebSocketSceneSocket
-  ): void {
+  private detachSocket(socket: WebSocketSceneSocket): void {
     socket.removeEventListener("open", this.handleOpen);
     socket.removeEventListener("message", this.handleMessage);
     socket.removeEventListener("close", this.handleClose);
@@ -216,7 +220,10 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
       return;
     }
     this.reconnectAttempts += 1;
-    const delay = Math.max(0, this.reconnectDelayMilliseconds(this.reconnectAttempts));
+    const delay = Math.max(
+      0,
+      this.reconnectDelayMilliseconds(this.reconnectAttempts),
+    );
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
       this.reconnect();
@@ -254,15 +261,15 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     if (this.lastPointerCapabilitiesMessage) {
       handshake.push(this.lastPointerCapabilitiesMessage);
     }
-    this.queuedInput.unshift(...handshake.map((chunk) => new Uint8Array(chunk)));
+    this.queuedInput.unshift(
+      ...handshake.map((chunk) => new Uint8Array(chunk)),
+    );
     if (this.socket.readyState === socketOpenState) {
       this.flushQueuedInput();
     }
   }
 
-  private async receive(
-    message: unknown
-  ): Promise<void> {
+  private async receive(message: unknown): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -270,10 +277,17 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     // A message may batch records. Match the server's independent 8 MiB
     // envelope ceiling before TextEncoder or Blob.arrayBuffer copies it.
     const limit = HOST_WIRE_MAX_RECORD_BYTES * 2;
-    const oversized = typeof message === "string" ? !fitsUTF8(message, limit)
-      : message instanceof ArrayBuffer || ArrayBuffer.isView(message) ? message.byteLength > limit
-      : typeof Blob !== "undefined" && message instanceof Blob ? message.size > limit : false;
-    const bytes = await (oversized ? undefined : bytesFromWebSocketMessage(message));
+    const oversized =
+      typeof message === "string"
+        ? !fitsUTF8(message, limit)
+        : message instanceof ArrayBuffer || ArrayBuffer.isView(message)
+          ? message.byteLength > limit
+          : typeof Blob !== "undefined" && message instanceof Blob
+            ? message.size > limit
+            : false;
+    const bytes = await (oversized
+      ? undefined
+      : bytesFromWebSocketMessage(message));
     if (oversized) {
       this.deliver(this.decoder.rejectOversizedMessage());
       this.sendPendingResyncRequests();
@@ -290,9 +304,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     this.sendPendingResyncRequests();
   }
 
-  private deliver(
-    record: WebHostOutputRecord
-  ): void {
+  private deliver(record: WebHostOutputRecord): void {
     const sink = this.sink;
     if (!sink) {
       this.queuedOutput.push(record);
@@ -300,26 +312,26 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     }
 
     switch (record.type) {
-    case "surface":
-      sink.presentSurface(
-        record.frame,
-        this.decoder.prepareToPresentSurface(record.frame)
-      );
-      break;
-    case "clipboard":
-      void sink.writeClipboard?.(record.text);
-      break;
-    case "runtimeIssue":
-      sink.notifyRuntimeIssue?.(record.issue);
-      break;
-    case "frameDiagnostic":
-      sink.recordFrameDiagnostic?.(record.diagnostic);
-      break;
-    case "surfaceDropped":
-      break;
-    case "text":
-      sink.writeOutput?.(record.text);
-      break;
+      case "surface":
+        sink.presentSurface(
+          record.frame,
+          this.decoder.prepareToPresentSurface(record.frame),
+        );
+        break;
+      case "clipboard":
+        void sink.writeClipboard?.(record.text);
+        break;
+      case "runtimeIssue":
+        sink.notifyRuntimeIssue?.(record.issue);
+        break;
+      case "frameDiagnostic":
+        sink.recordFrameDiagnostic?.(record.diagnostic);
+        break;
+      case "surfaceDropped":
+        break;
+      case "text":
+        sink.writeOutput?.(record.text);
+        break;
     }
   }
 
@@ -354,7 +366,10 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
 }
 
 export function webSocketSceneURL(
-  options: Pick<WebSocketSceneBridgeOptions, "baseURL" | "webSocketURL" | "sceneId" | "token">
+  options: Pick<
+    WebSocketSceneBridgeOptions,
+    "baseURL" | "webSocketURL" | "sceneId" | "token"
+  >,
 ): URL {
   if (options.webSocketURL) {
     const explicit = new URL(String(options.webSocketURL), currentPageURL());
@@ -362,9 +377,14 @@ export function webSocketSceneURL(
     return explicit;
   }
 
-  const url = new URL(String(options.baseURL ?? currentPageURL()), currentPageURL());
+  const url = new URL(
+    String(options.baseURL ?? currentPageURL()),
+    currentPageURL(),
+  );
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  const basePath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+  const basePath = url.pathname.endsWith("/")
+    ? url.pathname.slice(0, -1)
+    : url.pathname;
   url.pathname = `${basePath}/ws/scene/${encodeURIComponent(options.sceneId)}`;
   url.search = "";
   url.searchParams.set("token", options.token);
@@ -372,7 +392,7 @@ export function webSocketSceneURL(
 }
 
 async function bytesFromWebSocketMessage(
-  message: unknown
+  message: unknown,
 ): Promise<Uint8Array | undefined> {
   if (typeof message === "string") {
     return textEncoder.encode(message);
@@ -384,7 +404,11 @@ async function bytesFromWebSocketMessage(
     return new Uint8Array(message);
   }
   if (ArrayBuffer.isView(message)) {
-    return new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+    return new Uint8Array(
+      message.buffer,
+      message.byteOffset,
+      message.byteLength,
+    );
   }
   if (typeof Blob !== "undefined" && message instanceof Blob) {
     return new Uint8Array(await message.arrayBuffer());
@@ -392,9 +416,7 @@ async function bytesFromWebSocketMessage(
   return undefined;
 }
 
-function defaultWebSocketFactory(
-  url: string | URL
-): WebSocketSceneSocket {
+function defaultWebSocketFactory(url: string | URL): WebSocketSceneSocket {
   if (typeof WebSocket === "undefined") {
     throw new Error("WebSocket is not available");
   }
