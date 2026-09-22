@@ -1,8 +1,12 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
 import { browserJourneyOrigin } from "./journey-environment.ts";
 
 const executablePath = process.env.SWIFTTUI_BROWSER_EXECUTABLE;
+const artifacts = fileURLToPath(
+  new URL("../../../.build/browser-journey/", import.meta.url),
+);
 
 export default defineConfig({
   testDir: ".",
@@ -14,21 +18,30 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
   },
-  outputDir: "../../../.build/browser-journey/playwright-results",
+  forbidOnly: !!process.env.CI,
+  outputDir: `${artifacts}/playwright-results`,
   reporter: [
     ["line"],
-    ["json", { outputFile: "../../../.build/browser-journey/results.json" }],
+    ["json", { outputFile: `${artifacts}/results.json` }],
+    ["html", { outputFolder: `${artifacts}/report`, open: "never" }],
   ],
   use: {
-    ...devices["Desktop Chrome"],
     baseURL: browserJourneyOrigin,
-    browserName: "chromium",
-    channel: executablePath ? undefined : "chrome",
     headless: true,
-    launchOptions: executablePath ? { executablePath } : undefined,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        launchOptions: executablePath ? { executablePath } : undefined,
+      },
+    },
+    { name: "firefox", use: { ...devices["Desktop Firefox"] } },
+    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+  ],
   webServer: {
     command: "bun run serve.ts",
     url: `${browserJourneyOrigin}/health`,

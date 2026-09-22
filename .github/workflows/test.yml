@@ -21,6 +21,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -32,9 +35,99 @@ jobs:
       - run: bun run build:packages
       - run: bun run --cwd packages/web typecheck:image-recovery
       - run: bun run build:web
-      # The browser journeys are the only executed pixel oracle for the
-      # Canvas painter; unit tests use recording contexts.
-      - name: Install Chrome for the browser journeys
-        run: bunx playwright install --with-deps chrome
-      - name: Run the browser journeys and Canvas pixel oracle
-        run: bun run test:browser
+
+  wasm-fixture:
+    name: Build compiled Swift WASM fixture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install Swift prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev libxml2-dev libncurses-dev libzstd-dev
+      - name: Install pinned Swift and WASI SDK
+        run: bash Scripts/install_browser_fixture_toolchain.sh
+      - name: Install Binaryen 130
+        env:
+          BINARYEN_SHA256: "0a18362361ad05465118cd8eeb72edaeec89de6894bc283576ef4e07aa3babcc"
+        run: |
+          archive="$RUNNER_TEMP/binaryen.tar.gz"
+          curl -fsSL -o "$archive" https://github.com/WebAssembly/binaryen/releases/download/version_130/binaryen-version_130-x86_64-linux.tar.gz
+          echo "$BINARYEN_SHA256  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_130/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v6
+        with:
+          path: Fixtures/BrowserApp/.build
+          key: browser-fixture-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.swift-version', 'Fixtures/BrowserApp/Package.swift', 'Fixtures/BrowserApp/Package.resolved') }}
+      - run: bun install --frozen-lockfile
+      - run: bun run build:packages
+      - name: Compile and package the versioned Swift fixture
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p .build/browser-journey
+          bun run build:browser-fixture 2>&1 | tee .build/browser-journey/wasm-build.log
+          git diff --exit-code -- Fixtures/BrowserApp/Package.resolved
+      - uses: actions/upload-artifact@v7
+        with:
+          name: compiled-wasm-fixture
+          path: .build/browser-journey/wasm
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: compiled-wasm-build-log
+          path: .build/browser-journey/wasm-build.log
+          include-hidden-files: true
+          retention-days: 7
+
+  browser:
+    name: Browser (${{ matrix.engine }})
+    needs: wasm-fixture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - run: bun run build:packages
+      - uses: actions/download-artifact@v8
+        with:
+          name: compiled-wasm-fixture
+          path: .build/browser-journey/wasm
+      - name: Install the pinned browser engine
+        run: bunx playwright install --with-deps ${{ matrix.engine }}
+      # Canvas pixel oracles, synthetic bridge journeys and real Swift WASM
+      # journeys all run in every engine. JSPI skips are capability-labelled.
+      - name: Run browser journeys
+        run: bun run test:browser:built --project=${{ matrix.engine }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-${{ matrix.engine }}
+          path: |
+            .build/browser-journey/results.json
+            .build/browser-journey/report
+            .build/browser-journey/playwright-results
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true

@@ -12,6 +12,7 @@ bun test
 bun run build:packages   # compile both packages to dist/ (tsdown: ESM + .d.ts)
 bun run build:web        # bundle the in-repo browser demo to dist-demo/
 bun run ci               # frozen install + test + build:packages + build:web
+bun run test:browser     # compiled Swift fixture + Chromium/Firefox/WebKit journeys
 ```
 
 `build:packages` creates the publishable artifacts in the compiled `dist/`
@@ -34,3 +35,9 @@ repeat or re-decode `dataBase64` bytes.
 
 Per-package development commands live in `packages/web/AGENTS.md` and
 `packages/build/AGENTS.md`.
+
+The [browser journey guide](../packages/web/e2e/README.md) describes the pinned
+browser engines, Swift/WASI fixture toolchain, per-engine reruns, capability
+skips and failure artifacts. CI runs the Canvas pixel oracle, synthetic bridge
+journey and real compiled Swift WASM journey in every engine. The regular
+`bun run ci` package gate remains independent of Swift and browser installation.
