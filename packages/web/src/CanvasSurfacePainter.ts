@@ -27,6 +27,7 @@ import {
 import {
   registerCanvasSurfacePainterConformanceControl,
 } from "./SurfacePainterConformanceControl.ts";
+import { admitsImageBytes } from "./ImageAllocationBudget.ts";
 
 /**
  * A read-only snapshot of the cell grid geometry and active style the painter
@@ -206,7 +207,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       return;
     }
 
-    const scale = globalThis.window?.devicePixelRatio || 1;
+    const scale = metrics.pixelScale ?? (globalThis.window?.devicePixelRatio || 1);
     context.setTransform(scale, 0, 0, scale, 0, 0);
     context.textBaseline = "alphabetic";
 
@@ -846,6 +847,7 @@ async function decodeImage(
   format: NormalizedSurfaceImageFormat
 ): Promise<CanvasImageSource> {
   const bytes = decodeBase64Bytes(dataBase64);
+  if (!admitsImageBytes(bytes)) throw new Error("Image exceeds the raster budget or has an unsupported container");
   const blob = new Blob([bytes], { type: `image/${format}` });
 
   if (typeof createImageBitmap === "function") {

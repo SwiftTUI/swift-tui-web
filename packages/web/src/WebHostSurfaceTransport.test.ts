@@ -350,7 +350,7 @@ test("decoder refuses an appended style table whose base does not match", () => 
       + '"deltaRows":[[0,[[0,"C",1,2]]]],"images":[]}\n'
   ));
 
-  expect(records.map((record) => record.type)).toEqual(["surface", "text"]);
+  expect(records.map((record) => record.type)).toEqual(["surface", "surfaceDropped"]);
 });
 
 test("decoder rebaselines a full frame received after a delta", () => {
@@ -855,7 +855,7 @@ test("decoder requests a keyframe when a stamped delta has incompatible dimensio
   expect(decoder.takeResyncRequest()).toEqual({ scope: "keyframe" });
 });
 
-test("decoder keeps delta surface output with out-of-range row indexes visible as text", () => {
+test("decoder refuses delta surface output with out-of-range row indexes", () => {
   const decoder = new WebHostOutputDecoder();
   const baseline = '\u001Esurface:{"version":2,"width":2,"height":2,"styles":[null],'
     + '"rows":[[[0,"A",1,0]],[[0,"B",1,0]]]}\n';
@@ -864,8 +864,8 @@ test("decoder keeps delta surface output with out-of-range row indexes visible a
 
   const records = decoder.feed(encoder.encode(baseline + delta));
 
-  expect(records.map((record) => record.type)).toEqual(["surface", "text"]);
-  expect(records[1]).toEqual({ type: "text", text: delta });
+  expect(records.map((record) => record.type)).toEqual(["surface", "surfaceDropped"]);
+  expect(records[1]).toEqual({ type: "surfaceDropped", reason: "budgetExceeded" });
 });
 
 test("decoder keeps delta surface output with malformed cells visible as text", () => {

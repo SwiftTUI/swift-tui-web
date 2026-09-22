@@ -30,6 +30,8 @@ export interface SurfaceMetrics {
   rows: number;
   cellWidth: number;
   cellHeight: number;
+  /** Actual backing-store scale, after the runtime's raster allocation cap. */
+  pixelScale?: number;
   style: ResolvedWebHostTerminalStyle;
 }
 

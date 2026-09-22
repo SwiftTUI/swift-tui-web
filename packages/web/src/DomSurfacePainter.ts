@@ -1,4 +1,5 @@
 import { fontForStyle } from "./CanvasSurfacePainter.ts";
+import { admitsImagePayload } from "./ImageAllocationBudget.ts";
 import {
   resolvedSurfaceBackground,
   resolvedSurfaceForeground,
@@ -308,6 +309,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       const [boundsX, boundsY, boundsWidth, boundsHeight] = image.bounds;
       const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
       const existing = this.renderedImages.get(image.id);
+      if (image.dataBase64 !== undefined && !admitsImagePayload(image.dataBase64)) continue;
       if (
         boundsWidth <= 0
         || boundsHeight <= 0

@@ -1,3 +1,4 @@
+import { HOST_WIRE_MAX_RECORD_BYTES, fitsUTF8 } from "./HostWireBudget.ts";
 import {
   WebHostOutputDecoder,
   encodeCapabilitiesControlMessage,
@@ -266,7 +267,19 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
       return;
     }
 
-    const bytes = await bytesFromWebSocketMessage(message);
+    // A message may batch records. Match the server's independent 8 MiB
+    // envelope ceiling before TextEncoder or Blob.arrayBuffer copies it.
+    const limit = HOST_WIRE_MAX_RECORD_BYTES * 2;
+    const oversized = typeof message === "string" ? !fitsUTF8(message, limit)
+      : message instanceof ArrayBuffer || ArrayBuffer.isView(message) ? message.byteLength > limit
+      : typeof Blob !== "undefined" && message instanceof Blob ? message.size > limit : false;
+    const bytes = await (oversized ? undefined : bytesFromWebSocketMessage(message));
+    if (oversized) {
+      this.deliver(this.decoder.rejectOversizedMessage());
+      this.sendPendingResyncRequests();
+      return;
+    }
+
     if (!bytes) {
       return;
     }

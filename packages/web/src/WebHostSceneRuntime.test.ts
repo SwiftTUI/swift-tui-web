@@ -614,7 +614,7 @@ test("runtime clears dirty rows when an image disappears", async () => {
           bounds: [1, 1, 2, 1],
           visibleBounds: [1, 1, 2, 1],
           scalingMode: "stretch",
-          dataBase64: "iVBORw==",
+          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
         },
       ],
     })));
@@ -1221,7 +1221,7 @@ test("runtime decodes surface images once and reuses the cached image", async ()
           visibleBounds: [1, 0, 1, 2],
           scalingMode: "future-scaling",
           pixelSize: [2, 2],
-          dataBase64: "iVBORw==",
+          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
         },
         {
           id: "png:test",
@@ -1355,7 +1355,7 @@ test("Canvas decode failure requests WASI image recovery and repaints the same s
         bounds: [1, 0, 2, 2],
         visibleBounds: [1, 0, 2, 2],
         scalingMode: "stretch",
-        dataBase64: "QUJD",
+        dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
       }],
     })));
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -1384,7 +1384,7 @@ test("Canvas decode failure requests WASI image recovery and repaints the same s
         bounds: [1, 0, 2, 2],
         visibleBounds: [1, 0, 2, 2],
         scalingMode: "stretch",
-        dataBase64: "QUJD",
+        dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
       }],
       damage: {
         textRows: [],

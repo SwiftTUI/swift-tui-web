@@ -7,6 +7,7 @@ import {
   encodeWebHostTerminalRenderStyleBase64,
   type WebHostTerminalStyle,
 } from "./WebHostTerminalStyle.ts";
+import { HOST_WIRE_MAX_RECORD_BYTES, fitsJSONDepth, fitsSurfaceBudget } from "./HostWireBudget.ts";
 
 export interface WebHostSurfaceStyle {
   fg?: string;
@@ -236,7 +237,7 @@ export type WebHostOutputRecord =
   | { type: "clipboard"; text: string }
   | { type: "runtimeIssue"; issue: WebHostRuntimeIssue }
   | { type: "frameDiagnostic"; diagnostic: WebHostFrameDiagnosticRecord }
-  | { type: "surfaceDropped"; reason: "noBaseline" | "staleBaseline" }
+  | { type: "surfaceDropped"; reason: "noBaseline" | "staleBaseline" | "budgetExceeded" }
   | { type: "text"; text: string };
 
 export type WebHostResyncRequest =
@@ -311,6 +312,8 @@ export const SUPPORTED_SURFACE_VERSION = 3;
 export class WebHostOutputDecoder {
   private readonly textDecoder = new TextDecoder();
   private bufferedText = "";
+  private bufferedBytes = 0;
+  private discardingLine = false;
   private lastSurfaceFrame?: WebHostSurfaceFrame;
   private lastEpoch?: number;
   private lastGen?: number;
@@ -323,35 +326,63 @@ export class WebHostOutputDecoder {
   feed(
     chunk: Uint8Array
   ): WebHostOutputRecord[] {
-    this.bufferedText += this.textDecoder.decode(chunk, { stream: true });
     const records: WebHostOutputRecord[] = [];
-
-    while (true) {
-      const newlineIndex = this.bufferedText.indexOf("\n");
-      if (newlineIndex < 0) {
-        break;
+    let offset = 0;
+    while (offset < chunk.length) {
+      const newline = chunk.indexOf(10, offset);
+      const end = newline < 0 ? chunk.length : newline;
+      if (!this.discardingLine) {
+        if (end - offset > HOST_WIRE_MAX_RECORD_BYTES - this.bufferedBytes) {
+          this.bufferedText = "";
+          this.bufferedBytes = 0;
+          this.textDecoder.decode();
+          this.discardingLine = true;
+          records.push(this.refuseBudget());
+        } else {
+          this.bufferedBytes += end - offset;
+          this.bufferedText += this.textDecoder.decode(chunk.subarray(offset, end), { stream: true });
+        }
       }
-
-      const line = this.bufferedText.slice(0, newlineIndex);
-      this.bufferedText = this.bufferedText.slice(newlineIndex + 1);
-      records.push(this.decodeLine(line));
+      if (newline >= 0) {
+        if (!this.discardingLine) {
+          this.bufferedText += this.textDecoder.decode();
+          records.push(this.decodeLine(this.bufferedText));
+        }
+        this.bufferedText = "";
+        this.bufferedBytes = 0;
+        this.discardingLine = false;
+      }
+      offset = end + 1;
     }
 
     if (this.bufferedText.length > 4096 && !this.bufferedText.startsWith(recordPrefix)) {
       records.push({ type: "text", text: this.bufferedText });
       this.bufferedText = "";
+      this.bufferedBytes = 0;
     }
 
     return records;
   }
 
   flush(): WebHostOutputRecord[] {
+    this.bufferedText += this.textDecoder.decode();
+    this.bufferedBytes = 0;
+    this.discardingLine = false;
     if (!this.bufferedText) {
       return [];
     }
     const text = this.bufferedText;
     this.bufferedText = "";
     return [this.decodeLine(text)];
+  }
+
+  /** A whole WebSocket message was refused before conversion to a byte copy. */
+  rejectOversizedMessage(): WebHostOutputRecord {
+    this.bufferedText = "";
+    this.bufferedBytes = 0;
+    this.discardingLine = false;
+    this.textDecoder.decode();
+    return this.refuseBudget();
   }
 
   takeResyncRequest(
@@ -456,6 +487,9 @@ export class WebHostOutputDecoder {
   private decodeLine(
     line: string
   ): WebHostOutputRecord {
+    if (line.startsWith(recordPrefix) && !fitsJSONDepth(line)) {
+      return this.refuseBudget();
+    }
     if (line.startsWith(`${recordPrefix}clipboard:`)) {
       try {
         const record = JSON.parse(line.slice(`${recordPrefix}clipboard:`.length));
@@ -516,6 +550,7 @@ export class WebHostOutputDecoder {
         };
       }
       if (isWebHostSurfaceFrame(frame)) {
+        if (!fitsSurfaceBudget(frame)) return this.refuseBudget();
         this.lastSurfaceFrame = frame;
         this.lastEpoch = frame.epoch;
         this.lastGen = frame.gen;
@@ -524,6 +559,7 @@ export class WebHostOutputDecoder {
         return { type: "surface", frame };
       }
       if (isWebHostSurfaceDeltaFrame(frame)) {
+        if (!fitsSurfaceBudget(frame)) return this.refuseBudget();
         const carriesDeliveryStamps = frame.epoch !== undefined
           || frame.gen !== undefined
           || frame.baselineGen !== undefined;
@@ -557,6 +593,7 @@ export class WebHostOutputDecoder {
           this.lastGen = frame.gen;
           return { type: "surface", frame: materialized };
         }
+        this.requestKeyframeResync();
       }
     } catch {
       // Fall through to the text path below so malformed output remains visible.
@@ -571,6 +608,11 @@ export class WebHostOutputDecoder {
     }
     this.keyframeResyncOutstanding = true;
     this.keyframeResyncPending = true;
+  }
+
+  private refuseBudget(): WebHostOutputRecord {
+    this.requestKeyframeResync();
+    return { type: "surfaceDropped", reason: "budgetExceeded" };
   }
 
   private resetImageResyncForEpoch(
@@ -978,8 +1020,7 @@ function isWebHostSurfaceDeltaFrame(
 }
 
 function isSurfaceGridDimension(value: unknown): value is number {
-  // Structural interoperability with Android's Int grid. This does not set a
-  // practical canvas allocation or wire-record byte budget.
+  // Structural validation precedes the shared practical allocation budget.
   return typeof value === "number" && Number.isInteger(value)
     && value >= 0 && value <= 2_147_483_647;
 }

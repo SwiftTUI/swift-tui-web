@@ -213,7 +213,7 @@ test("surface images render as clipped elements and reconcile by id", () => {
           visibleBounds: [2, 0, 3, 2] as [number, number, number, number],
           scalingMode: "stretch" as const,
           opacity: 0.25,
-          dataBase64: "QUJD",
+          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
         },
       ],
     });
@@ -229,7 +229,7 @@ test("surface images render as clipped elements and reconcile by id", () => {
     expect(image?.style.opacity).toBe("0.25");
     expect(image?.style.left).toBe("-8px");
     expect(image?.style.width).toBe("32px");
-    expect(image?.getAttribute("src")).toBe("data:image/png;base64,QUJD");
+    expect(image?.getAttribute("src")).toStartWith("data:image/png;base64,iVBOR");
 
     const withoutImage = makeFrame({ styles: [null], rows: [[]] });
     painter.paint(metricsFor(2), withoutImage);
@@ -256,7 +256,7 @@ test("payload-less repeats preserve a known image while updating its geometry", 
           bounds: [1, 0, 4, 2] as [number, number, number, number],
           visibleBounds: [2, 0, 3, 2] as [number, number, number, number],
           scalingMode: "stretch" as const,
-          dataBase64: "QUJD",
+          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
         },
       ],
     }));
@@ -291,7 +291,7 @@ test("payload-less repeats preserve a known image while updating its geometry", 
     expect(image?.style.top).toBe("0px");
     expect(image?.style.width).toBe("40px");
     expect(image?.style.height).toBe("54px");
-    expect(image?.getAttribute("src")).toBe("data:image/png;base64,QUJD");
+    expect(image?.getAttribute("src")).toStartWith("data:image/png;base64,iVBOR");
     expect(image?.style.opacity).toBe("0.75");
   } finally {
     dom.restore();
@@ -391,7 +391,7 @@ test("DOM keeps decoder-cap overflow image ids eligible for later recovery", () 
       styles: [null],
       rows: [[]],
       images: images.map((image, index) => index === 0
-        ? { ...image, dataBase64: "QUJD" }
+        ? { ...image, dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=" }
         : image),
     });
     decoder.prepareToPresentSurface(recoveryFrame);
@@ -429,7 +429,7 @@ test("DOM image misses exclude retained, unsupported, invisible, and zero-area i
           bounds: [0, 0, 1, 1],
           visibleBounds: [0, 0, 1, 1],
           scalingMode: "stretch",
-          dataBase64: "QUJD",
+          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
         },
       ],
     }));
@@ -502,7 +502,7 @@ test("unknown image formats skip only that image", () => {
           bounds: [1, 0, 1, 1],
           visibleBounds: [1, 0, 1, 1],
           scalingMode: "future-scaling",
-          dataBase64: "QUJD",
+          dataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=",
         },
       ],
     }));
@@ -511,7 +511,7 @@ test("unknown image formats skip only that image", () => {
     const imagesLayer = root.children[1];
     expect(imagesLayer?.children).toHaveLength(1);
     expect(imagesLayer?.children[0]?.children[0]?.getAttribute("src"))
-      .toBe("data:image/png;base64,QUJD");
+      .toStartWith("data:image/png;base64,iVBOR");
   } finally {
     dom.restore();
   }

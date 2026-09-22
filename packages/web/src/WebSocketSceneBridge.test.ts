@@ -10,6 +10,28 @@ import {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+test("oversized websocket envelopes are refused before conversion and recover once", async () => {
+  const socket = new FakeWebSocket();
+  const bridge = new WebSocketSceneBridge({ sceneId: "main", token: "test-token",
+    baseURL: "http://127.0.0.1:9123/", webSocketFactory: () => socket });
+  const frames: unknown[] = [];
+  bridge.bindOutput({ presentSurface: frame => { frames.push(frame); } });
+  socket.open();
+  const oversized = new Blob([new Uint8Array(8 * 1024 * 1024 + 1)]);
+  let copies = 0;
+  oversized.arrayBuffer = async () => { copies++; throw new Error("must not copy oversized Blob"); };
+  socket.message(oversized);
+  socket.message("é".repeat(4 * 1024 * 1024 + 1));
+  await Promise.resolve();
+  expect(copies).toBe(0);
+  expect(socket.sent.map(value => decoder.decode(value)).filter(value => value.includes("resync:")))
+    .toEqual(['\u001Eresync:{"scope":"keyframe"}\n']);
+  socket.message('\u001Esurface:{"version":2,"width":1,"height":1,"styles":[null],"rows":[[]]}\n');
+  await Promise.resolve();
+  expect(frames).toHaveLength(1);
+  bridge.dispose();
+});
+
 class FakeWebSocket implements WebSocketSceneSocket {
   binaryType: BinaryType = "blob";
   readyState = 0;

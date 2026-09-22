@@ -11,6 +11,7 @@ import {
   type CanvasSurfaceMetrics,
 } from "./CanvasSurfacePainter.ts";
 import { DomSurfacePainter } from "./DomSurfacePainter.ts";
+import { boundedCanvasSize } from "./RasterAllocationBudget.ts";
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
 import {
   InputEventEncoder,
@@ -190,6 +191,7 @@ export class WebHostSceneRuntime {
   private readonly inputEncoder = new InputEventEncoder();
   private currentStyle: ResolvedWebHostTerminalStyle;
   private canvas?: HTMLCanvasElement;
+  private canvasScale = 1;
   private domSurfaceRoot?: HTMLElement;
   private lastDomSurfaceSize?: { width: number; height: number };
   private accessibilityTree?: AccessibilityTreeMounter;
@@ -826,14 +828,17 @@ export class WebHostSceneRuntime {
     const scale = globalThis.window?.devicePixelRatio || 1;
     const cssWidth = Math.max(1, this.surfaceCSSWidth ?? gridCSSWidth);
     const cssHeight = Math.max(1, this.surfaceCSSHeight ?? gridCSSHeight);
-    const width = Math.ceil(cssWidth * scale);
-    const height = Math.ceil(cssHeight * scale);
+    const bounded = boundedCanvasSize(cssWidth, cssHeight, scale);
+    const { width, height } = bounded;
+    const scaleChanged = this.canvasScale !== bounded.scale;
+    this.canvasScale = bounded.scale;
     const styleWidth = "100%";
     const styleHeight = "100%";
     if (this.canvas.width === width
       && this.canvas.height === height
       && this.canvas.style.width === styleWidth
       && this.canvas.style.height === styleHeight
+      && !scaleChanged
     ) {
       return false;
     }
@@ -891,6 +896,7 @@ export class WebHostSceneRuntime {
       rows: this.rows,
       cellWidth: this.cellWidth,
       cellHeight: this.cellHeight,
+      pixelScale: this.canvasScale,
       style: this.currentStyle,
     };
   }

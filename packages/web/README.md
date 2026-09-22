@@ -135,6 +135,12 @@ not load a terminal emulator and does not depend on `ghostty-web` or
 sets `SWIFTTUI_TRANSPORT=surface` explicitly so generated app environments are
 self-describing.
 
+Wire input is bounded to 4 MiB per UTF-8 record, a 1,024-cell axis and 65,536-cell
+grid area, with bounded rows, styles, images, and recovery state. Over-budget
+input retains the last valid frame and requests a deduplicated keyframe repair.
+The shared [allocation policy](https://github.com/SwiftTUI/swift-tui/blob/main/docs/HOST-WIRE-CONTRACT.md#allocation-budgets)
+defines exact units, framing recovery, and bitmap limits.
+
 ## Notes
 
 - Scene switching is controller-managed and retains existing scene runtimes.
