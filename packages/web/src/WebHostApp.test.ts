@@ -216,6 +216,30 @@ test("the resizable scene frame centers the scene root and reaches each runtime"
   await controller.dispose();
 });
 
+test("app controller forwards paintScheduling to each scene runtime", async () => {
+  const mount = makeElement("main");
+  const forwarded: Array<WebHostSceneRuntimeOptions["paintScheduling"]> = [];
+  for (const paintScheduling of ["synchronous", undefined] as const) {
+    const controller = await createWebHostApp({
+      mount: mount as unknown as HTMLElement,
+      manifest: {
+        defaultSceneId: "main",
+        scenes: [{ id: "main", title: "Main", isDefault: true }],
+      },
+      ...(paintScheduling === undefined ? {} : { paintScheduling }),
+      createElement: (tagName: string) => makeElement(tagName) as unknown as HTMLElement,
+      sceneRuntimeFactory: (options) => {
+        forwarded.push(options.paintScheduling);
+        return new FakeRuntime(options.descriptor.id) as unknown as never;
+      },
+    });
+    await controller.dispose();
+  }
+
+  // Unset is forwarded as such, so the runtime resolves the global animation frame.
+  expect(forwarded).toEqual(["synchronous", undefined]);
+});
+
 test("app controller uses the embedded WebSocket bridge when configured", async () => {
   const socket = new FakeSocket();
   let socketURL = "";

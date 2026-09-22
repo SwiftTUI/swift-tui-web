@@ -11,6 +11,32 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+### Changed
+
+- Batch surface paints with `requestAnimationFrame` (STUI-143). Every frame
+  the runtime receives within one animation frame is painted once, as the
+  newest frame, with the damage of the coalesced frames unioned and image
+  payloads that only a coalesced frame carried spliced in, so content-addressed
+  images are never re-requested because their record was skipped. Frames are
+  still decoded and applied in transport order; pointer geometry,
+  `preferredGridSize`, and `focusPresentation` advance on receipt, while the
+  painted surface and the ARIA sidecar advance with the paint, and imperative
+  announcements from every coalesced frame are delivered in order. Resizes,
+  restyles, and a document becoming visible paint synchronously and fully.
+  A Chrome journey measured a 120-frame burst of full 80x24 repaints at 1
+  paint and 38 ms of main-thread time, against 119 paints and 166 ms before.
+
+### Added
+
+- `WebHostAppOptions.paintScheduling` and
+  `WebHostSceneRuntimeOptions.paintScheduling`: an animation-frame pair to
+  paint through, or `"synchronous"` for the previous paint-per-frame behavior.
+  Hosts without `requestAnimationFrame` paint synchronously.
+- `WebHostSceneRuntime.paintStatistics`: frames presented, paints delivered,
+  frames coalesced, and whether a paint is pending.
+- `ManualAnimationFrameScheduler` in `@swifttui/web/testing`: a hand-ticked
+  animation-frame pair for deterministic paint tests.
+
 ## [0.13.5] - 2026-09-16
 
 ### Changed

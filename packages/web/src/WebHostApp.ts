@@ -23,6 +23,7 @@ import {
   type WebHostSceneRuntimeOptions,
 } from "./WebHostSceneRuntime.ts";
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
+import type { WebHostPaintScheduling } from "./SurfacePaintScheduler.ts";
 
 export interface WebHostEmbeddedHostConfig {
   token: string;
@@ -86,6 +87,14 @@ export interface WebHostAppOptions {
    * `sceneFrame`. See {@link WebHostSceneFrameMode}.
    */
   sceneFrame?: WebHostSceneFrameMode;
+  /**
+   * How every scene runtime schedules its paints: through the global
+   * `requestAnimationFrame` by default, coalescing the frames of one animation
+   * frame into one paint; an explicit animation-frame pair; or
+   * `"synchronous"` to paint each frame as it arrives. Forwarded to each scene
+   * runtime as `paintScheduling`. See {@link WebHostPaintScheduling}.
+   */
+  paintScheduling?: WebHostPaintScheduling;
 }
 
 export interface WebHostAppController {
@@ -116,6 +125,7 @@ export async function createWebHostApp(
     visibilityDocument: options.visibilityDocument ?? defaultVisibilityDocument(),
     renderer: options.renderer,
     sceneFrame: options.sceneFrame,
+    paintScheduling: options.paintScheduling,
   });
   await controller.initialize();
   return controller;
@@ -137,6 +147,7 @@ class InternalWebHostAppController implements WebHostAppController {
   private readonly suspendHiddenScenes?: boolean;
   private readonly renderer?: WebHostSurfaceRendererKind;
   private readonly sceneFrame: WebHostSceneFrameMode;
+  private readonly paintScheduling?: WebHostPaintScheduling;
   private readonly visibilityDocument?: WebHostVisibilityDocument;
   private detachVisibilityListener?: () => void;
 
@@ -154,6 +165,7 @@ class InternalWebHostAppController implements WebHostAppController {
     visibilityDocument?: WebHostVisibilityDocument;
     renderer?: WebHostSurfaceRendererKind;
     sceneFrame?: WebHostSceneFrameMode;
+    paintScheduling?: WebHostPaintScheduling;
   }) {
     this.mount = options.mount;
     this.style = normalizeWebHostTerminalStyle(options.style ?? {});
@@ -164,6 +176,7 @@ class InternalWebHostAppController implements WebHostAppController {
     this.suspendHiddenScenes = options.suspendHiddenScenes;
     this.renderer = options.renderer;
     this.sceneFrame = options.sceneFrame ?? "fill";
+    this.paintScheduling = options.paintScheduling;
     this.visibilityDocument = options.visibilityDocument;
     this.scenes = options.manifest.scenes;
     this.selectedSceneId =
@@ -283,6 +296,7 @@ class InternalWebHostAppController implements WebHostAppController {
       suspendWhenHidden: this.suspendHiddenScenes,
       renderer: this.renderer,
       sceneFrame: this.sceneFrame,
+      paintScheduling: this.paintScheduling,
     });
 
     this.bridges.set(id, bridge);

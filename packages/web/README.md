@@ -123,6 +123,48 @@ The option is also available for each scene runtime through
 `CanvasSurfacePainter` and `DomSurfacePainter`. Hosts can use these painters in
 custom runtimes.
 
+### Paint scheduling
+
+Both renderers paint through `requestAnimationFrame`. Every surface frame the
+runtime receives within one animation frame is painted once, as the newest
+frame. The frames it supersedes are not lost: their damage is unioned onto the
+paint (a change of grid size or epoch, or a frame without damage, makes it a
+full repaint), an image payload that only a coalesced frame carried is spliced
+into the painted frame, and their accessibility announcements are delivered in
+order with the paint. Frames are still decoded and applied in transport order;
+only the paint is deferred.
+
+Two clocks follow from this, and each piece of runtime state follows one of
+them:
+
+- **On receipt:** pointer geometry (link targets, wheel-chaining scroll
+  regions, the hit-testing grid), `preferredGridSize`, and
+  `focusPresentation`. Input is routed to an app that already lives in the
+  newest frame, so it is resolved against that frame.
+- **With the paint:** the visible surface and the ARIA sidecar (tree, focus,
+  live regions), so assistive technology describes what is on screen.
+
+Resizes, restyles, and a document that becomes visible again paint
+synchronously and fully; disposing a runtime cancels its pending paint.
+
+`WebHostAppOptions.paintScheduling` (forwarded to every scene runtime as
+`WebHostSceneRuntimeOptions.paintScheduling`) accepts an animation-frame pair
+(`{ requestAnimationFrame, cancelAnimationFrame }`) or `"synchronous"`, which
+paints every frame as it arrives — the behavior before batching. A host with no
+`requestAnimationFrame` paints synchronously. `WebHostSceneRuntime.paintStatistics`
+reports frames presented, paints delivered, and frames coalesced.
+`ManualAnimationFrameScheduler` from `@swifttui/web/testing` is a hand-ticked
+pair for deterministic tests:
+
+```ts
+import { ManualAnimationFrameScheduler } from "@swifttui/web/testing";
+
+const clock = new ManualAnimationFrameScheduler();
+const runtime = new WebHostSceneRuntime({ ..., paintScheduling: clock });
+// present frames …
+clock.tick(); // paints them, once
+```
+
 ## Surface transport
 
 This package uses SwiftTUI's `web-surface` WASI transport. The Swift runner

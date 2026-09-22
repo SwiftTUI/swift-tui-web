@@ -103,6 +103,21 @@ Swift `TabView` archive behavior remains owned and tested in `swift-tui`.
 | Text cursor anchoring | Wire-only | `cursorAnchor` is transported but has no browser DOM projection |
 | Assistive activation, adjustment, editing, value/state, and assistive-origin focus | Not supported | Not recorded as passing by this journey |
 
+## Animation-frame paint batching
+
+`PaintBatching.browser.ts` drives the public runtime on the public WASI bridge
+with a synthetic peer and lets each engine's own `requestAnimationFrame` paint.
+For a 120-frame burst delivered in one task it asserts one paint against 119
+for the same runtime under `paintScheduling: "synchronous"`, and that the
+canvas pixels after the single unioned paint equal the pixels after painting
+every frame — for one-cell deltas on a 20x6 grid and for full repaints of an
+80x24 grid. It logs both runtimes' main-thread time as `PAINT-BATCHING`. A
+second case moves a hyperlink between two frames and, inside the same task,
+clicks both rows with pointer events that carry the engine's real mouse
+pointer id (learned from a genuine `page.mouse.move`, since Firefox numbers
+the mouse 0 and the others 1): the click resolves against the newest frame
+while the pixels still show the previous one.
+
 ## Incremental Canvas pixel oracle
 
 `CanvasDamage.browser.ts` imports the production Canvas painter through its own

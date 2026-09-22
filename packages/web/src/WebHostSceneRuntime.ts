@@ -28,12 +28,19 @@ import {
 import { AccessibilityTreeMounter } from "./AccessibilityTree.ts";
 import { normalizeSemantics } from "./normalizeWireTokens.ts";
 import {
+  defaultAnimationFrameScheduler,
+  SurfacePaintScheduler,
+  type SurfacePaintRequest,
+  type WebHostPaintScheduling,
+  type WebHostPaintStatistics,
+} from "./SurfacePaintScheduler.ts";
+import {
+  type WebHostAccessibilityAnnouncement,
   type WebHostFocusPresentation,
   type WebHostFrameDiagnosticRecord,
   type WebHostImagePayloadRequestHandler,
   type WebHostOutputSink,
   type WebHostRuntimeIssue,
-  type WebHostSurfaceDamage,
   type WebHostSurfaceFrame,
 } from "./WebHostSurfaceTransport.ts";
 import type { WebHostSceneDescriptor } from "./WebHostSceneManifest.ts";
@@ -114,6 +121,17 @@ export interface WebHostSceneRuntimeOptions {
    * {@link WebHostSceneFrameMode}.
    */
   sceneFrame?: WebHostSceneFrameMode;
+  /**
+   * How visual paints are scheduled. By default the runtime paints through the
+   * global `requestAnimationFrame`, coalescing every surface frame received
+   * within one animation frame into a single paint (see
+   * {@link WebHostSceneRuntime} for what advances when). Pass an
+   * {@link WebHostAnimationFrameScheduler} to supply the animation-frame pair
+   * (tests tick one by hand), or `"synchronous"` to paint each frame as it is
+   * received. Where the host has no `requestAnimationFrame`, paints are
+   * synchronous regardless.
+   */
+  paintScheduling?: WebHostPaintScheduling;
 }
 
 export type WheelMode = "capture" | "chain" | "passive";
@@ -174,6 +192,31 @@ export function coarsePrimaryPointer(): boolean {
  * responsibilities to focused collaborators — {@link CanvasSurfacePainter} for
  * canvas drawing, {@link InputEventEncoder} for wire-message encoding, and the
  * {@link PointerGeometry} helpers for pixel→cell hit-testing and wheel chaining.
+ *
+ * ## What advances when a frame arrives
+ *
+ * Surface frames are decoded and applied in transport order, but the visible
+ * paint is batched: all frames received within one animation frame are painted
+ * once, as the newest frame (see {@link SurfacePaintScheduler}). Two clocks
+ * therefore exist, and each piece of state follows one of them deliberately:
+ *
+ * - **Immediately, on receipt:** pointer geometry (link targets under the
+ *   pointer, wheel-chaining scroll regions, the cell grid used for
+ *   hit-testing), `preferredGridSize`, and `focusPresentation`. Input is
+ *   routed to an app that has already moved to the newest frame, so resolving
+ *   a click or wheel against an older, still-visible frame would disagree with
+ *   what the app does with that input.
+ * - **With the visible frame, at the next animation frame:** the painted
+ *   surface and the ARIA sidecar (tree, focus, live regions). Assistive
+ *   technology then always describes exactly what is on screen, and DOM
+ *   mutation for the tree is coalesced with the paint. Imperative
+ *   announcements from every coalesced frame are delivered, in order, with that
+ *   paint; only live-region *label* changes collapse to their final value, as
+ *   they would for any rapid update.
+ *
+ * Clipboard writes, runtime issues, frame diagnostics, and text output are
+ * not visual and stay synchronous and ordered. Resizes, restyles, and a
+ * document becoming visible again paint synchronously and fully.
  */
 export class WebHostSceneRuntime {
   readonly descriptor: WebHostSceneDescriptor;
@@ -188,6 +231,7 @@ export class WebHostSceneRuntime {
   private readonly rendererKind: WebHostSurfaceRendererKind;
   private readonly sceneFrame: WebHostSceneFrameMode;
   private readonly painter: CanvasSurfacePainter | DomSurfacePainter;
+  private readonly paintScheduler: SurfacePaintScheduler;
   private readonly inputEncoder = new InputEventEncoder();
   private currentStyle: ResolvedWebHostTerminalStyle;
   private canvas?: HTMLCanvasElement;
@@ -246,6 +290,11 @@ export class WebHostSceneRuntime {
     this.painter = this.rendererKind === "dom"
       ? new DomSurfacePainter({ onImagePayloadMiss })
       : new CanvasSurfacePainter({ onImagePayloadMiss });
+    const paintScheduling = options.paintScheduling ?? defaultAnimationFrameScheduler();
+    this.paintScheduler = new SurfacePaintScheduler(
+      paintScheduling === "synchronous" ? undefined : paintScheduling,
+      (request) => this.paint(request)
+    );
     this.onOpenHyperlink = options.onOpenHyperlink;
     this.suspendWhenHidden = options.suspendWhenHidden ?? true;
     this.element = document.createElement("section");
@@ -282,7 +331,9 @@ export class WebHostSceneRuntime {
       canvas.className = "webhost-scene__surface";
       canvas.setAttribute("aria-hidden", "true");
       this.canvas = canvas;
-      this.painter.attach(canvas, () => this.draw());
+      // A decode completion asks for a repaint; many completing at once fold
+      // into the next animation frame rather than each painting the surface.
+      this.painter.attach(canvas, () => this.paintScheduler.requestRepaint());
     }
     this.accessibilityTree = new AccessibilityTreeMounter();
     this.terminalMount.replaceChildren(
@@ -308,8 +359,6 @@ export class WebHostSceneRuntime {
     this.sendPointerCapabilitiesIfChanged(coarsePrimaryPointer());
     this.measureCells();
     this.resizeToMount();
-    this.draw();
-    this.syncAccessibilityTree();
   }
 
   setVisible(
@@ -335,8 +384,22 @@ export class WebHostSceneRuntime {
   setDocumentVisible(
     visible: boolean
   ): void {
+    const becameVisible = visible && !this.documentVisible;
     this.documentVisible = visible;
     this.updateRuntimeSuspension();
+    // Browsers pause animation frames while the document is hidden, so frames
+    // that arrived meanwhile are still waiting. Paint them fully and now rather
+    // than at whatever moment the browser resumes the callback: the backing
+    // store may have been discarded while hidden, and the paint must not
+    // depend on a timing the page cannot observe.
+    if (becameVisible && this.paintScheduler.statistics.pending) {
+      this.paintScheduler.repaintNow();
+    }
+  }
+
+  /** Paint-scheduler counters: frames presented, paints delivered, frames coalesced. */
+  get paintStatistics(): WebHostPaintStatistics {
+    return this.paintScheduler.statistics;
   }
 
   private updateRuntimeSuspension(): void {
@@ -365,8 +428,6 @@ export class WebHostSceneRuntime {
     this.bridge?.updateRenderStyle(this.currentStyle);
     this.measureCells();
     this.resizeToMount();
-    this.draw();
-    this.syncAccessibilityTree();
   }
 
   resize(
@@ -375,9 +436,7 @@ export class WebHostSceneRuntime {
   ): void {
     this.columns = Math.max(1, Math.round(columns));
     this.rows = Math.max(1, Math.round(rows));
-    this.resizeSurface();
-    this.draw();
-    this.syncAccessibilityTree();
+    this.paintScheduler.repaintNow();
   }
 
   writeOutput(
@@ -430,6 +489,9 @@ export class WebHostSceneRuntime {
   }
 
   dispose(): void {
+    // Before the painter: a paint scheduled for the next animation frame must
+    // never run against a disposed painter or a removed mount.
+    this.paintScheduler.dispose();
     this.painter.dispose();
     this.detachInputHandlers?.();
     this.detachPointerParadigmObserver?.();
@@ -471,20 +533,22 @@ export class WebHostSceneRuntime {
     };
   }
 
+  /**
+   * Receives one decoded frame in transport order. The frame becomes current
+   * at once — pointer geometry, `preferredGridSize`, and `focusPresentation`
+   * read it from here on — while the paint and the ARIA sidecar wait for the
+   * scheduler's next animation frame (or happen now, under synchronous
+   * scheduling). The surface's backing size is adjusted inside that paint, so
+   * a resize never clears the canvas ahead of the frame that fills it.
+   */
   private presentSurface(
     frame: WebHostSurfaceFrame,
     recoveredImagePayloadIds?: readonly string[]
   ): void {
-    const previousFrame = this.currentFrame;
     this.currentFrame = frame;
     this.columns = Math.max(1, Math.round(frame.width));
     this.rows = Math.max(1, Math.round(frame.height));
-    const resized = this.resizeSurface();
-    this.draw(
-      previousFrame && !resized ? frame.damage : undefined,
-      recoveredImagePayloadIds
-    );
-    this.syncAccessibilityTree();
+    this.paintScheduler.present(frame, recoveredImagePayloadIds);
   }
 
   /**
@@ -778,12 +842,10 @@ export class WebHostSceneRuntime {
     this.columns = nextColumns;
     this.rows = nextRows;
     this.sendResizeIfNeeded();
-    this.resizeSurface();
     // Changing a canvas's backing dimensions clears every pixel. Repaint the
     // retained frame synchronously so a CSS resize never leaves the terminal
     // blank while the app is producing its next frame for the new cell grid.
-    this.draw();
-    this.syncAccessibilityTree();
+    this.paintScheduler.repaintNow();
   }
 
   private sendResizeIfNeeded(): void {
@@ -864,28 +926,38 @@ export class WebHostSceneRuntime {
     this.cellHeight = Math.max(1, Math.ceil(this.currentStyle.fontSize * 1.35));
   }
 
-  private draw(
-    damage?: WebHostSurfaceDamage,
-    recoveredImagePayloadIds?: readonly string[]
+  /**
+   * The one place pixels and the ARIA sidecar change, called by the paint
+   * scheduler with the newest frame and everything coalesced into it.
+   */
+  private paint(
+    request: SurfacePaintRequest
   ): void {
+    // Sizing the backing store clears it, so it happens here, immediately
+    // before the frame that fills it — never on receipt of a deferred frame.
+    const resized = this.resizeSurface();
     this.painter.paint(
       this.surfaceMetrics(),
-      this.currentFrame,
-      damage,
-      recoveredImagePayloadIds
+      request.frame,
+      resized ? undefined : request.damage,
+      request.recoveredImagePayloadIds
     );
+    this.syncAccessibilityTree(request.frame, request.accessibilityAnnouncements);
   }
 
-  private syncAccessibilityTree(): void {
+  private syncAccessibilityTree(
+    frame: WebHostSurfaceFrame | undefined,
+    announcements: readonly WebHostAccessibilityAnnouncement[]
+  ): void {
     const tree = this.accessibilityTree;
-    if (!tree || !this.currentFrame) {
+    if (!tree || !frame) {
       return;
     }
 
-    tree.present(this.currentFrame.accessibilityTree ?? [], {
+    tree.present(frame.accessibilityTree ?? [], {
       cellWidth: this.cellWidth,
       cellHeight: this.cellHeight,
-    }, this.currentFrame.accessibilityAnnouncements ?? [], {
+    }, [...announcements], {
       synchronizeFocus: this.synchronizeAccessibilityFocus,
     });
   }

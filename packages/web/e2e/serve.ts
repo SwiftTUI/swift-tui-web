@@ -59,6 +59,17 @@ if (!damageBuild.success) {
   throw new Error("Could not build the Canvas damage fixture.");
 }
 
+const paintBatchingBuild = await Bun.build({
+  entrypoints: [join(e2eDirectory, "paint-batching.fixture.ts")],
+  outdir: outputDirectory,
+  target: "browser",
+  format: "esm",
+  naming: "paint-batching.js",
+});
+if (!paintBatchingBuild.success) {
+  throw new Error("Could not build the paint-batching fixture.");
+}
+
 const responseHeaders = {
   "Cross-Origin-Embedder-Policy": "require-corp",
   "Cross-Origin-Opener-Policy": "same-origin",
@@ -100,9 +111,11 @@ const server = Bun.serve({
           ? Bun.file(join(outputDirectory, "preview-readiness.js"))
           : path === "/canvas-damage.js"
             ? Bun.file(join(outputDirectory, "canvas-damage.js"))
-            : path === "/style.css"
-              ? Bun.file(join(repositoryRoot, "packages/web/style.css"))
-              : undefined;
+            : path === "/paint-batching.js"
+              ? Bun.file(join(outputDirectory, "paint-batching.js"))
+              : path === "/style.css"
+                ? Bun.file(join(repositoryRoot, "packages/web/style.css"))
+                : undefined;
     if (!file) {
       return new Response("not found", {
         status: 404,

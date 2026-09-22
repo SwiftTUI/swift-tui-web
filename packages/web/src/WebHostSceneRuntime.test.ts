@@ -10,6 +10,7 @@ import {
   sharedInputQueueDefaultCapacity,
 } from "./wasi/SharedInputQueue.ts";
 import { createWasmSceneRuntimeFactory } from "./wasi/WasmSceneRuntime.ts";
+import { ManualAnimationFrameScheduler } from "./ManualAnimationFrameScheduler.ts";
 import { WebHostSceneRuntime, type WheelMode } from "./WebHostSceneRuntime.ts";
 import {
   encodePasteInputMessage,
@@ -2365,6 +2366,341 @@ test("runtime exposes focus presentation and preferred grid size", async () => {
       hasFocusedRegion: true,
     });
   } finally {
+    dom.restore();
+  }
+});
+
+// MARK: - Animation-frame paint batching (STUI-143)
+
+/**
+ * Mounts a 4x2 canvas runtime whose paints wait for the returned manual
+ * animation-frame clock. Cell geometry under the fake DOM is 10x27 px.
+ */
+async function mountBatchedRuntime(options: {
+  dom: ReturnType<typeof installFakeDOM>;
+  onOpenHyperlink?: (url: string) => void;
+  onInput?: (chunk: Uint8Array) => void;
+} = { dom: installFakeDOM() }): Promise<{
+  runtime: WebHostSceneRuntime;
+  bridge: BrowserWASIBridge;
+  clock: ManualAnimationFrameScheduler;
+  context: RecordingCanvasContext;
+  present(frame: Record<string, unknown>): void;
+}> {
+  const clock = new ManualAnimationFrameScheduler();
+  const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+  const mount = new FakeElement("div");
+  const runtime = new WebHostSceneRuntime({
+    mount: mount as unknown as HTMLElement,
+    descriptor: { id: "main", title: "Main", isDefault: true },
+    style: { fontSize: 20, fontFamily: "Test Mono", theme: { background: "#101820" } },
+    bridge,
+    onInput: options.onInput ?? (() => {}),
+    onOpenHyperlink: options.onOpenHyperlink,
+    synchronizeAccessibilityFocus: false,
+    paintScheduling: clock,
+  });
+  await runtime.mount();
+  const context = options.dom.canvases[0]!.context;
+  return {
+    runtime,
+    bridge,
+    clock,
+    context,
+    present: (frame) => {
+      bridge.stdout.write(encoder.encode(surfaceRecord({
+        version: 2, epoch: 1, width: 4, height: 2, styles: [null], ...frame,
+      })));
+    },
+  };
+}
+
+test("a burst of frames within one animation frame paints once, as the newest frame", async () => {
+  const dom = installFakeDOM();
+  try {
+    const { runtime, clock, context, present } = await mountBatchedRuntime({ dom });
+    // Mounting paints the empty surface synchronously; a first frame waits.
+    const mountPaints = runtime.paintStatistics.paints;
+    context.operations = [];
+
+    present({ gen: 1, rows: [[[0, "A", 1, 0]], []] });
+    present({ gen: 2, rows: [[[0, "B", 1, 0]], []],
+      damage: { textRows: [[0, [[0, 1]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    present({ gen: 3, rows: [[[0, "C", 1, 0]], [[3, "z", 1, 0]]],
+      damage: { textRows: [[1, [[3, 4]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+
+    expect(context.operations).toEqual([]);
+    expect(clock.scheduled).toBe(1);
+    expect(runtime.paintStatistics).toEqual({
+      presentedFrames: 3, paints: mountPaints, coalescedFrames: 2, pending: true,
+    });
+
+    clock.tick();
+    // Exactly one paint, and it shows the newest frame only: never A or B.
+    expect(runtime.paintStatistics).toEqual({
+      presentedFrames: 3, paints: mountPaints + 1, coalescedFrames: 2, pending: false,
+    });
+    expect(fillTextOperations(context, "A")).toEqual([]);
+    expect(fillTextOperations(context, "B")).toEqual([]);
+    expect(fillTextOperations(context, "C")).toHaveLength(1);
+    expect(fillTextOperations(context, "z")).toHaveLength(1);
+    // The first frame after mount has no baseline, so the paint is full.
+    expect(context.operations).toContainEqual({ type: "clearRect", x: 0, y: 0, width: 100, height: 108 });
+
+    // With a painted baseline, the next burst repaints only the union of its damage.
+    context.operations = [];
+    present({ gen: 4, rows: [[[0, "D", 1, 0]], [[3, "z", 1, 0]]],
+      damage: { textRows: [[0, [[0, 1]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    present({ gen: 5, rows: [[[0, "D", 1, 0]], [[3, "y", 1, 0]]],
+      damage: { textRows: [[1, [[3, 4]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    clock.tick();
+    expect(context.operations.filter((operation) => operation.type === "clearRect")).toEqual([
+      { type: "clearRect", x: 0, y: 0, width: 10, height: 27 },
+      { type: "clearRect", x: 30, y: 27, width: 10, height: 27 },
+    ]);
+    expect(fillTextOperations(context, "D")).toHaveLength(1);
+    expect(fillTextOperations(context, "y")).toHaveLength(1);
+    expect(clock.requests).toBe(2);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("pointer geometry and frame getters follow the newest frame before it is painted", async () => {
+  const dom = installFakeDOM();
+  const opened: string[] = [];
+  try {
+    const { runtime, clock, context, present } = await mountBatchedRuntime({
+      dom, onOpenHyperlink: (url) => { opened.push(url); },
+    });
+    present({ gen: 1, rows: [[[0, "a", 1, 0]], []],
+      links: [[0, [[0, 1, 0]]]], linkTargets: ["https://a.example/row0"],
+      preferredGridWidth: 10, preferredGridHeight: 3 });
+    clock.tick();
+    expect(fillTextOperations(context, "a")).toHaveLength(1);
+
+    // The link moves to row 1; the paint is still pending.
+    context.operations = [];
+    present({ gen: 2, rows: [[], [[0, "b", 1, 0]]],
+      links: [[1, [[0, 1, 0]]]], linkTargets: ["https://b.example/row1"],
+      preferredGridWidth: 12, preferredGridHeight: 5,
+      focusPresentation: { focusedIdentity: "root/b", semantics: "automatic", prefersTextInput: true, hasFocusedRegion: true } });
+    expect(context.operations).toEqual([]);
+
+    expect(runtime.preferredGridSize).toEqual({ width: 12, height: 5 });
+    expect(runtime.focusPresentation?.focusedIdentity).toBe("root/b");
+
+    // Clicking where the link *was* opens nothing; clicking where the app now
+    // has it opens the new target — the app already lives in frame 2.
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({ button: 0, buttons: 1, clientX: 5, clientY: 5, pointerId: 1 }));
+    runtime.terminalMount.dispatch("pointerup", pointerEvent({ button: 0, buttons: 0, clientX: 5, clientY: 5, pointerId: 1 }));
+    expect(opened).toEqual([]);
+    runtime.terminalMount.dispatch("pointerdown", pointerEvent({ button: 0, buttons: 1, clientX: 5, clientY: 30, pointerId: 1 }));
+    runtime.terminalMount.dispatch("pointerup", pointerEvent({ button: 0, buttons: 0, clientX: 5, clientY: 30, pointerId: 1 }));
+    expect(opened).toEqual(["https://b.example/row1"]);
+
+    clock.tick();
+    expect(fillTextOperations(context, "b")).toHaveLength(1);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("the ARIA sidecar advances with the paint and loses no coalesced announcement", async () => {
+  const dom = installFakeDOM();
+  try {
+    const { runtime, clock, present } = await mountBatchedRuntime({ dom });
+    const announcer = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-announcer");
+    const tree = childWithClass(runtime.terminalMount, "webhost-scene__accessibility-tree");
+    const node = (label: string) => [{
+      id: "root", rect: [0, 0, 4, 2] as [number, number, number, number], role: "status", label, isFocused: false,
+    }];
+
+    present({ gen: 1, rows: [[], []], accessibilityTree: node("one"),
+      accessibilityAnnouncements: [{ message: "first", politeness: "polite" }] });
+    clock.tick();
+    expect(childWithData(tree, "accessibilityId", "root").getAttribute("aria-label")).toBe("one");
+    expect(announcer.textContent).toBe("first");
+
+    present({ gen: 2, rows: [[], []], accessibilityTree: node("two"),
+      accessibilityAnnouncements: [{ message: "second", politeness: "polite" }] });
+    present({ gen: 3, rows: [[], []], accessibilityTree: node("three"),
+      accessibilityAnnouncements: [{ message: "third", politeness: "assertive" }, { message: "fourth", politeness: "polite" }] });
+    // Nothing moved yet: the sidecar describes what is on screen.
+    expect(childWithData(tree, "accessibilityId", "root").getAttribute("aria-label")).toBe("one");
+    expect(announcer.textContent).toBe("first");
+
+    clock.tick();
+    expect(childWithData(tree, "accessibilityId", "root").getAttribute("aria-label")).toBe("three");
+    // Assertive first, then polite, each group in transport order.
+    expect(announcer.getAttribute("aria-live")).toBe("assertive");
+    expect(announcer.textContent).toBe("third\nsecond\nfourth");
+
+    // A repaint without a new frame re-announces nothing.
+    runtime.resize(4, 2);
+    expect(announcer.textContent).toBe("third\nsecond\nfourth");
+  } finally {
+    dom.restore();
+  }
+});
+
+test("an image payload carried only by a coalesced frame decodes without a recovery request", async () => {
+  let decodeAttempts = 0;
+  const decoded = { imageId: "carried" };
+  const dom = installFakeDOM({
+    createImageBitmap: async () => {
+      decodeAttempts += 1;
+      return decoded;
+    },
+  });
+  try {
+    const { runtime, bridge, clock, context, present } = await mountBatchedRuntime({ dom });
+    const controlMessages: string[] = [];
+    const unsubscribe = bridge.stdin.subscribe((chunk) => {
+      controlMessages.push(decoder.decode(chunk));
+      return true;
+    });
+    const onePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5L8AAAAASUVORK5CYII=";
+    const image = {
+      id: "png:carried", format: "png", bounds: [1, 0, 2, 2], visibleBounds: [1, 0, 2, 2], scalingMode: "stretch",
+    };
+    present({ gen: 1, rows: [[], []], images: [{ ...image, dataBase64: onePixelPNG }] });
+    // The content-addressed repeat omits the bytes the sender already emitted.
+    present({ gen: 2, rows: [[], []], images: [image],
+      damage: { textRows: [], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    clock.tick();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await flushPromises();
+    }
+
+    expect(decodeAttempts).toBe(1);
+    expect(controlMessages.filter((message) => message.startsWith("\u001Eresync:"))).toEqual([]);
+    // Decode completion asks for a repaint through the scheduler, not now.
+    expect(drawImageOperations(context)).toEqual([]);
+    expect(runtime.paintStatistics.pending).toBe(true);
+    clock.tick();
+    expect(drawImageOperations(context)).toHaveLength(1);
+    expect(runtime.paintStatistics.pending).toBe(false);
+    unsubscribe();
+  } finally {
+    dom.restore();
+  }
+});
+
+test("dispose cancels a pending paint and later frames are ignored", async () => {
+  const dom = installFakeDOM();
+  try {
+    const { runtime, clock, context, present } = await mountBatchedRuntime({ dom });
+    context.operations = [];
+    present({ gen: 1, rows: [[[0, "A", 1, 0]], []] });
+    expect(clock.scheduled).toBe(1);
+
+    runtime.dispose();
+    expect(clock.scheduled).toBe(0);
+    expect(clock.cancels).toBe(1);
+    present({ gen: 2, rows: [[[0, "B", 1, 0]], []] });
+    clock.tick();
+    expect(context.operations).toEqual([]);
+    expect(runtime.paintStatistics.pending).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a resize paints the pending frame synchronously and fully", async () => {
+  const dom = installFakeDOM();
+  try {
+    const { runtime, clock, context, present } = await mountBatchedRuntime({ dom });
+    present({ gen: 1, rows: [[[0, "A", 1, 0]], []] });
+    clock.tick();
+    context.operations = [];
+    present({ gen: 2, rows: [[[0, "B", 1, 0]], []],
+      damage: { textRows: [[0, [[0, 1]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    expect(clock.scheduled).toBe(1);
+
+    dom.triggerResize();
+    // The canvas was just cleared by its resize, so the paint could not wait.
+    expect(clock.scheduled).toBe(0);
+    expect(clock.cancels).toBe(1);
+    expect(fillTextOperations(context, "B")).toHaveLength(1);
+    expect(context.operations).toContainEqual({ type: "clearRect", x: 0, y: 0, width: 100, height: 108 });
+    expect(runtime.paintStatistics.pending).toBe(false);
+
+    context.operations = [];
+    clock.tick();
+    expect(context.operations).toEqual([]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a document becoming visible paints frames that arrived while it was hidden", async () => {
+  const dom = installFakeDOM();
+  try {
+    const { runtime, clock, context, present } = await mountBatchedRuntime({ dom });
+    present({ gen: 1, rows: [[[0, "A", 1, 0]], []] });
+    clock.tick();
+
+    runtime.setDocumentVisible(false);
+    context.operations = [];
+    present({ gen: 2, rows: [[[0, "B", 1, 0]], []],
+      damage: { textRows: [[0, [[0, 1]]]], requiresFullTextRepaint: false, requiresFullGraphicsReplay: false } });
+    // A hidden document never ticks its animation frames.
+    expect(context.operations).toEqual([]);
+
+    runtime.setDocumentVisible(true);
+    expect(clock.scheduled).toBe(0);
+    expect(fillTextOperations(context, "B")).toHaveLength(1);
+    expect(context.operations).toContainEqual({ type: "clearRect", x: 0, y: 0, width: 100, height: 108 });
+
+    // Becoming visible with nothing pending paints nothing.
+    context.operations = [];
+    runtime.setDocumentVisible(false);
+    runtime.setDocumentVisible(true);
+    expect(context.operations).toEqual([]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("the default scheduler is the global animation frame; \"synchronous\" opts out", async () => {
+  const dom = installFakeDOM();
+  const previousRequest = globalThis.requestAnimationFrame;
+  const previousCancel = globalThis.cancelAnimationFrame;
+  const clock = new ManualAnimationFrameScheduler();
+  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
+    clock.requestAnimationFrame(callback)) as typeof requestAnimationFrame;
+  globalThis.cancelAnimationFrame = ((handle: number) =>
+    clock.cancelAnimationFrame(handle)) as typeof cancelAnimationFrame;
+  try {
+    const frame = { version: 2, width: 4, height: 2, styles: [null], rows: [[[0, "A", 1, 0]], []] };
+    for (const scheduling of ["default", "synchronous"] as const) {
+      const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 4, rows: 2 });
+      const runtime = new WebHostSceneRuntime({
+        mount: new FakeElement("div") as unknown as HTMLElement,
+        descriptor: { id: "main", title: "Main", isDefault: true },
+        style: { fontSize: 20 },
+        bridge,
+        onInput: () => {},
+        ...(scheduling === "synchronous" ? { paintScheduling: "synchronous" as const } : {}),
+      });
+      await runtime.mount();
+      const context = dom.canvases[dom.canvases.length - 1]!.context;
+      context.operations = [];
+      bridge.stdout.write(encoder.encode(surfaceRecord(frame)));
+      if (scheduling === "default") {
+        expect(fillTextOperations(context, "A")).toEqual([]);
+        expect(clock.scheduled).toBe(1);
+        clock.tick();
+      } else {
+        expect(clock.scheduled).toBe(0);
+      }
+      expect(fillTextOperations(context, "A")).toHaveLength(1);
+      runtime.dispose();
+    }
+  } finally {
+    globalThis.requestAnimationFrame = previousRequest;
+    globalThis.cancelAnimationFrame = previousCancel;
     dom.restore();
   }
 });
