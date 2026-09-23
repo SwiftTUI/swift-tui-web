@@ -14,15 +14,11 @@
 // 2026-07) to NOT fit the non-lean shape in its worker: it must keep the
 // lean profile in worker mode.
 //
-// Engine classification reads Error mechanics rather than user-agent
-// strings: V8 formats stack frames as `    at fn (url)`, JSC and Gecko as
-// `fn@url`, and the two are split by engine-specific Error instance
-// properties (Gecko `fileName`, JSC `sourceURL`). Trunk WebKit (STP ≥ 238)
-// no longer exposes `sourceURL` on constructed Errors, so JSC
-// classification there rides the `fn@url` stack-shape fallback. Non-browser
-// JSC hosts that emulate V8 stack frames for Node compatibility (e.g. Bun)
-// classify as "v8"; the probe targets browser engines, where the formats
-// don't cross.
+// Error metadata is advisory and non-standard. Conflicting markers or shared
+// @-style stacks without an engine-specific marker classify as unknown. In
+// particular, sourceURL-free WebKit stays conservative rather than relying on
+// the absence of Gecko's optional fileName property as positive JSC evidence.
+// JSPI detection is independent of this diagnostic engine label.
 
 export type WasmEngineFamily = "v8" | "jsc" | "gecko" | "unknown";
 
@@ -58,26 +54,29 @@ export function collectWasmEngineProbeSignals(): WasmEngineProbeSignals {
     }
   ).WebAssembly;
   return {
-    errorStack: typeof probe.stack === "string" ? probe.stack : "",
-    errorHasGeckoFileName: "fileName" in probe,
-    errorHasJSCSourceURL: "sourceURL" in probe,
-    wasmSuspendingType: typeof wasm?.Suspending,
-    wasmPromisingType: typeof wasm?.promising,
+    errorStack: readProbe(
+      () => (typeof probe.stack === "string" ? probe.stack : ""),
+      "",
+    ),
+    errorHasGeckoFileName: readProbe(() => "fileName" in probe, false),
+    errorHasJSCSourceURL: readProbe(() => "sourceURL" in probe, false),
+    wasmSuspendingType: readProbe(() => typeof wasm?.Suspending, "undefined"),
+    wasmPromisingType: readProbe(() => typeof wasm?.promising, "undefined"),
   };
 }
 
 export function classifyWasmEngineFamily(
   signals: WasmEngineProbeSignals,
 ): WasmEngineFamily {
-  if (/^\s*at /m.test(signals.errorStack)) {
-    return "v8";
-  }
-  if (signals.errorHasGeckoFileName) {
-    return "gecko";
-  }
-  if (signals.errorHasJSCSourceURL || /^[^\n]*@/m.test(signals.errorStack)) {
-    return "jsc";
-  }
+  const v8 = /^\s*at /m.test(signals.errorStack);
+  const atFrames = /^[^\n]*@/m.test(signals.errorStack);
+  const gecko = signals.errorHasGeckoFileName;
+  const jsc = signals.errorHasJSCSourceURL;
+  if (Number(v8) + Number(gecko) + Number(jsc) > 1 || (v8 && atFrames))
+    return "unknown";
+  if (v8) return "v8";
+  if (gecko) return "gecko";
+  if (jsc) return "jsc";
   return "unknown";
 }
 
@@ -143,7 +142,9 @@ export function mainThreadStackProfileEnvironmentDefaults(
   // (measured), but the JSC main-thread lane has not been soaked non-lean
   // in production, and JSPI slices the native stack — Safari 27's depth
   // budgets must be re-measured per release before this default can flip.
-  // Callers can still force the profile via `SWIFTTUI_STACK_LEAN_PROFILE`.
+  // This adds no main-thread-specific profile override. The bridge's existing
+  // engine defaults (including V8 non-lean) and explicit caller environment
+  // still apply. The September 2026 qualification did not broaden defaults.
   void capabilities;
   return {};
 }
@@ -165,4 +166,12 @@ export function jspiConstructors(): JSPIConstructors | undefined {
     return wasm as JSPIConstructors;
   }
   return undefined;
+}
+
+function readProbe<T>(read: () => T, fallback: T): T {
+  try {
+    return read();
+  } catch {
+    return fallback;
+  }
 }

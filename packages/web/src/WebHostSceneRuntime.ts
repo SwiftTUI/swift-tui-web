@@ -4,6 +4,7 @@ import {
   CanvasSurfacePainter,
   fontForStyle,
 } from "./CanvasSurfacePainter.ts";
+import { measureDomCells } from "./DomCellMetrics.ts";
 import { DomSurfacePainter } from "./DomSurfacePainter.ts";
 import {
   type CellLocation,
@@ -248,6 +249,8 @@ export class WebHostSceneRuntime {
   private accessibilityTree?: AccessibilityTreeMounter;
   private diagnosticText?: HTMLElement;
   private resizeObserver?: ResizeObserver;
+  private detachMetricObservers?: () => void;
+  private nativePointerGesture = false;
   private detachInputHandlers?: () => void;
   private currentFrame?: WebHostSurfaceFrame;
   private columns = 80;
@@ -298,7 +301,10 @@ export class WebHostSceneRuntime {
     };
     this.painter =
       this.rendererKind === "dom"
-        ? new DomSurfacePainter({ onImagePayloadMiss })
+        ? new DomSurfacePainter({
+            onImagePayloadMiss,
+            onOpenHyperlink: options.onOpenHyperlink,
+          })
         : new CanvasSurfacePainter({ onImagePayloadMiss });
     const paintScheduling =
       options.paintScheduling ?? defaultAnimationFrameScheduler();
@@ -491,6 +497,7 @@ export class WebHostSceneRuntime {
     this.detachInputHandlers?.();
     this.detachPointerParadigmObserver?.();
     this.resizeObserver?.disconnect();
+    this.detachMetricObservers?.();
     this.element.remove();
   }
 
@@ -677,19 +684,51 @@ export class WebHostSceneRuntime {
   }
 
   private installResizeObserver(): void {
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    this.resizeObserver = new ResizeObserver(() => {
+    const refresh = () => {
+      if (this.painter instanceof DomSurfacePainter)
+        this.painter.invalidateFontMetrics();
       this.resizeToMount();
-    });
-    this.resizeObserver.observe(this.terminalMount);
+    };
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver(refresh);
+      this.resizeObserver.observe(this.terminalMount);
+    }
+    const fonts = document.fonts;
+    fonts?.addEventListener?.("loadingdone", refresh);
+    globalThis.window?.addEventListener?.("resize", refresh);
+    globalThis.window?.visualViewport?.addEventListener("resize", refresh);
+    let dpr: MediaQueryList | undefined;
+    const watchDpr = () => {
+      dpr?.removeEventListener?.("change", changedDpr);
+      dpr = globalThis.matchMedia?.(
+        `(resolution: ${globalThis.devicePixelRatio || 1}dppx)`,
+      );
+      dpr?.addEventListener?.("change", changedDpr);
+    };
+    const changedDpr = () => {
+      watchDpr();
+      refresh();
+    };
+    watchDpr();
+    this.detachMetricObservers = () => {
+      fonts?.removeEventListener?.("loadingdone", refresh);
+      globalThis.window?.removeEventListener?.("resize", refresh);
+      globalThis.window?.visualViewport?.removeEventListener("resize", refresh);
+      dpr?.removeEventListener?.("change", changedDpr);
+    };
   }
 
   private installInputHandlers(): void {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.isComposing) {
+      if (
+        event.metaKey ||
+        event.isComposing ||
+        (this.rendererKind === "dom" &&
+          event.ctrlKey &&
+          (event.key.toLowerCase() === "f" ||
+            (event.key.toLowerCase() === "c" &&
+              document.getSelection?.()?.isCollapsed === false)))
+      ) {
         return;
       }
       const message = this.inputEncoder.encodeKey(event);
@@ -718,7 +757,8 @@ export class WebHostSceneRuntime {
       if (event.pointerType === "touch" || event.pointerType === "mouse") {
         this.sendPointerCapabilitiesIfChanged(event.pointerType === "touch");
       }
-      if (this.allowsNativeTextSelection(event)) {
+      if (this.allowsNativeTextSelection(event) || this.isNativeLink(event)) {
+        this.nativePointerGesture = true;
         // DOM renderer + Alt/Option: leave the event to the browser so the
         // drag becomes a native text selection instead of app pointer input.
         return;
@@ -728,6 +768,7 @@ export class WebHostSceneRuntime {
         return;
       }
 
+      this.nativePointerGesture = false;
       const button = this.inputEncoder.pointerButton(event.button);
       this.activePointerButton = button;
       this.hasCapturedPointer = true;
@@ -742,7 +783,13 @@ export class WebHostSceneRuntime {
     };
 
     const handlePointerUp = (event: PointerEvent) => {
-      if (!this.hasCapturedPointer && this.allowsNativeTextSelection(event)) {
+      if (
+        !this.hasCapturedPointer &&
+        (this.nativePointerGesture ||
+          this.allowsNativeTextSelection(event) ||
+          this.isNativeLink(event))
+      ) {
+        this.nativePointerGesture = false;
         return;
       }
       const location = this.hasCapturedPointer
@@ -773,7 +820,12 @@ export class WebHostSceneRuntime {
     };
 
     const handlePointerMove = (event: PointerEvent) => {
-      if (!this.hasCapturedPointer && this.allowsNativeTextSelection(event)) {
+      if (
+        !this.hasCapturedPointer &&
+        (this.nativePointerGesture ||
+          this.allowsNativeTextSelection(event) ||
+          this.isNativeLink(event))
+      ) {
         return;
       }
       const location =
@@ -829,6 +881,11 @@ export class WebHostSceneRuntime {
       event.preventDefault();
     };
 
+    const endNativeDrag = () => {
+      this.nativePointerGesture = false;
+    };
+    document.addEventListener?.("pointerup", endNativeDrag);
+    document.addEventListener?.("pointercancel", endNativeDrag);
     this.terminalMount.addEventListener("keydown", handleKeyDown);
     this.terminalMount.addEventListener("paste", handlePaste);
     this.terminalMount.addEventListener("pointerdown", handlePointerDown);
@@ -839,6 +896,8 @@ export class WebHostSceneRuntime {
     });
 
     this.detachInputHandlers = () => {
+      document.removeEventListener?.("pointerup", endNativeDrag);
+      document.removeEventListener?.("pointercancel", endNativeDrag);
       this.terminalMount.removeEventListener("keydown", handleKeyDown);
       this.terminalMount.removeEventListener("paste", handlePaste);
       this.terminalMount.removeEventListener("pointerdown", handlePointerDown);
@@ -852,13 +911,15 @@ export class WebHostSceneRuntime {
     this.measureCells();
     const rect = this.terminalMount.getBoundingClientRect?.();
     const width =
-      rect?.width && rect.width > 0
+      this.terminalMount.clientWidth ||
+      (rect?.width && rect.width > 0
         ? rect.width
-        : this.columns * this.cellWidth;
+        : this.columns * this.cellWidth);
     const height =
-      rect?.height && rect.height > 0
+      this.terminalMount.clientHeight ||
+      (rect?.height && rect.height > 0
         ? rect.height
-        : this.rows * this.cellHeight;
+        : this.rows * this.cellHeight);
     this.surfaceCSSWidth = width;
     this.surfaceCSSHeight = height;
     const nextColumns = Math.max(1, Math.floor(width / this.cellWidth));
@@ -949,6 +1010,14 @@ export class WebHostSceneRuntime {
   }
 
   private measureCells(): void {
+    if (this.domSurfaceRoot) {
+      const measured = measureDomCells(this.terminalMount, this.currentStyle);
+      if (measured) {
+        this.cellWidth = measured.width;
+        this.cellHeight = measured.height;
+        return;
+      }
+    }
     const canvas = this.canvas ?? document.createElement("canvas");
     const context = canvas.getContext?.("2d");
     if (!context) {
@@ -1022,12 +1091,15 @@ export class WebHostSceneRuntime {
   }
 
   private pointerMetrics(): PointerGeometryMetrics {
+    const domRect = this.domSurfaceRoot?.getBoundingClientRect?.();
     return {
       rect:
         this.surfaceElement?.getBoundingClientRect?.() ??
         this.terminalMount.getBoundingClientRect?.(),
-      cellWidth: this.cellWidth,
-      cellHeight: this.cellHeight,
+      cellWidth: domRect?.width ? domRect.width / this.columns : this.cellWidth,
+      cellHeight: domRect?.height
+        ? domRect.height / this.rows
+        : this.cellHeight,
       columns: this.columns,
       rows: this.rows,
     };
@@ -1039,6 +1111,13 @@ export class WebHostSceneRuntime {
    * has real text nodes to select, and only while Alt/Option is held — plain
    * pointer input still belongs to the app.
    */
+  private isNativeLink(event: MouseEvent): boolean {
+    return (
+      this.rendererKind === "dom" &&
+      !!(event.target as Element | null)?.closest?.("a[data-surface-link]")
+    );
+  }
+
   private allowsNativeTextSelection(event: MouseEvent): boolean {
     return this.rendererKind === "dom" && event.altKey;
   }

@@ -18,6 +18,7 @@ for (const asset of ["assets/app.wasm", "scene-manifest.json"]) {
 
 for (const [entry, output] of [
   ["compiled-wasm.fixture.ts", "compiled-wasm.js"],
+  ["dom-surface.fixture.ts", "dom-surface.js"],
   ["compiled-wasm-worker.ts", "compiled-wasm-worker.js"],
 ] as const) {
   const result = await Bun.build({
@@ -80,15 +81,18 @@ const server = Bun.serve({
   hostname: "127.0.0.1",
   port: browserJourneyPort,
   fetch(request): Response {
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const headers = url.searchParams.has("no-isolation") ? {} : responseHeaders;
     if (path === "/health") {
-      return new Response("ok", { headers: responseHeaders });
+      return new Response("ok", { headers });
     }
     if (path === "/favicon.ico") {
-      return new Response(null, { status: 204, headers: responseHeaders });
+      return new Response(null, { status: 204, headers });
     }
 
     const wasmAssets: Record<string, string> = {
+      "/dom-surface.js": join(outputDirectory, "dom-surface.js"),
       "/compiled-wasm.html": join(e2eDirectory, "compiled-wasm.html"),
       "/compiled-wasm.js": join(outputDirectory, "compiled-wasm.js"),
       "/compiled-wasm.js.map": join(outputDirectory, "compiled-wasm.js.map"),
@@ -119,12 +123,12 @@ const server = Bun.serve({
     if (!file) {
       return new Response("not found", {
         status: 404,
-        headers: responseHeaders,
+        headers,
       });
     }
     return new Response(file, {
       headers: {
-        ...responseHeaders,
+        ...headers,
         "Content-Type": file.type,
       },
     });

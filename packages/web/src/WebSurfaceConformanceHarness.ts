@@ -486,11 +486,24 @@ class FakeElement {
   textContent = "";
   private readonly attributes = new Map<string, string>();
 
-  constructor(readonly tagName: string) {}
+  constructor(readonly tagName: string) {
+    this.tagName = tagName.toUpperCase();
+  }
 
   appendChild(child: FakeElement): FakeElement {
     child.parent = this;
     this.children.push(child);
+    return child;
+  }
+
+  insertBefore(child: FakeElement, before: FakeElement | null): FakeElement {
+    child.remove();
+    child.parent = this;
+    this.children.splice(
+      before ? this.children.indexOf(before) : this.children.length,
+      0,
+      child,
+    );
     return child;
   }
 

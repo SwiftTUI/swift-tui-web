@@ -13,9 +13,8 @@ import type { ResolvedWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
  * - `"dom"`: renders cells as absolutely positioned text elements — native
  *   font rendering (fallback glyphs, subpixel AA, crisp zoom), an
  *   inspectable element tree, and real selectable text (hold Alt/Option and
- *   drag). Box drawing and decoration patterns render via font glyphs and
- *   CSS `text-decoration`, so hairline seams may differ from the canvas
- *   painter.
+ *   drag). Box/block/Braille glyphs share Canvas geometry via SVG backgrounds;
+ *   decoration patterns use CSS `text-decoration` and can differ from Canvas.
  */
 export type WebHostSurfaceRendererKind = "canvas" | "dom";
 

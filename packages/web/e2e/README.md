@@ -60,7 +60,7 @@ settles both actual JSPI export promises, including the hidden scene.
 | --- | --- | --- | --- |
 | Chromium | V8; full stack profile | Cross-origin isolation and SharedArrayBuffer | Run when both JSPI functions exist |
 | Firefox | Gecko; lean stack profile | Cross-origin isolation and SharedArrayBuffer | Run when both JSPI functions exist |
-| WebKit | JSC; lean stack profile | Cross-origin isolation and SharedArrayBuffer | Run when both JSPI functions exist |
+| WebKit | JSC with sourceURL, otherwise unknown; lean profile | Cross-origin isolation and SharedArrayBuffer | Run when both JSPI functions exist |
 
 The capability test records the browser version, engine probe and both JSPI
 function types. A missing capability produces an explicit skipped main-thread
@@ -128,3 +128,40 @@ composition and clipping independently of the unit tests' recording contexts.
 It also checks adding, changing, and removing italic glyphs at measured
 monospace cell dimensions: full and partial paints produce the same pixels,
 and glyph ink stays inside its declared span.
+
+## DOM renderer acceptance
+
+`DomSurface.browser.ts` exercises live Range identity during same-row and
+other-row updates, restyles and resize; it also performs a real keyboard
+copy/paste round trip into a textarea in each browser. Changed/removed selected
+text clears selection immediately. Native Alt/Option drag bypasses application
+pointer capture. The geometry cases cover wide CJK/emoji cells, long monospace
+runs, anchors and CSS zoom. SVG box/block/Braille backgrounds are decoded by the
+browser and compared with Canvas's shared geometric rules at two non-square
+cell sizes, with screenshots retained as attachments. SVG edge antialiasing has
+a bounded tolerance; copy text remains the original Unicode sequence.
+
+Browser chrome find is not controlled by Playwright's page API. Reproducible
+manual check: open the DOM fixture (load `/dom-surface.js` from `/health`), press
+Ctrl/Cmd-F, search `Select me`, and confirm the browser highlights the visible
+text once. Run `domJourney.update("same-row")` and `domJourney.update("cosmetic")`
+from the console and repeat; search `REPLACED!` after
+`domJourney.update("selected")`. This checks native browser find rather than a
+custom JavaScript search implementation. The automated selection/copy journey
+is not claimed as browser-chrome find automation.
+
+## Measured JSPI policy qualification
+
+Run `SWIFTTUI_JSPI_QUALIFY=1 bun run test:browser:built JspiQualification` after
+building the fixture. These performance samples are opt-in; default CI explicitly
+skips them. The compiled fixture adds a 256-label animated scene and a
+96-wrapper tree beside the two functional counters. The input workload performs
+50 increments per sample; the deep-tree workload performs five (three samples
+in either case). Each sample lasts at least three seconds. Tests retain CPU,
+input-to-frame latency, heartbeat, delivered-frame, hidden/resume and teardown
+measurements. CPU is the sum of cumulative process time for the browser process
+tree beneath the Playwright worker, using `ps` on macOS/Linux; it includes browser
+and automation overhead and is not a WASM instruction counter. On macOS, WebKit
+XPC processes can escape the descendant tree, so WebKit CPU is incomplete and
+cannot qualify a faster default. Performance
+bounds decide policy in a dated report, not a flaky pass/fail CI threshold.

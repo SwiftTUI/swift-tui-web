@@ -3630,6 +3630,14 @@ class FakeElement {
     return child;
   }
 
+  insertBefore(child: FakeElement, before: FakeElement | null): FakeElement {
+    const old = this.children.indexOf(child);
+    if (old >= 0) this.children.splice(old, 1);
+    const index = before ? this.children.indexOf(before) : this.children.length;
+    this.children.splice(index, 0, child);
+    return child;
+  }
+
   replaceChildren(...children: FakeElement[]): void {
     this.children.splice(0, this.children.length, ...children);
   }
@@ -3655,6 +3663,12 @@ class FakeElement {
   }
 
   getBoundingClientRect(): typeof this.rect {
+    if (
+      this.style.visibility === "hidden" &&
+      this.textContent === "W".repeat(64)
+    ) {
+      return { ...this.rect, width: 640, height: 27 };
+    }
     return this.rect;
   }
 
@@ -3987,12 +4001,12 @@ test("dom renderer mounts a DOM surface and renders decoded frames as text eleme
     expect(wide.style.width).toBe("20px");
 
     // Cell [2,"B",1,0]: null style falls back to the theme foreground; the
-    // trailing blank cell [3," ",1,0] renders nothing.
+    // trailing blank cell [3," ",1,0] remains selectable.
     const row1 = rowsLayer.children[1]!;
-    const plain = row1.children[row1.children.length - 1]!;
+    const plain = row1.children.find((child) => child.textContent === "B")!;
     expect(plain.textContent).toBe("B");
     expect(plain.style.color).toBe("#eeeeee");
-    expect(row1.children.map((child) => child.textContent)).not.toContain(" ");
+    expect(row1.children.map((child) => child.textContent)).toContain(" ");
   } finally {
     dom.restore();
   }

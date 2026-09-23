@@ -43,12 +43,12 @@ test("stack frame shape and error markers classify the engine family", () => {
   expect(classifyWasmEngineFamily(v8Signals)).toBe("v8");
   expect(classifyWasmEngineFamily(jscSignals)).toBe("jsc");
   expect(classifyWasmEngineFamily(geckoSignals)).toBe("gecko");
-  // JSC identified by @-frames alone when instance markers are unavailable.
+  // Shared @-frames cannot distinguish JSC from Gecko with hidden metadata.
   expect(
     classifyWasmEngineFamily(
       signals({ errorStack: "collect@https://example.test/app.js:10:3" }),
     ),
-  ).toBe("jsc");
+  ).toBe("unknown");
   expect(classifyWasmEngineFamily(signals({}))).toBe("unknown");
 });
 
@@ -151,4 +151,27 @@ test("live probe collects without throwing and classifies to a known family", ()
   expect(["v8", "jsc", "gecko", "unknown"]).toContain(
     resolveWasmEngineCapabilities(live).engine,
   );
+});
+
+test("conflicting, stripped and mixed error signals never disable lean", () => {
+  for (const sample of [
+    { ...v8Signals, errorHasGeckoFileName: true },
+    { ...v8Signals, errorHasJSCSourceURL: true },
+    { ...geckoSignals, errorHasJSCSourceURL: true },
+    {
+      ...v8Signals,
+      errorStack:
+        v8Signals.errorStack + "\nother@https://example.test/a.js:1:2",
+    },
+    signals({ errorStack: "hidden" }),
+    signals({ errorStack: "fn@url:1:2" }),
+  ]) {
+    const capabilities = resolveWasmEngineCapabilities(sample);
+    expect(capabilities.engine).toBe("unknown");
+    expect(capabilities.stackLeanRecommended).toBe(true);
+    expect(capabilities.supportsJSPI).toBe(false);
+    expect(stackProfileEnvironmentDefaults(capabilities)).toEqual({
+      SWIFTTUI_LEAN_RETAINED_REUSE: "1",
+    });
+  }
 });

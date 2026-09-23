@@ -113,15 +113,30 @@ await createWebHostApp({
   browser font shaping and fallback for emoji and CJK. Text stays sharp at each
   page zoom, and the element tree is inspectable. Hold Alt/Option and drag to
   select and copy app text. A drag without Alt/Option remains pointer input for
-  the app. Box characters render as font glyphs. Underline and strikethrough
-  patterns use CSS `text-decoration`. Thus, thin details can differ from the
-  canvas painter. `letter-spacing` stretches each glyph advance to the cell
-  width and keeps the grid aligned.
+  the app. Box, block and Braille characters use cached SVG backgrounds from
+  the Canvas geometry rules, with one original text node for selection/copy.
+  Underline and strikethrough use CSS `text-decoration`; their patterns and
+  SVG edge antialiasing can differ from Canvas. DOM metrics are measured in
+  the styled mount and refreshed on font loading, style changes, resize,
+  viewport zoom and DPR changes. `letter-spacing` aligns long monospace runs.
+
+  Unchanged cell text nodes survive row damage, full paints, theme changes and
+  resize. Changing/removing selected text, shrinking away its row, or changing
+  its span into/out of a link clears the active selection and publishes the
+  new data immediately. It never freezes app updates. Whitespace remains real
+  text. Ctrl/Cmd-C copies the selection; Ctrl/Cmd-F remains browser find.
+
+  Protocol links use native anchors with safe HTTP(S) navigation, a new tab
+  and `noopener noreferrer`. The optional `onOpenHyperlink` hook handles
+  activation (including custom schemes) once; those custom schemes never
+  become navigable `href`s. Anchors retain browser context menus and modified
+  clicks, bypass app pointer capture, and stay out of the tab order because
+  the unchanged ARIA sidecar owns keyboard accessibility. Alt/Option dragging
+  a link selects its text. Resolved styles and SVG backgrounds are cached per
+  painter, bounded to 512 entries each, and invalidated by metric/theme changes.
 
 The option is also available for each scene runtime through
-`WebHostSceneRuntimeOptions.renderer`. The package exports both painters:
-`CanvasSurfacePainter` and `DomSurfacePainter`. Hosts can use these painters in
-custom runtimes.
+`WebHostSceneRuntimeOptions.renderer`. The package exports `DomSurfacePainter` for custom DOM runtimes.
 
 ### Paint scheduling
 
@@ -236,3 +251,18 @@ Surface records require nonnegative integer grid dimensions no larger than
 2,147,483,647, matching the Android host's grid representation. Malformed full
 or delta records cannot replace the retained decoder baseline. This structural
 constraint is separate from practical canvas-allocation and record-size limits.
+
+### WASM execution and engine classification
+
+`executionMode: "auto"` prefers a worker when shared input is available. Without
+SharedArrayBuffer it selects main-thread execution only when both
+`WebAssembly.Suspending` and `WebAssembly.promising` are functions. Explicit
+`"worker"` and `"main-thread"` preferences remain available; caller environment
+settings override profile recommendations.
+
+Error stack metadata is advisory. Only unambiguous V8 signals disable the lean
+profile by default; Gecko, JSC and unknown engines retain conservative defaults.
+Conflicting markers and shared `@` stack frames without `sourceURL`/`fileName`
+classify as unknown. Modern sourceURL-free WebKit therefore may report unknown.
+This diagnostic label never substitutes for the independent JSPI capability
+check. Main-thread non-lean qualification is separate from engine classification.

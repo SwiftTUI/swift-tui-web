@@ -24,7 +24,9 @@ test("engine capabilities for compiled Swift WASM", async ({
   await openFixture(page);
   const { capabilities } = await snapshot(page);
   expect(capabilities.engine).toBe(
-    { chromium: "v8", firefox: "gecko", webkit: "jsc" }[browserName],
+    browserName === "webkit" && !capabilities.signals.errorHasJSCSourceURL
+      ? "unknown"
+      : { chromium: "v8", firefox: "gecko", webkit: "jsc" }[browserName],
   );
   expect(capabilities.stackLeanRecommended).toBe(browserName !== "chromium");
   expect(capabilities.crossOriginIsolated).toBe(true);
@@ -69,7 +71,12 @@ for (const mode of ["worker", "main-thread"] as const) {
       mode,
     );
     await expectCount(page, "alpha", 0);
-    expect((await snapshot(page)).scenes).toEqual(["alpha", "beta"]);
+    expect((await snapshot(page)).scenes).toEqual([
+      "alpha",
+      "animation",
+      "deep",
+      "beta",
+    ]);
     // Real browser key events -> WASI stdin -> Swift Button -> rendered frame.
     await page.locator(".webhost-scene__terminal:visible").focus();
     await page.keyboard.press("Tab");

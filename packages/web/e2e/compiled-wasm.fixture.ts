@@ -10,6 +10,7 @@ import {
   createWasmSceneRuntimeFactory,
   jspiConstructors,
   resolveWasmEngineCapabilities,
+  resolveWasmExecutionMode,
 } from "../dist/wasi.js";
 
 const capabilities = {
@@ -23,6 +24,17 @@ const frames: Record<string, WebHostSurfaceFrame> = {};
 const frameCounts: Record<string, number> = {};
 const errors: string[] = [];
 const bridges: ObservedBridge[] = [];
+const runtimes: import("../dist/index.js").WebHostSceneRuntime[] = [];
+const inputSent = new Map<number, number>();
+const inputLatencies: number[] = [];
+let measuring = false;
+const heartbeats: number[] = [];
+let lastHeartbeat = performance.now();
+setInterval(() => {
+  const now = performance.now();
+  if (measuring) heartbeats.push(now - lastHeartbeat);
+  lastHeartbeat = now;
+}, 10);
 let controller: WebHostAppController | undefined;
 let disposed = false;
 let jspiStarts = 0;
@@ -55,6 +67,15 @@ class ObservedBridge extends BrowserWASIBridge {
       presentSurface(frame, recovered) {
         frames[sceneId] = frame;
         frameCounts[sceneId] = (frameCounts[sceneId] ?? 0) + 1;
+        const text = frame.rows
+          .map((row) => row.map((cell) => cell[1]).join(""))
+          .join("\n");
+        const count = Number(/(?:Alpha|Deep) count (\d+)/.exec(text)?.[1]);
+        const sent = inputSent.get(count);
+        if (sent !== undefined) {
+          inputLatencies.push(performance.now() - sent);
+          inputSent.delete(count);
+        }
         sink.presentSurface(frame, recovered);
       },
       writeError(message) {
@@ -70,6 +91,37 @@ class ObservedBridge extends BrowserWASIBridge {
 }
 
 const api = {
+  probeVariants() {
+    const actual = collectWasmEngineProbeSignals();
+    const variants = [
+      {
+        ...actual,
+        errorStack: "",
+        errorHasGeckoFileName: false,
+        errorHasJSCSourceURL: false,
+      },
+      {
+        ...actual,
+        errorStack: "fn@url:1:2",
+        errorHasGeckoFileName: false,
+        errorHasJSCSourceURL: false,
+      },
+      {
+        ...actual,
+        errorStack: "    at fn (url:1:2)",
+        errorHasGeckoFileName: true,
+        errorHasJSCSourceURL: true,
+      },
+    ].map(resolveWasmEngineCapabilities);
+    return {
+      actual,
+      variants,
+      autoWorker: resolveWasmExecutionMode("auto", capabilities, true),
+      autoWithoutSAB: resolveWasmExecutionMode("auto", capabilities, false),
+      forcedWorker: resolveWasmExecutionMode("worker", capabilities, false),
+      forcedMain: resolveWasmExecutionMode("main-thread", capabilities, true),
+    };
+  },
   snapshot() {
     return {
       capabilities,
@@ -83,14 +135,23 @@ const api = {
       disposed,
       jspiStarts,
       jspiSettled,
+      environments: bridges.map((b) => b.environment),
+      inputLatencies,
+      heartbeats,
+      paints: runtimes.map((r) => r.paintStatistics),
     };
   },
-  async start(mode: "worker" | "main-thread") {
+  async start(
+    mode: "worker" | "main-thread" | "auto",
+    scene = "alpha",
+    environment?: Record<string, string>,
+  ) {
     if (controller) throw new Error("The compiled WASM app is already started");
     controller = await createWebHostApp({
       mount: requiredElement("wasm-mount"),
       manifestUrl: new URL("/scene-manifest.json", location.href),
-      initialSceneId: "alpha",
+      initialSceneId: scene,
+      environment,
       bridgeFactory(options) {
         const bridge = new ObservedBridge({
           sceneId: options.sceneId,
@@ -106,10 +167,34 @@ const api = {
         new URL("/app.wasm", location.href),
         {
           executionMode: mode,
+          onRuntimeCreated: (runtime) =>
+            runtimes.push(
+              runtime as import("../dist/index.js").WebHostSceneRuntime,
+            ),
           workerModuleURL: new URL("/compiled-wasm-worker.js", location.href),
         },
       ),
     });
+  },
+  beginSample() {
+    inputLatencies.length = 0;
+    heartbeats.length = 0;
+    inputSent.clear();
+    measuring = true;
+    lastHeartbeat = performance.now();
+  },
+  endSample() {
+    measuring = false;
+  },
+  markInput(count: number) {
+    inputSent.set(count, performance.now());
+  },
+  suspend(value: boolean) {
+    for (const runtime of runtimes) runtime.setDocumentVisible(!value);
+  },
+  async dispose() {
+    await controller?.dispose();
+    disposed = true;
   },
 };
 

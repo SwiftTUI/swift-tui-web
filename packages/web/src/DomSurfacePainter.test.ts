@@ -92,7 +92,7 @@ test("root style pins the grid: line height, ligatures, and letter-spacing corre
   }
 });
 
-test("blank runs are skipped unless they carry background or decoration", () => {
+test("blank runs remain selectable alongside decorated whitespace", () => {
   const dom = installFakeDOM();
   try {
     const painter = new DomSurfacePainter();
@@ -111,9 +111,9 @@ test("blank runs are skipped unless they carry background or decoration", () => 
     painter.paint(metricsFor(1), frame);
 
     const row = root.children[0]?.children[0];
-    expect(row?.children).toHaveLength(1);
-    expect(row?.children[0]?.style.backgroundColor).toBe("#222222");
-    expect(row?.children[0]?.style.width).toBe("24px");
+    expect(row?.children).toHaveLength(2);
+    expect(row?.children[1]?.style.backgroundColor).toBe("#222222");
+    expect(row?.children[1]?.style.width).toBe("24px");
   } finally {
     dom.restore();
   }
@@ -635,6 +635,14 @@ class FakeElement {
   appendChild(child: FakeElement): FakeElement {
     child.parent = this;
     this.children.push(child);
+    return child;
+  }
+
+  insertBefore(child: FakeElement, before: FakeElement | null): FakeElement {
+    child.remove();
+    child.parent = this;
+    const index = before ? this.children.indexOf(before) : this.children.length;
+    this.children.splice(index, 0, child);
     return child;
   }
 

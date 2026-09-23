@@ -76,8 +76,8 @@ export interface WasmSceneRuntimeFactoryOptions {
   /**
    * How to execute the wasm app. "worker" is the classic path
    * (`Atomics.wait` stdin, needs SharedArrayBuffer/COOP/COEP). "main-thread"
-   * runs on the page's thread via WebAssembly JSPI — larger stack budget (no
-   * stack-lean profile on measured engines), no COOP/COEP requirement, at
+   * runs on the page's thread via WebAssembly JSPI — larger stack budget,
+   * no COOP/COEP requirement, at
    * the cost of sharing the main thread. "auto" (default) picks main-thread
    * only where workers cannot run (SharedArrayBuffer unavailable and JSPI
    * present); workers everywhere else.
@@ -97,9 +97,9 @@ export function resolveWasmExecutionMode(
     return "worker";
   }
   // Workers stay the auto default even on JSPI-capable engines: main-thread
-  // execution shares the page's thread, and its stack-budget advantage only
-  // pays off once the non-lean profile is production-ready (see
-  // `stackProfileEnvironmentDefaults`). JSPI's auto role today is running
+  // execution shares the page's thread. The September 2026 compiled-app
+  // qualification missed the animation/deep-tree responsiveness bounds on
+  // both tested JSPI engines. JSPI's auto role remains running
   // where workers cannot — pages without cross-origin isolation.
   if (!sharedInputQueueAvailable) {
     return "main-thread";
