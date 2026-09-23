@@ -71,6 +71,12 @@ const row = (y: number) =>
   root.querySelectorAll<HTMLElement>(".webhost-scene__surface-row")[y]!;
 const firstNode = row(0).firstElementChild!.firstChild;
 let copied = "";
+let copyShortcutPrevented: boolean | null = null;
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+    copyShortcutPrevented = event.defaultPrevented;
+  }
+});
 document.addEventListener("copy", () => {
   copied = document.getSelection()?.toString() ?? "";
 });
@@ -163,6 +169,7 @@ const api = {
       selected: document.getSelection()?.toString(),
       sameNode: row(0)?.firstElementChild?.firstChild === firstNode,
       copied,
+      copyShortcutPrevented,
       inputs,
       opened,
       text: root.textContent,

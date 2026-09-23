@@ -9,7 +9,9 @@ test.beforeEach(async ({ page }) => {
 
 test("selection and copy survive other-row, same-row, cosmetic, font and resize paints", async ({
   page,
+  browserName,
 }) => {
+  await page.locator(".webhost-scene__terminal").focus();
   await page.evaluate(() => window.domJourney.select());
   for (const kind of ["other-row", "same-row", "cosmetic"]) {
     await page.evaluate((kind) => window.domJourney.update(kind), kind);
@@ -27,6 +29,15 @@ test("selection and copy survive other-row, same-row, cosmetic, font and resize 
   await page.keyboard.press(
     process.platform === "darwin" ? "Meta+c" : "Control+c",
   );
+  expect(
+    await page.evaluate(() => window.domJourney.state().copyShortcutPrevented),
+  ).toBe(false);
+  if (browserName === "webkit" && process.platform === "linux") {
+    // Linux WebKit does not dispatch copy for a non-editable Range shortcut,
+    // even on a plain page. Invoke its native copy command; keep the shortcut
+    // pass-through assertion above and the actual clipboard paste below.
+    expect(await page.evaluate(() => document.execCommand("copy"))).toBe(true);
+  }
   await expect
     .poll(() => page.evaluate(() => window.domJourney.state().copied))
     .toBe("Select me");

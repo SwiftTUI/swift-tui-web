@@ -42,8 +42,9 @@ integer from 1 through 65535.
 
 ## Compiled Swift WASM
 
-`CompiledWasm.browser.ts` executes `Fixtures/BrowserApp`, a two-scene SwiftTUI
-app pinned to the public HTTPS `swift-tui` tag **0.14.0**, with transitive
+`CompiledWasm.browser.ts` executes the two counter scenes in `Fixtures/BrowserApp`,
+which also contains two performance probes. The app is pinned to the public HTTPS
+`swift-tui` tag **0.14.0**, with transitive
 versions recorded in `Package.resolved`. `build-wasm-fixture.ts` calls the public
 `@swifttui/build` entry point to capture the native scene manifest and compile,
 optimize, strip and validate the WASI module. No sibling checkout or Bazel is
@@ -132,8 +133,12 @@ and glyph ink stays inside its declared span.
 ## DOM renderer acceptance
 
 `DomSurface.browser.ts` exercises live Range identity during same-row and
-other-row updates, restyles and resize; it also performs a real keyboard
-copy/paste round trip into a textarea in each browser. Changed/removed selected
+other-row updates, restyles and resize; it also performs a real clipboard
+round trip into a textarea in each browser. Copy shortcuts must pass through
+the focused runtime unhandled. Linux WebKit does not dispatch keyboard copy
+for a non-editable Range even on a plain page, so that platform invokes the
+native browser copy command; all engines paste through the keyboard.
+Changed/removed selected
 text clears selection immediately. Native Alt/Option drag bypasses application
 pointer capture. The geometry cases cover wide CJK/emoji cells, long monospace
 runs, anchors and CSS zoom. SVG box/block/Braille backgrounds are decoded by the
