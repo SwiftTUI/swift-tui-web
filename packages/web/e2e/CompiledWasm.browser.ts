@@ -75,6 +75,7 @@ for (const mode of ["worker", "main-thread"] as const) {
       "alpha",
       "animation",
       "deep",
+      "accessibility",
       "beta",
     ]);
     // Real browser key events -> WASI stdin -> Swift Button -> rendered frame.

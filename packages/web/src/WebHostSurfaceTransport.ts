@@ -55,7 +55,57 @@ export type WebHostAccessibilityPoint = [x: number, y: number];
 
 export type WebHostAccessibilityLiveRegion = string;
 
+export type WebHostAccessibilityActionKind =
+  | "focus"
+  | "activate"
+  | "increment"
+  | "decrement"
+  | "setValue";
+
+export type WebHostAccessibilityValue =
+  | { type: "boolean"; value: boolean }
+  | { type: "number"; value: number }
+  | { type: "text"; value: string };
+
+export type WebHostAccessibilityAction =
+  | { action: Exclude<WebHostAccessibilityActionKind, "setValue"> }
+  | { action: "setValue"; value: WebHostAccessibilityValue };
+
+export function encodeAccessibilityActionMessage(
+  target: string,
+  request: WebHostAccessibilityAction,
+  requestID?: string,
+): Uint8Array {
+  const value =
+    request.action === "setValue"
+      ? `:${request.value.type}:${encodeURIComponent(String(request.value.value))}`
+      : "";
+  return new TextEncoder().encode(
+    `\u001Eaccessibility:${requestID === undefined ? "" : `${requestID}:`}${encodeURIComponent(target)}:${request.action}${value}\n`,
+  );
+}
+
+export interface WebHostAccessibilityActionResponse {
+  requestID: string;
+  target: string;
+  result:
+    | "accepted"
+    | "staleTarget"
+    | "disabled"
+    | "outOfScope"
+    | "unsupported"
+    | "invalidValue";
+}
+
 export interface WebHostAccessibilityNode {
+  /** Opaque token for one live control in this scene; absent on older runtimes. */
+  actionTarget?: string;
+  actions?: WebHostAccessibilityActionKind[];
+  isEnabled?: boolean;
+  value?: WebHostAccessibilityValue;
+  valueMin?: number;
+  valueMax?: number;
+  valueStep?: number;
   id: string;
   parentId?: string;
   rect: WebHostSurfaceRect;
@@ -171,6 +221,7 @@ export interface WebHostSurfaceFrame {
   images?: WebHostSurfaceImage[];
   damage?: WebHostSurfaceDamage;
   accessibilityTree?: WebHostAccessibilityNode[];
+  accessibilityActionResponse?: WebHostAccessibilityActionResponse;
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
   scrollRegions?: WebHostScrollRegion[];
   links?: WebHostSurfaceLinkRow[];
@@ -208,6 +259,7 @@ export interface WebHostSurfaceDeltaFrame {
   images?: WebHostSurfaceImage[];
   damage?: WebHostSurfaceDamage;
   accessibilityTree?: WebHostAccessibilityNode[];
+  accessibilityActionResponse?: WebHostAccessibilityActionResponse;
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
   scrollRegions?: WebHostScrollRegion[];
   links?: WebHostSurfaceLinkRow[];
@@ -708,6 +760,7 @@ export class WebHostOutputDecoder {
       images: frame.images,
       damage: frame.damage,
       accessibilityTree: frame.accessibilityTree,
+      accessibilityActionResponse: frame.accessibilityActionResponse,
       accessibilityAnnouncements: frame.accessibilityAnnouncements,
       scrollRegions: frame.scrollRegions,
       links: frame.links,
@@ -980,6 +1033,8 @@ function isWebHostSurfaceFrame(value: unknown): value is WebHostSurfaceFrame {
     frame.rows.every(isWebHostSurfaceRow) &&
     (frame.images === undefined || isWebHostSurfaceImages(frame.images)) &&
     (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage)) &&
+    (frame.accessibilityActionResponse === undefined ||
+      isAccessibilityActionResponse(frame.accessibilityActionResponse)) &&
     (frame.accessibilityTree === undefined ||
       isWebHostAccessibilityNodes(frame.accessibilityTree)) &&
     (frame.accessibilityAnnouncements === undefined ||
@@ -1011,6 +1066,8 @@ function isWebHostSurfaceDeltaFrame(
     isOptionalSafeInteger(frame.stylesBase) &&
     (frame.images === undefined || isWebHostSurfaceImages(frame.images)) &&
     (frame.damage === undefined || isWebHostSurfaceDamage(frame.damage)) &&
+    (frame.accessibilityActionResponse === undefined ||
+      isAccessibilityActionResponse(frame.accessibilityActionResponse)) &&
     (frame.accessibilityTree === undefined ||
       isWebHostAccessibilityNodes(frame.accessibilityTree)) &&
     (frame.accessibilityAnnouncements === undefined ||
@@ -1171,8 +1228,60 @@ function isWebHostAccessibilityNode(
     (node.liveRegion === undefined || typeof node.liveRegion === "string") &&
     (node.cursorAnchor === undefined ||
       isWebHostAccessibilityPoint(node.cursorAnchor)) &&
-    (node.isFocused === undefined || typeof node.isFocused === "boolean")
+    (node.isFocused === undefined || typeof node.isFocused === "boolean") &&
+    (node.actionTarget === undefined ||
+      typeof node.actionTarget === "string") &&
+    (node.actions === undefined ||
+      (Array.isArray(node.actions) &&
+        node.actions.every((action) => typeof action === "string"))) &&
+    (node.isEnabled === undefined || typeof node.isEnabled === "boolean") &&
+    (node.value === undefined || isAccessibilityValue(node.value)) &&
+    [node.valueMin, node.valueMax, node.valueStep].every(
+      (value) =>
+        value === undefined ||
+        (typeof value === "number" && Number.isFinite(value)),
+    )
   );
+}
+
+function isAccessibilityActionResponse(
+  value: unknown,
+): value is WebHostAccessibilityActionResponse {
+  if (!value || typeof value !== "object") return false;
+  const response = value as Partial<WebHostAccessibilityActionResponse>;
+  return (
+    typeof response.requestID === "string" &&
+    /^[0-9]{1,20}$/.test(response.requestID) &&
+    typeof response.target === "string" &&
+    typeof response.result === "string" &&
+    [
+      "accepted",
+      "staleTarget",
+      "disabled",
+      "outOfScope",
+      "unsupported",
+      "invalidValue",
+    ].includes(response.result)
+  );
+}
+
+function isAccessibilityValue(
+  value: unknown,
+): value is WebHostAccessibilityValue {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { type?: unknown; value?: unknown };
+  switch (candidate.type) {
+    case "text":
+      return typeof candidate.value === "string";
+    case "boolean":
+      return typeof candidate.value === "boolean";
+    case "number":
+      return (
+        typeof candidate.value === "number" && Number.isFinite(candidate.value)
+      );
+    default:
+      return false;
+  }
 }
 
 function isWebHostAccessibilityPoint(

@@ -36,6 +36,29 @@ The package contains compiled JavaScript and declarations in `dist/`
 (`./wasi`, `./wasi-worker`, `./manifest`, `./websocket`, `./testing`) and the
 `./style.css` asset are declared in `package.json` `exports`.
 
+## Assistive control actions
+
+When a runtime publishes `actionTarget` and `actions`, the ARIA sidecar sends
+node-targeted focus, activation, increment/decrement and typed value requests
+through the scene's existing WebSocket or WASI input channel. Toggle checked
+state, disclosure expansion, numeric ranges, disabled state and nonsecure text
+come from runtime frames. Text fields/editors and numeric controls use native
+browser inputs. Secure fields use password inputs and never receive their text
+from a frame; local drafts clear on blur.
+
+Requests carry increasing scene-local IDs. Returned acknowledgements let the
+host retain newer edits while older frames arrive, then reconcile to the
+runtime's accepted or rejected state. Runtime focus and value updates do not
+emit new requests. Removed/replaced elements cannot dispatch through stale
+listeners. Runtimes without action metadata retain the presentation-only
+sidecar, including the currently pinned 0.14.0 browser fixture.
+
+`encodeAccessibilityActionMessage` and the exported action/value types expose
+the same input format for custom hosts. Tokens and request IDs belong to the
+scene runtime; discard them when that runtime closes. See the framework's
+[accessibility contract](https://github.com/SwiftTUI/swift-tui/blob/main/docs/ACCESSIBILITY.md)
+for supported controls and rejection results.
+
 ## API
 
 ```ts

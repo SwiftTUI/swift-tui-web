@@ -3,6 +3,8 @@ import {
   normalizePoliteness,
 } from "./normalizeWireTokens.ts";
 import type {
+  WebHostAccessibilityAction,
+  WebHostAccessibilityActionResponse,
   WebHostAccessibilityAnnouncement,
   WebHostAccessibilityNode,
 } from "./WebHostSurfaceTransport.ts";
@@ -14,6 +16,7 @@ interface AccessibilityTreeMetrics {
 
 interface AccessibilityTreePresentationOptions {
   synchronizeFocus?: boolean;
+  actionResponse?: WebHostAccessibilityActionResponse;
 }
 
 interface RoleMapping {
@@ -29,7 +32,20 @@ export class AccessibilityTreeMounter {
   private previousLabelsById = new Map<string, string>();
   private hasLiveRegionBaseline = false;
 
-  constructor() {
+  private modelsById = new Map<string, WebHostAccessibilityNode>();
+  private presenting = false;
+  private nextRequestID = 0n;
+  private acknowledgedRequestID = 0n;
+  private pendingValues = new Map<string, bigint>();
+  private pendingFocus?: { id: string; requestID: bigint };
+
+  constructor(
+    private readonly sendAction?: (
+      target: string,
+      request: WebHostAccessibilityAction,
+      requestID: string,
+    ) => void,
+  ) {
     this.element = document.createElement("div");
     this.element.className = "webhost-scene__accessibility-tree";
     applyScreenReaderOnlyStyle(this.element);
@@ -59,12 +75,28 @@ export class AccessibilityTreeMounter {
       ...announcement,
       politeness: normalizePoliteness(announcement.politeness),
     }));
+    this.presenting = true;
+    if (options.actionResponse) {
+      const acknowledged = BigInt(options.actionResponse.requestID);
+      if (acknowledged > this.acknowledgedRequestID)
+        this.acknowledgedRequestID = acknowledged;
+    }
     const previousById = this.nodesById;
     const nextById = new Map<string, HTMLElement>();
 
     for (const node of visibleNodes) {
       const existing = previousById.get(node.id);
-      const element = existing ?? document.createElement("div");
+      const tag = this.elementTag(node);
+      const previousModel = this.modelsById.get(node.id);
+      const reusable =
+        existing?.tagName.toLowerCase() === tag &&
+        previousModel?.actionTarget === node.actionTarget;
+      const element = reusable ? existing : this.createElement(node, tag);
+      if (!reusable) {
+        existing?.remove();
+        this.pendingValues.delete(node.id);
+        if (this.pendingFocus?.id === node.id) this.pendingFocus = undefined;
+      }
       this.applyNodeAttributes(element, node, metrics);
       nextById.set(node.id, element);
     }
@@ -72,10 +104,14 @@ export class AccessibilityTreeMounter {
     for (const id of previousById.keys()) {
       if (!nextById.has(id)) {
         previousById.get(id)?.remove();
+        this.pendingValues.delete(id);
+        if (this.pendingFocus?.id === id) this.pendingFocus = undefined;
       }
     }
 
     this.nodesById = nextById;
+    this.modelsById = new Map(visibleNodes.map((node) => [node.id, node]));
+    const childOffsets = new Map<HTMLElement, number>();
 
     for (const node of visibleNodes) {
       const element = nextById.get(node.id);
@@ -84,15 +120,135 @@ export class AccessibilityTreeMounter {
       }
 
       const parent = node.parentId ? nextById.get(node.parentId) : undefined;
-      (parent ?? this.element).appendChild(element);
+      // Preserve DOM focus/selection when the same nodes remain in order.
+      const container = parent ?? this.element;
+      const offset = childOffsets.get(container) ?? 0;
+      if (container.children[offset] !== element) {
+        container.insertBefore(element, container.children[offset] ?? null);
+      }
+      childOffsets.set(container, offset + 1);
     }
 
     this.announceLiveRegionChanges(visibleNodes, normalizedAnnouncements);
 
     const focused = visibleNodes.find((node) => node.isFocused);
-    if ((options.synchronizeFocus ?? true) && focused) {
-      this.nodesById.get(focused.id)?.focus?.({ preventScroll: true });
+    if (
+      this.pendingFocus !== undefined &&
+      this.pendingFocus.requestID <= this.acknowledgedRequestID
+    ) {
+      this.pendingFocus = undefined;
     }
+    if (
+      (options.synchronizeFocus ?? true) &&
+      focused &&
+      this.pendingFocus === undefined
+    ) {
+      const element = this.nodesById.get(focused.id);
+      if (element && document.activeElement !== element)
+        element.focus?.({ preventScroll: true });
+    }
+    this.presenting = false;
+  }
+
+  private elementTag(node: WebHostAccessibilityNode): string {
+    if (!node.actionTarget || !this.sendAction) return "div";
+    if (node.role === "textEditor") return "textarea";
+    if (["textField", "secureField", "slider", "stepper"].includes(node.role))
+      return "input";
+    return "div";
+  }
+
+  private createElement(
+    node: WebHostAccessibilityNode,
+    tag: string,
+  ): HTMLElement {
+    const element = document.createElement(tag);
+    if (!node.actionTarget || !this.sendAction) return element;
+    const current = () =>
+      this.nodesById.get(node.id) === element
+        ? this.modelsById.get(node.id)
+        : undefined;
+    const send = (request: WebHostAccessibilityAction) => {
+      const model = current();
+      if (
+        this.presenting ||
+        !model?.actionTarget ||
+        model.isEnabled === false ||
+        !model.actions?.includes(request.action)
+      )
+        return;
+      const requestID = ++this.nextRequestID;
+      if (request.action === "setValue")
+        this.pendingValues.set(node.id, requestID);
+      if (request.action === "focus")
+        this.pendingFocus = { id: node.id, requestID };
+      this.sendAction?.(model.actionTarget, request, String(requestID));
+    };
+    element.addEventListener("focus", () => send({ action: "focus" }));
+    element.addEventListener("click", (event) => {
+      event.stopPropagation();
+      send({ action: "activate" });
+    });
+    element.addEventListener("keydown", (event) => {
+      const model = current();
+      if (!model || event.key === "Tab" || event.key === "Escape") return;
+      // Native editing owns text and clipboard keys. Submit still follows the
+      // existing focused runtime keyboard path for single-line fields.
+      if (tag !== "div" && event.key === "Enter" && model.role !== "textEditor")
+        return;
+      event.stopPropagation();
+      let request: WebHostAccessibilityAction | undefined;
+      if (
+        model.actions?.includes("increment") &&
+        ["ArrowRight", "ArrowUp"].includes(event.key)
+      ) {
+        request = { action: "increment" };
+      } else if (
+        model.actions?.includes("decrement") &&
+        ["ArrowLeft", "ArrowDown"].includes(event.key)
+      ) {
+        request = { action: "decrement" };
+      } else if (
+        (model.role === "slider" || model.role === "stepper") &&
+        (event.key === "Home" || event.key === "End")
+      ) {
+        const value = event.key === "Home" ? model.valueMin : model.valueMax;
+        if (value !== undefined)
+          request = { action: "setValue", value: { type: "number", value } };
+      } else if (
+        tag === "div" &&
+        (event.key === "Enter" || event.key === " ")
+      ) {
+        request = { action: "activate" };
+      }
+      if (request) {
+        event.preventDefault();
+        send(request);
+      }
+    });
+    if (tag !== "div") {
+      element.addEventListener("blur", () => {
+        if (current()?.role === "secureField")
+          (element as HTMLInputElement).value = "";
+      });
+      element.addEventListener("paste", (event) => event.stopPropagation());
+      element.addEventListener("input", () => {
+        const model = current();
+        if (!model) return;
+        const value = (element as HTMLInputElement).value;
+        if (model.role === "slider" || model.role === "stepper") {
+          const number = Number(value);
+          if (value !== "" && Number.isFinite(number))
+            send({
+              action: "setValue",
+              value: { type: "number", value: number },
+            });
+        } else {
+          send({ action: "setValue", value: { type: "text", value } });
+        }
+      });
+    }
+    return element;
   }
 
   private applyNodeAttributes(
@@ -118,6 +274,77 @@ export class AccessibilityTreeMounter {
       element.dataset.focused = "true";
     } else {
       delete element.dataset.focused;
+    }
+
+    setOrRemoveAttribute(
+      element,
+      "aria-disabled",
+      node.isEnabled === false ? "true" : undefined,
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-checked",
+      node.role === "toggle" && node.value?.type === "boolean"
+        ? String(node.value.value)
+        : undefined,
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-expanded",
+      node.role === "disclosureGroup" && node.value?.type === "boolean"
+        ? String(node.value.value)
+        : undefined,
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-valuenow",
+      node.value?.type === "number" ? String(node.value.value) : undefined,
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-valuemin",
+      node.valueMin === undefined ? undefined : String(node.valueMin),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-valuemax",
+      node.valueMax === undefined ? undefined : String(node.valueMax),
+    );
+    if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
+      const input = element as HTMLInputElement | HTMLTextAreaElement;
+      if (element.tagName === "INPUT") {
+        (input as HTMLInputElement).type =
+          node.role === "secureField"
+            ? "password"
+            : node.role === "slider"
+              ? "range"
+              : node.role === "stepper"
+                ? "number"
+                : "text";
+      }
+      input.disabled = node.isEnabled === false;
+      setOrRemoveAttribute(
+        element,
+        "min",
+        node.valueMin === undefined ? undefined : String(node.valueMin),
+      );
+      setOrRemoveAttribute(
+        element,
+        "max",
+        node.valueMax === undefined ? undefined : String(node.valueMax),
+      );
+      setOrRemoveAttribute(
+        element,
+        "step",
+        node.valueStep === undefined ? undefined : String(node.valueStep),
+      );
+      const value = node.value ? String(node.value.value) : "";
+      const pending = this.pendingValues.get(node.id);
+      if (pending === undefined || pending <= this.acknowledgedRequestID) {
+        this.pendingValues.delete(node.id);
+        if (node.role !== "secureField" && input.value !== value)
+          input.value = value;
+      }
     }
 
     const [x, y, width, height] = node.rect;

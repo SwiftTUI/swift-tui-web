@@ -12,6 +12,9 @@ struct BrowserApp: App {
     WindowGroup("Deep", id: WindowIdentifier("deep")) {
       DeepWorkload()
     }
+    WindowGroup("Accessibility", id: WindowIdentifier("accessibility")) {
+      AccessibilityWorkload()
+    }
     WindowGroup("Beta", id: WindowIdentifier("beta")) {
       CounterScene(name: "Beta")
     }
@@ -63,6 +66,30 @@ struct DeepWorkload: View {
       content = AnyView(content.padding(0))
     }
     return content
+  }
+}
+
+struct AccessibilityWorkload: View {
+  @State private var count = 0
+  @State private var enabled = false
+  @State private var gain = 2.0
+  @State private var name = ""
+  @State private var secret = ""
+  @State private var showControl = true
+
+  var body: some View {
+    VStack(spacing: 0) {
+      Text("Activated \(count)").accessibilityLabel("Activated \(count)")
+        .accessibilityLiveRegion(.polite)
+      Button("Activate") { count += 1 }
+      Toggle("Enabled", isOn: $enabled)
+      Slider("Gain", value: $gain, in: 0...10, step: 1)
+      TextField("Name", text: $name)
+      SecureField("Password", text: $secret)
+      Button("Unavailable") { count += 100 }.disabled(true)
+      Button("Toggle control") { showControl.toggle() }
+      if showControl { Button("Removable") { count += 10 } }
+    }
   }
 }
 

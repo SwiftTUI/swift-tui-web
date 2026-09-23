@@ -42,6 +42,11 @@ test("public browser/WASI runtime completes the preview-readiness journey", asyn
   await page.goto("/");
   await expect.poll(async () => (await snapshot(page)).ready).toBe(true);
 
+  // The fixture can become ready before the animation-frame presentation.
+  // Wait for the actual semantic mount before taking the combined snapshot.
+  await expect(
+    page.locator('[data-accessibility-id="root/editor"]'),
+  ).toBeFocused();
   const initial = await snapshot(page);
   expect(initial.wasiEnvironment.SWIFTTUI_TRANSPORT).toBe("surface");
   expect(initial.wasiEnvironment.SWIFTTUI_MODE).toBe("browser");

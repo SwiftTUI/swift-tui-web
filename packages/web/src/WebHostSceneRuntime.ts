@@ -38,6 +38,7 @@ import type {
   WebHostRuntimeIssue,
   WebHostSurfaceFrame,
 } from "./WebHostSurfaceTransport.ts";
+import { encodeAccessibilityActionMessage } from "./WebHostSurfaceTransport.ts";
 import {
   applyWebHostTerminalStyle,
   normalizeWebHostTerminalStyle,
@@ -353,7 +354,13 @@ export class WebHostSceneRuntime {
       // into the next animation frame rather than each painting the surface.
       this.painter.attach(canvas, () => this.paintScheduler.requestRepaint());
     }
-    this.accessibilityTree = new AccessibilityTreeMounter();
+    this.accessibilityTree = new AccessibilityTreeMounter(
+      (target, request, requestID) => {
+        this.onInput(
+          encodeAccessibilityActionMessage(target, request, requestID),
+        );
+      },
+    );
     this.terminalMount.replaceChildren(
       this.surfaceElement as HTMLElement,
       this.accessibilityTree.element,
@@ -1075,6 +1082,7 @@ export class WebHostSceneRuntime {
       [...announcements],
       {
         synchronizeFocus: this.synchronizeAccessibilityFocus,
+        actionResponse: frame.accessibilityActionResponse,
       },
     );
   }

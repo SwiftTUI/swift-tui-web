@@ -43,7 +43,7 @@ integer from 1 through 65535.
 ## Compiled Swift WASM
 
 `CompiledWasm.browser.ts` executes the two counter scenes in `Fixtures/BrowserApp`,
-which also contains two performance probes. The app is pinned to the public HTTPS
+which also contains two performance probes and an accessibility control scene. The app is pinned to the public HTTPS
 `swift-tui` tag **0.14.0**, with transitive
 versions recorded in `Package.resolved`. `build-wasm-fixture.ts` calls the public
 `@swifttui/build` entry point to capture the native scene manifest and compile,
@@ -92,6 +92,14 @@ the Swift view graph. The synthetic transport peer changes its frame in
 response to the real wire input so the browser boundary stays deterministic;
 Swift `TabView` archive behavior remains owned and tested in `swift-tui`.
 
+`AccessibilityActions.browser.ts` drives the built public runtime through the
+same bridge with a synthetic semantic frame. All three engines verify focus,
+activation, adjustment, native input editing, acknowledgements, rejected-value
+restoration, disabled nodes, removed listeners and update-echo suppression.
+These protocol checks do not execute Swift or listen to a screen reader.
+The public Swift fixture remains pinned to 0.14.0; action acceptance against an
+unreleased framework is coordination-owned until a released tag is adopted.
+
 ## Semantic presentation boundary
 
 | Checklist item | 0.9 browser status | Journey evidence |
@@ -102,7 +110,7 @@ Swift `TabView` archive behavior remains owned and tested in `swift-tui`.
 | Live announcements | Presented | Polite counter announcement |
 | Hidden content | Presented | Inactive panel is absent from the ARIA tree |
 | Text cursor anchoring | Wire-only | `cursorAnchor` is transported but has no browser DOM projection |
-| Assistive activation, adjustment, editing, value/state, and assistive-origin focus | Not supported | Not recorded as passing by this journey |
+| Assistive activation, adjustment, editing, value/state, and assistive-origin focus | Supported when runtime action metadata is available | Separate adapter checks below; this presentation journey does not prove compiled-runtime or AT acceptance |
 
 ## Animation-frame paint batching
 

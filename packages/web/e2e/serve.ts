@@ -19,6 +19,7 @@ for (const asset of ["assets/app.wasm", "scene-manifest.json"]) {
 for (const [entry, output] of [
   ["compiled-wasm.fixture.ts", "compiled-wasm.js"],
   ["dom-surface.fixture.ts", "dom-surface.js"],
+  ["accessibility-actions.fixture.ts", "accessibility-actions.js"],
   ["compiled-wasm-worker.ts", "compiled-wasm-worker.js"],
 ] as const) {
   const result = await Bun.build({
@@ -93,6 +94,10 @@ const server = Bun.serve({
 
     const wasmAssets: Record<string, string> = {
       "/dom-surface.js": join(outputDirectory, "dom-surface.js"),
+      "/accessibility-actions.js": join(
+        outputDirectory,
+        "accessibility-actions.js",
+      ),
       "/compiled-wasm.html": join(e2eDirectory, "compiled-wasm.html"),
       "/compiled-wasm.js": join(outputDirectory, "compiled-wasm.js"),
       "/compiled-wasm.js.map": join(outputDirectory, "compiled-wasm.js.map"),

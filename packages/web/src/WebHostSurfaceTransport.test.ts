@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  encodeAccessibilityActionMessage,
   encodeCapabilitiesControlMessage,
   encodeMouseInputMessage,
   encodePointerCapabilitiesControlMessage,
@@ -1432,4 +1433,83 @@ test("zero-sized grid is structurally valid", () => {
       ),
     )[0]?.type,
   ).toBe("surface");
+});
+
+test("accessibility input keeps tokens and text framed and typed", () => {
+  expect(
+    decoder.decode(
+      encodeAccessibilityActionMessage("3:root/名前", { action: "focus" }, "7"),
+    ),
+  ).toBe("\u001eaccessibility:7:3%3Aroot%2F%E5%90%8D%E5%89%8D:focus\n");
+  expect(
+    decoder.decode(
+      encodeAccessibilityActionMessage(
+        "x",
+        { action: "setValue", value: { type: "text", value: "a:b\n😀" } },
+        "8",
+      ),
+    ),
+  ).toBe("\u001eaccessibility:8:x:setValue:text:a%3Ab%0A%F0%9F%98%80\n");
+  expect(
+    decoder.decode(
+      encodeAccessibilityActionMessage("x", {
+        action: "setValue",
+        value: { type: "boolean", value: false },
+      }),
+    ),
+  ).toBe("\u001eaccessibility:x:setValue:boolean:false\n");
+});
+
+test("accessibility state and acknowledgement survive decoding with validation", () => {
+  const node = {
+    id: "control",
+    rect: [0, 0, 1, 1],
+    role: "slider",
+    actionTarget: "3:control",
+    actions: ["focus", "increment", "setValue"],
+    isEnabled: true,
+    value: { type: "number", value: 2 },
+    valueMin: 0,
+    valueMax: 10,
+    valueStep: 1,
+  };
+  const response = {
+    requestID: "18446744073709551615",
+    target: "3:control",
+    result: "accepted",
+  };
+  const frame = {
+    version: 2,
+    width: 1,
+    height: 1,
+    styles: [null],
+    rows: [[]],
+    accessibilityTree: [node],
+    accessibilityActionResponse: response,
+  };
+  const decode = (value: unknown) =>
+    new WebHostOutputDecoder().feed(
+      encoder.encode(`\u001esurface:${JSON.stringify(value)}\n`),
+    );
+  expect(surfaceFrame(decode(frame)[0]).accessibilityTree).toEqual([node]);
+  expect(surfaceFrame(decode(frame)[0]).accessibilityActionResponse).toEqual(
+    response,
+  );
+  for (const invalid of [
+    { value: { type: "boolean", value: "yes" } },
+    { actions: [42] },
+    { isEnabled: 1 },
+    { valueMax: "10" },
+  ]) {
+    expect(
+      decode({ ...frame, accessibilityTree: [{ ...node, ...invalid }] })[0]
+        ?.type,
+    ).toBe("text");
+  }
+  expect(
+    decode({
+      ...frame,
+      accessibilityActionResponse: { ...response, requestID: 1 },
+    })[0]?.type,
+  ).toBe("text");
 });

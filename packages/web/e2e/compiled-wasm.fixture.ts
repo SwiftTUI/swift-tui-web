@@ -223,3 +223,9 @@ function requiredElement(id: string): HTMLElement {
   if (!element) throw new Error(`Missing WASM fixture element: ${id}`);
   return element;
 }
+
+requiredElement("start-accessibility").onclick = () => {
+  void api
+    .start("worker", "accessibility")
+    .catch((error: unknown) => errors.push(String(error)));
+};
