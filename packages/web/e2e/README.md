@@ -73,6 +73,13 @@ runtime's automatic execution-mode policy.
 
 ## Synthetic browser/WASI transport
 
+`AccessibilityActions.browser.ts` checks typed assistive requests and value
+acknowledgements, plus actual browser bounds for nested controls and native
+inputs on both canvas and DOM surfaces. Moving or hiding a semantic parent
+preserves scene-space child bounds, and the transparent overlay leaves pointer
+hit testing on the painted surface. These checks do not observe a screen
+reader's own focus outline.
+
 `PreviewReadiness.browser.ts` connects the real `WebHostSceneRuntime` and
 `BrowserWASIBridge` to a deterministic TypeScript transport peer. It does not
 execute WASM. It checks actual browser events and pixels:

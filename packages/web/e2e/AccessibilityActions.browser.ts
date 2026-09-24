@@ -8,6 +8,7 @@ declare global {
   interface Window {
     accessibilityActions: {
       records: string[];
+      metrics: { cellWidth: number; cellHeight: number };
       present(
         nodes: WebHostAccessibilityNode[],
         response?: WebHostAccessibilityActionResponse,
@@ -158,3 +159,105 @@ test("assistive controls return typed requests and retain pending edits until ac
   });
   expect(await records(page)).toEqual(beforeDisabled);
 });
+
+for (const renderer of ["canvas", "dom"]) {
+  test(`${renderer} assistive bounds match scene coordinates through nested and hidden parents`, async ({
+    page,
+  }) => {
+    await page.goto(`/health?renderer=${renderer}`);
+    await page.addScriptTag({
+      url: "/accessibility-actions.js",
+      type: "module",
+    });
+    await page.waitForFunction(
+      () => window.accessibilityActions?.metrics.cellWidth > 0,
+    );
+    const group: WebHostAccessibilityNode = {
+      id: "group",
+      parentId: "root",
+      role: "group",
+      rect: [7, 3, 25, 8],
+    };
+    const nested: WebHostAccessibilityNode[] = [
+      { id: "root", role: "group", rect: [3, 2, 35, 10] },
+      group,
+      ...nodes.map((node, index) => ({
+        ...node,
+        parentId: "group",
+        isFocused: node.id === "button",
+        rect: [9, 4 + index, 10, 1] as [number, number, number, number],
+      })),
+      {
+        id: "editor",
+        parentId: "group",
+        role: "textEditor",
+        label: "Notes",
+        actionTarget: "6:editor",
+        actions: ["focus", "setValue"],
+        rect: [9, 9, 10, 2],
+      },
+    ];
+    const assertBounds = async () => {
+      const surface = await page
+        .locator(".webhost-scene__surface")
+        .boundingBox();
+      if (!surface) throw new Error("Missing painted surface bounds");
+      const metrics = await page.evaluate(
+        () => window.accessibilityActions.metrics,
+      );
+      for (const node of nested.filter((node) => !node.hidden)) {
+        const box = await page
+          .locator(`[data-accessibility-id="${node.id}"]`)
+          .boundingBox();
+        if (!box) throw new Error(`Missing semantic bounds for ${node.id}`);
+        expect(box.x, `${node.id} x`).toBeCloseTo(
+          surface.x + node.rect[0] * metrics.cellWidth,
+          1,
+        );
+        expect(box.y, `${node.id} y`).toBeCloseTo(
+          surface.y + node.rect[1] * metrics.cellHeight,
+          1,
+        );
+        expect(box.width, `${node.id} width`).toBeCloseTo(
+          node.rect[2] * metrics.cellWidth,
+          1,
+        );
+        expect(box.height, `${node.id} height`).toBeCloseTo(
+          node.rect[3] * metrics.cellHeight,
+          1,
+        );
+      }
+    };
+    await present(page, nested);
+    await assertBounds();
+    const tree = page.locator(".webhost-scene__accessibility-tree");
+    const terminal = await page
+      .locator(".webhost-scene__terminal")
+      .boundingBox();
+    expect(await tree.boundingBox()).toEqual(terminal);
+    await expect(tree).toHaveCSS("clip-path", "none");
+    await expect(tree).toHaveCSS("overflow", "visible");
+    const button = page.getByRole("button", { name: "Increment" });
+    await button.focus();
+    await button.press("Enter");
+    expect((await records(page)).at(-1)).toContain("1%3Abutton:activate");
+    // The invisible semantic overlay must not intercept painted-surface clicks.
+    expect(
+      await button.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return !!document
+          .elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+          ?.closest(".webhost-scene__surface");
+      }),
+    ).toBe(true);
+    // Moving an ancestor must not add its offset to scene-space child bounds.
+    group.rect = [5, 1, 25, 8];
+    await present(page, nested);
+    await assertBounds();
+    // A child reparented past a hidden node keeps the same scene-space origin.
+    group.hidden = true;
+    await present(page, nested);
+    await assertBounds();
+    await expect(button).toBeFocused();
+  });
+}

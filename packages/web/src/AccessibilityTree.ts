@@ -48,7 +48,12 @@ export class AccessibilityTreeMounter {
   ) {
     this.element = document.createElement("div");
     this.element.className = "webhost-scene__accessibility-tree";
-    applyScreenReaderOnlyStyle(this.element);
+    // Assistive focus outlines use these elements' real bounds. Hide only
+    // their paint, preserving the full scene geometry and semantic hierarchy.
+    this.element.style.position = "absolute";
+    this.element.style.inset = "0";
+    this.element.style.opacity = "0";
+    this.element.style.pointerEvents = "none";
 
     this.announcerElement = document.createElement("div");
     this.announcerElement.className = "webhost-scene__accessibility-announcer";
@@ -83,6 +88,7 @@ export class AccessibilityTreeMounter {
     }
     const previousById = this.nodesById;
     const nextById = new Map<string, HTMLElement>();
+    const modelsById = new Map(visibleNodes.map((node) => [node.id, node]));
 
     for (const node of visibleNodes) {
       const existing = previousById.get(node.id);
@@ -97,7 +103,12 @@ export class AccessibilityTreeMounter {
         this.pendingValues.delete(node.id);
         if (this.pendingFocus?.id === node.id) this.pendingFocus = undefined;
       }
-      this.applyNodeAttributes(element, node, metrics);
+      this.applyNodeAttributes(
+        element,
+        node,
+        metrics,
+        node.parentId ? modelsById.get(node.parentId) : undefined,
+      );
       nextById.set(node.id, element);
     }
 
@@ -110,7 +121,7 @@ export class AccessibilityTreeMounter {
     }
 
     this.nodesById = nextById;
-    this.modelsById = new Map(visibleNodes.map((node) => [node.id, node]));
+    this.modelsById = modelsById;
     const childOffsets = new Map<HTMLElement, number>();
 
     for (const node of visibleNodes) {
@@ -255,6 +266,7 @@ export class AccessibilityTreeMounter {
     element: HTMLElement,
     node: WebHostAccessibilityNode,
     metrics: AccessibilityTreeMetrics,
+    parent?: WebHostAccessibilityNode,
   ): void {
     element.id = `swifttui-a11y-${stableDOMId(node.id)}`;
     element.dataset.accessibilityId = node.id;
@@ -348,11 +360,21 @@ export class AccessibilityTreeMounter {
     }
 
     const [x, y, width, height] = node.rect;
+    const [parentX, parentY] = parent?.rect ?? [0, 0];
+    // Wire rectangles are scene-relative; positioned DOM children are
+    // parent-relative. Hidden/missing parents reparent to the scene root.
     element.style.position = "absolute";
-    element.style.left = `${x * metrics.cellWidth}px`;
-    element.style.top = `${y * metrics.cellHeight}px`;
+    element.style.left = `${(x - parentX) * metrics.cellWidth}px`;
+    element.style.top = `${(y - parentY) * metrics.cellHeight}px`;
     element.style.width = `${Math.max(1, width) * metrics.cellWidth}px`;
     element.style.height = `${Math.max(1, height) * metrics.cellHeight}px`;
+    // Native input defaults otherwise enlarge or offset the advertised box.
+    element.style.boxSizing = "border-box";
+    element.style.margin = "0";
+    element.style.padding = "0";
+    element.style.border = "0";
+    element.style.minWidth = "0";
+    element.style.minHeight = "0";
   }
 
   private announceLiveRegionChanges(

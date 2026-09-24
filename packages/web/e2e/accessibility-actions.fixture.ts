@@ -14,6 +14,10 @@ const bridge = new BrowserWASIBridge({
   columns: 40,
   rows: 12,
 });
+let metrics = { cellWidth: 0, cellHeight: 0 };
+bridge.subscribeResize((_columns, _rows, cellWidth, cellHeight) => {
+  if (cellWidth && cellHeight) metrics = { cellWidth, cellHeight };
+});
 bridge.stdin.subscribe((chunk) => {
   for (const record of new TextDecoder().decode(chunk).split("\n")) {
     if (record.startsWith("\u001eaccessibility:"))
@@ -27,12 +31,19 @@ const runtime = new WebHostSceneRuntime({
   bridge,
   onInput: (chunk) => bridge.sendInput(chunk),
   paintScheduling: "synchronous",
+  renderer:
+    new URLSearchParams(location.search).get("renderer") === "dom"
+      ? "dom"
+      : "canvas",
 });
 await runtime.mount();
 runtime.setVisible(true);
 let sequence = 0;
 const api = {
   records,
+  get metrics() {
+    return metrics;
+  },
   present(
     nodes: WebHostAccessibilityNode[],
     response?: WebHostAccessibilityActionResponse,

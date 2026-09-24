@@ -46,6 +46,12 @@ come from runtime frames. Text fields/editors and numeric controls use native
 browser inputs. Secure fields use password inputs and never receive their text
 from a frame; local drafts clear on blur.
 
+Semantic elements keep the same scene-space bounds as the painted controls,
+including nested groups and native inputs, so assistive focus outlines align
+with the canvas or DOM surface. The overlay is transparent and lets ordinary
+pointer input reach the painted surface; only the announcement sink uses a
+clipped screen-reader-only box.
+
 Requests carry increasing scene-local IDs. Returned acknowledgements let the
 host retain newer edits while older frames arrive, then reconcile to the
 runtime's accepted or rejected state. Runtime focus and value updates do not
