@@ -178,6 +178,8 @@ test("unchanged frames preserve navigation past a field and reconcile rejected f
   });
   await present(page, snapshot);
   const password = page.getByLabel("Password", { exact: true });
+  await expect(password).toHaveAttribute("type", "password");
+  await expect(password).not.toHaveAttribute("role");
   const disabled = page.getByRole("button", { name: "Unavailable" });
   await expect(password).toBeFocused();
   await disabled.focus();

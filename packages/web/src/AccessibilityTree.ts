@@ -286,7 +286,14 @@ export class AccessibilityTreeMounter {
     element.tabIndex = node.isFocused ? 0 : -1;
 
     const role = roleMapping(node.role);
-    setOrRemoveAttribute(element, "role", role.role);
+    // A password input must retain its native secure-field semantics.
+    setOrRemoveAttribute(
+      element,
+      "role",
+      node.role === "secureField" && element.tagName === "INPUT"
+        ? undefined
+        : role.role,
+    );
     setOrRemoveAttribute(
       element,
       "aria-level",
