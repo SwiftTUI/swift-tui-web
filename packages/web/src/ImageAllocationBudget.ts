@@ -23,14 +23,33 @@ export function admitsImageSize(width: number, height: number): boolean {
 }
 
 export function admitsImagePayload(payload: string): boolean {
-  if (payload.length > HOST_WIRE_MAX_RECORD_BYTES) return false;
+  return imagePayloadMetrics(payload) !== undefined;
+}
+
+/** Container dimensions and owned compressed/decoded byte estimates, before decode. */
+export function imagePayloadMetrics(payload: string):
+  | {
+      width: number;
+      height: number;
+      decodedBytes: number;
+      payloadBytes: number;
+    }
+  | undefined {
+  if (payload.length > HOST_WIRE_MAX_RECORD_BYTES) return undefined;
   try {
     const binary = atob(payload);
-    return admitsImageBytes(
+    const size = imageSize(
       Uint8Array.from(binary, (character) => character.charCodeAt(0)),
     );
+    if (!size || !admitsImageSize(...size)) return undefined;
+    return {
+      width: size[0],
+      height: size[1],
+      decodedBytes: size[0] * size[1] * 4,
+      payloadBytes: payload.length * 2,
+    };
   } catch {
-    return false;
+    return undefined;
   }
 }
 

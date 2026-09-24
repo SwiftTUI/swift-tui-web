@@ -387,6 +387,7 @@ for (const dpr of [1, 1.25, 1.5, 2, 3]) {
               Math.abs(
                 (rect.x - g.content.left) / g.content.scaleX - x * g.cellWidth,
               ),
+              JSON.stringify({ x, y, zoom, rect, geometry: g }),
             ).toBeLessThanOrEqual(0.5);
             expect(
               Math.abs(

@@ -12,6 +12,7 @@ let package = Package(
       name: "BrowserApp",
       dependencies: [
         .product(name: "SwiftTUIRuntime", package: "swift-tui"),
+        .product(name: "SwiftTUIAnimatedImage", package: "swift-tui"),
         .product(name: "SwiftTUIWASI", package: "swift-tui"),
       ]
     )

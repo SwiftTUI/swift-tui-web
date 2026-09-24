@@ -78,6 +78,8 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
   private readonly queuedOutput: WebHostOutputRecord[] = [];
   private sink?: WebHostOutputSink;
   private disposed = false;
+  private resourceFailure?: string;
+  private queuedOutputBytes = 0;
   private reconnectAttempts = 0;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   // The host state the runtime last declared, replayed after a reconnect.
@@ -165,6 +167,8 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
 
   bindOutput(sink: WebHostOutputSink): void {
     this.sink = sink;
+    if (this.resourceFailure) sink.writeError?.(this.resourceFailure);
+    this.queuedOutputBytes = 0;
     while (this.queuedOutput.length > 0) {
       this.deliver(this.queuedOutput.shift()!);
     }
@@ -205,6 +209,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
       return;
     }
 
+    if (!this.admitsQueuedInput([chunk])) return;
     const copy = new Uint8Array(chunk);
     this.queuedInput.push(copy);
     if (this.socket.readyState === socketOpenState) {
@@ -234,6 +239,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     this.detachSocket(this.socket);
     this.queuedInput.length = 0;
     this.queuedOutput.length = 0;
+    this.queuedOutputBytes = 0;
     this.socket.close(1000, "WebHost scene disposed");
   }
 
@@ -298,6 +304,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     if (this.lastPointerCapabilitiesMessage) {
       handshake.push(this.lastPointerCapabilitiesMessage);
     }
+    if (!this.admitsQueuedInput(handshake)) return;
     this.queuedInput.unshift(
       ...handshake.map((chunk) => new Uint8Array(chunk)),
     );
@@ -313,6 +320,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     this.pendingReceiveBytes = 0;
     this.decoder = new WebHostOutputDecoder();
     this.queuedOutput.length = 0;
+    this.queuedOutputBytes = 0;
     this.sink?.resetSurfaceSession?.();
   }
 
@@ -353,8 +361,20 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
   }
 
   private deliver(record: WebHostOutputRecord): void {
+    if (this.disposed) return;
     const sink = this.sink;
     if (!sink) {
+      const bytes = JSON.stringify(record).length * 2;
+      if (
+        this.queuedOutput.length >= 256 ||
+        this.queuedOutputBytes + bytes > 16 * 1024 * 1024
+      ) {
+        this.failResourceLimit(
+          "WebHost stopped: unbound output exceeded 256 records or 16 MiB. Reload the scene to restart.\n",
+        );
+        return;
+      }
+      this.queuedOutputBytes += bytes;
       this.queuedOutput.push(record);
       return;
     }
@@ -395,6 +415,26 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
         return;
       }
     }
+  }
+
+  private failResourceLimit(message: string): void {
+    if (this.disposed) return;
+    this.resourceFailure = message;
+    this.sink?.writeError?.(message);
+    this.dispose();
+  }
+
+  private admitsQueuedInput(chunks: readonly Uint8Array[]): boolean {
+    const bytes = [...this.queuedInput, ...chunks].reduce(
+      (total, item) => total + item.byteLength,
+      0,
+    );
+    if (this.queuedInput.length + chunks.length <= 1024 && bytes <= 1024 * 1024)
+      return true;
+    this.failResourceLimit(
+      "WebHost stopped: disconnected input exceeded 1,024 records or 1 MiB. Reload the scene to restart.\n",
+    );
+    return false;
   }
 
   private sendPendingResyncRequests(): void {

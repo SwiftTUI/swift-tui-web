@@ -532,6 +532,9 @@ class FakeElement {
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
 }
 
 class FakeCanvasElement extends FakeElement {

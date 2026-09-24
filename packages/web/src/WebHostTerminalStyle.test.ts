@@ -9,6 +9,19 @@ import {
   webTUITerminalBackgroundColor,
 } from "./WebHostTerminalStyle.ts";
 
+test("host motion uses additive legacy-compatible string tokens and keeps explicit overrides", () => {
+  expect(resolveWebHostTerminalRenderStyle({}).reduceMotion).toBeUndefined();
+  for (const reduceMotion of [true, false]) {
+    const style = normalizeWebHostTerminalStyle({ reduceMotion });
+    expect(style.reduceMotion).toBe(reduceMotion);
+    expect(resolveWebHostTerminalRenderStyle(style).reduceMotion).toBe(
+      String(reduceMotion),
+    );
+    const encoded = encodeWebHostTerminalRenderStyleBase64(style);
+    expect(JSON.parse(atob(encoded)).reduceMotion).toBe(String(reduceMotion));
+  }
+});
+
 test("terminal style normalization fills default palette and theme", () => {
   const style = normalizeWebHostTerminalStyle({
     fontSize: 16,

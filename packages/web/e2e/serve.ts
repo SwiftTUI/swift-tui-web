@@ -22,6 +22,7 @@ for (const [entry, output] of [
   ["dom-typography.fixture.ts", "dom-typography.js"],
   ["dom-geometry.fixture.ts", "dom-geometry.js"],
   ["geometry-corpus.fixture.ts", "geometry-corpus.js"],
+  ["dom-fidelity.fixture.ts", "dom-fidelity.js"],
   ["font-qualification.fixture.ts", "font-qualification.js"],
   ["dom-performance.fixture.ts", "dom-performance.js"],
   ["accessibility-actions.fixture.ts", "accessibility-actions.js"],
@@ -121,6 +122,7 @@ const server = Bun.serve({
       "/dom-typography.js": join(outputDirectory, "dom-typography.js"),
       "/dom-geometry.js": join(outputDirectory, "dom-geometry.js"),
       "/geometry-corpus.js": join(outputDirectory, "geometry-corpus.js"),
+      "/dom-fidelity.js": join(outputDirectory, "dom-fidelity.js"),
       "/accessibility-actions.js": join(
         outputDirectory,
         "accessibility-actions.js",

@@ -9,6 +9,61 @@ import {
 } from "./WebHostSurfaceTransport.ts";
 import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
+test("image placements retain duplicate payload ids, reorder in wire order and release bounded ownership", () => {
+  const dom = installFakeDOM();
+  try {
+    const painter = new DomSurfacePainter();
+    const root = new FakeElement("div");
+    painter.attach(root as unknown as HTMLElement);
+    const payload =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=";
+    const image = (id: string, x: number) => ({
+      id,
+      format: "png" as const,
+      bounds: [x, 0, 1, 1] as [number, number, number, number],
+      visibleBounds: [x, 0, 1, 1] as [number, number, number, number],
+      dataBase64: payload,
+    });
+    painter.paint(
+      metricsFor(1),
+      makeFrame({
+        rows: [[]],
+        images: [image("a", 0), image("b", 1), image("a", 2)],
+      }),
+    );
+    const layer = root.children[1]!;
+    expect(layer.children).toHaveLength(3);
+    const [a, b, secondA] = layer.children;
+    expect(painter.statistics.decodedImageBytes).toBe(12);
+    painter.paint(
+      metricsFor(1),
+      makeFrame({
+        rows: [[]],
+        images: [image("b", 1), image("a", 0), image("a", 2)],
+      }),
+    );
+    expect(layer.children).toEqual([b!, a!, secondA!]);
+    painter.paint(
+      metricsFor(1),
+      makeFrame({
+        rows: [[]],
+        images: Array.from({ length: 300 }, (_, i) => image(String(i), 0)),
+      }),
+    );
+    expect(painter.statistics.imageNodes).toBe(512);
+    expect(painter.statistics.rejectedImages).toBe(44);
+    painter.dispose();
+    expect(painter.statistics).toMatchObject({
+      imageNodes: 0,
+      decodedImageBytes: 0,
+      retainedPayloadBytes: 0,
+      pendingImages: 0,
+    });
+  } finally {
+    dom.restore();
+  }
+});
+
 test("full paint renders positioned row and cell elements with resolved styles", () => {
   const dom = installFakeDOM();
   try {
@@ -41,7 +96,7 @@ test("full paint renders positioned row and cell elements with resolved styles",
     const firstRow = rowsLayer?.children[0];
     expect(firstRow?.style.top).toBe("0px");
     expect(firstRow?.style.height).toBe("18px");
-    expect(firstRow?.children).toHaveLength(2);
+    expect(firstRow?.children).toHaveLength(4);
 
     const emphasized = firstRow?.children[0];
     expect(emphasized?.textContent).toBe("Hi");
@@ -53,16 +108,20 @@ test("full paint renders positioned row and cell elements with resolved styles",
     expect(emphasized?.style.fontStyle).toBe("italic");
 
     // Reverse video (em & 16) swaps the cell's colors against the theme.
-    const reversed = firstRow?.children[1];
+    const reversed = firstRow?.children[2];
     expect(reversed?.style.left).toBe("32px");
     expect(reversed?.style.backgroundColor).toBe("#123456");
 
-    const decorated = rowsLayer?.children[1]?.children[0];
+    const decorated = rowsLayer?.children[1]?.children[1];
     expect(decorated?.style.top).toBe("0");
     expect(rowsLayer?.children[1]?.style.top).toBe("18px");
-    expect(decorated?.style.textDecorationLine).toBe("underline");
-    expect(decorated?.style.textDecorationStyle).toBe("wavy");
-    expect(decorated?.style.textDecorationColor).toBe("#abcdef");
+    expect(decorated?.style.textDecorationLine).toBe("none");
+    expect(
+      decodeURIComponent(decorated?.style.backgroundImage ?? ""),
+    ).toContain("#abcdef");
+    expect(
+      decodeURIComponent(decorated?.style.backgroundImage ?? ""),
+    ).toContain("C1");
     expect(decorated?.style.opacity).toBe("0.5");
   } finally {
     dom.restore();
@@ -112,7 +171,7 @@ test("blank runs remain selectable alongside decorated whitespace", () => {
     painter.paint(metricsFor(1), frame);
 
     const row = root.children[0]?.children[0];
-    expect(row?.children).toHaveLength(2);
+    expect(row?.children).toHaveLength(3);
     expect(row?.children[1]?.style.backgroundColor).toBe("#222222");
     expect(row?.children[1]?.style.width).toBe("24px");
   } finally {
@@ -600,6 +659,11 @@ interface FakeDOMOptions {
 function installFakeDOM(options: FakeDOMOptions = {}): { restore(): void } {
   const previousDocument = globalThis.document;
   globalThis.document = {
+    createTextNode: (text: string) => {
+      const node = new FakeElement("#text");
+      node.textContent = text;
+      return node;
+    },
     createElement: (tagName: string) => {
       if (tagName === "canvas") {
         return new FakeCanvasElement(options.measuredAdvance ?? 8);
@@ -622,7 +686,10 @@ class FakeStyle {
 class FakeElement {
   readonly tagName: string;
   readonly style = new FakeStyle() as unknown as CSSStyleDeclaration;
-  children: FakeElement[] = [];
+  private nodes: FakeElement[] = [];
+  get children(): FakeElement[] {
+    return this.nodes.filter((node) => node.tagName !== "#TEXT");
+  }
   parent?: FakeElement;
   className = "";
   textContent = "";
@@ -635,15 +702,15 @@ class FakeElement {
 
   appendChild(child: FakeElement): FakeElement {
     child.parent = this;
-    this.children.push(child);
+    this.nodes.push(child);
     return child;
   }
 
   insertBefore(child: FakeElement, before: FakeElement | null): FakeElement {
     child.remove();
     child.parent = this;
-    const index = before ? this.children.indexOf(before) : this.children.length;
-    this.children.splice(index, 0, child);
+    const index = before ? this.nodes.indexOf(before) : this.nodes.length;
+    this.nodes.splice(index, 0, child);
     return child;
   }
 
@@ -651,11 +718,11 @@ class FakeElement {
     for (const child of children) {
       child.parent = this;
     }
-    this.children.splice(0, this.children.length, ...children);
+    this.nodes.splice(0, this.nodes.length, ...children);
   }
 
   remove(): void {
-    const siblings = this.parent?.children;
+    const siblings = this.parent?.nodes;
     if (!siblings) {
       return;
     }
@@ -671,6 +738,9 @@ class FakeElement {
 
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
+  }
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
   }
 }
 

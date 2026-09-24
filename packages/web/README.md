@@ -138,13 +138,14 @@ await createWebHostApp({
   host's scale-to-fit fallback. If a browser font makes a declared single-cell
   glyph wider than one cell, its excess ink is truncated. Select a font whose
   fallback metrics fit the grid when that distinction matters.
-- **`"dom"`** renders cells as absolutely positioned text elements. It uses
+- **`"dom"`** renders fixed-width lead cells in absolutely positioned rows. It uses
   browser font shaping and fallback for emoji and CJK. Text stays sharp at each
   page zoom, and the element tree is inspectable. Hold Alt/Option and drag to
   select and copy app text. A drag without Alt/Option remains pointer input for
   the app. Box, block and Braille characters use cached SVG backgrounds from
-  the Canvas geometry rules, with one original text node for selection/copy.
-  Underline and strikethrough use CSS `text-decoration`; their patterns and
+  shared renderer-neutral geometry, with one original text node for selection/copy.
+  Underline and strikethrough have independent color and geometry in the same
+  SVG background: solid, dot, dash, dash-dot, dash-dot-dot, double and curly.
   SVG edge antialiasing can differ from Canvas. DOM metrics are measured in
   the styled mount and refreshed on font loading, style changes, resize,
   viewport zoom and DPR changes. Each wire lead keeps its original Unicode
@@ -155,7 +156,18 @@ await createWebHostApp({
   resize. Changing/removing selected text, shrinking away its row, or changing
   its span into/out of a link clears the active selection and publishes the
   new data immediately. It never freezes app updates. Whitespace remains real
-  text. Ctrl/Cmd-C copies the selection; Ctrl/Cmd-F remains browser find.
+  text, including sparse gaps and leading/trailing spaces. Copy writes the
+  selected original Unicode once, with LF between rows; wide continuation
+  columns add no second grapheme. WebKit may normalize decomposed text when
+  reading the native clipboard back into a page; the copied clipboard text
+  preserves it. Ctrl/Cmd-C copies the selection; Ctrl/Cmd-F remains browser find.
+  Chromium currently cannot match a search across separate wire cells
+  (its find engine treats inline-blocks as boundaries). Firefox and WebKit
+  can. This is an explicit native-find limitation, not a production conformance
+  claim. Find and print cover the mounted viewport only, never an offscreen virtual
+  collection. The companion `style.css` print rules preserve the committed
+  grid and hide semantic helpers and diagnostic output. Reflow/scrolling that
+  replaces selected cells clears the Range; repeated text is not an identity.
 
   Protocol links use native anchors with safe HTTP(S) navigation, a new tab
   and `noopener noreferrer`. The optional `onOpenHyperlink` hook handles
@@ -168,6 +180,45 @@ await createWebHostApp({
 
 The option is also available for each scene runtime through
 `WebHostSceneRuntimeOptions.renderer`. The package exports `DomSurfacePainter` for custom DOM runtimes.
+
+### Images, preferences and resource ownership
+
+DOM images use clipped placement wrappers in wire order above the cell layer,
+matching the portable prepared-image contract. Repeated payload IDs may have
+multiple placements. Reordering and restyling retain image nodes and sources;
+removed/replaced images invalidate decode callbacks. Raw GIF containers display
+only their first frame in both presenters. Authored `AnimatedImage` supplies
+producer-selected PNG frames and follows WASI suspension and live reduced
+motion. `style.reduceMotion` overrides the browser media-query preference;
+explicit Swift runtime reduced motion remains authoritative.
+
+Forced colors use system Canvas/CanvasText colors for text, geometric glyphs
+and each decoration, with full ink opacity. Media-query changes invalidate
+presentation and update the producer's motion preference. Windows High Contrast
+and physical-device qualification are separate from browser emulation.
+
+`runtime.resourceStatistics` exposes cells, row separators, image nodes,
+semantic nodes, style/geometry caches, image bytes, pending/failed images,
+font-face leases and paint-queue ownership. A painter retains at most one
+row per admitted row, at most one cell per grid column (including sparse runs),
+one separator between rows, and two elements per admitted image placement.
+SVG decoration backgrounds add no DOM nodes. Rows/cells disappear with their
+viewport content; semantic nodes correspond only to the current wire tree.
+
+Each DOM painter admits at most 256 placements, 64 MiB decoded image bytes and
+64 MiB retained payload characters measured as two-byte JavaScript units.
+Rejected images produce a bounded visible diagnostic. Style and geometry
+caches each hold at most 512 entries. A runtime leases four packaged font
+faces, temporarily eight while replacing a visible font configuration; shared
+configurations reuse document font resources. Disposal releases all leases.
+The paint queue carries at most 64 MiB image bytes for IDs still referenced by
+its candidate; missing bytes use the existing bounded recovery protocol.
+Pending announcements are limited to 1,024 messages / 256 KiB. Exceeding that
+limit stops the session visibly instead of silently losing assistive output.
+WebSocket disconnected input is limited to 1,024 records / 1 MiB, and output
+before binding to 256 records / 16 MiB. Exceeding either stops the session;
+reloading starts a new one. These limits supplement the host-wire record and
+grid bounds, rather than changing them.
 
 ### DOM typography and embedding
 

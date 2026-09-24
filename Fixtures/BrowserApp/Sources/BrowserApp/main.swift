@@ -1,4 +1,5 @@
 import SwiftTUIRuntime
+import SwiftTUIAnimatedImage
 import SwiftTUIWASI
 
 struct BrowserApp: App {
@@ -8,6 +9,9 @@ struct BrowserApp: App {
     }
     WindowGroup("Animation", id: WindowIdentifier("animation")) {
       AnimationWorkload()
+    }
+    WindowGroup("Images", id: WindowIdentifier("images")) {
+      ImageWorkload()
     }
     WindowGroup("Deep", id: WindowIdentifier("deep")) {
       DeepWorkload()
@@ -66,6 +70,21 @@ struct DeepWorkload: View {
       content = AnyView(content.padding(0))
     }
     return content
+  }
+}
+
+struct ImageWorkload: View {
+  private let frames = [
+    AnimatedImageFrame(width: 1, height: 1, pixels: [.init(red: 255, green: 0, blue: 0)]),
+    AnimatedImageFrame(width: 1, height: 1, pixels: [.init(red: 0, green: 0, blue: 255)]),
+  ]
+  var body: some View {
+    VStack {
+      EnvironmentReader(\.accessibilityReduceMotion) { reduced in
+        Text(reduced ? "Motion reduced" : "Motion active")
+      }
+      AnimatedImage(frames: frames, framesPerSecond: 5).frame(width: 4, height: 2)
+    }
   }
 }
 

@@ -315,6 +315,7 @@ export class WebHostSceneRuntime {
     this.painter =
       this.rendererKind === "dom"
         ? new DomSurfacePainter({
+            onResourceLimit: (message) => this.writeOutput(`${message}\n`),
             onImagePayloadMiss,
             onOpenHyperlink: options.onOpenHyperlink,
           })
@@ -325,6 +326,10 @@ export class WebHostSceneRuntime {
       paintScheduling === "synchronous" ? undefined : paintScheduling,
       (request) => this.paint(request),
       (frame) => !this.domGeometry || this.geometrySession.canPresent(frame),
+      (message) => {
+        this.writeOutput(`${message}\n`);
+        void this.bridge?.dispose();
+      },
     );
     this.onOpenHyperlink = options.onOpenHyperlink;
     this.suspendWhenHidden = options.suspendWhenHidden ?? true;
@@ -449,6 +454,25 @@ export class WebHostSceneRuntime {
   /** Paint-scheduler counters: frames presented, paints delivered, frames coalesced. */
   get paintStatistics(): WebHostPaintStatistics {
     return this.paintScheduler.statistics;
+  }
+
+  /** Live presentation ownership, independent from the wire allocation caps. */
+  get resourceStatistics() {
+    return {
+      dom:
+        this.painter instanceof DomSurfacePainter
+          ? this.painter.statistics
+          : undefined,
+      semanticNodes: this.terminalMount.querySelectorAll(
+        ".webhost-scene__accessibility-tree *",
+      ).length,
+      fontFaceLeases:
+        (this.fontResources?.ownedFaceLeases ?? 0) +
+        (this.activeFontResources !== this.fontResources
+          ? (this.activeFontResources?.ownedFaceLeases ?? 0)
+          : 0),
+      paintQueue: this.paintScheduler.statistics,
+    };
   }
 
   private updateRuntimeSuspension(): void {
@@ -791,7 +815,23 @@ export class WebHostSceneRuntime {
       refresh();
     };
     watchDpr();
+    const preferences = [
+      "(forced-colors: active)",
+      "(prefers-color-scheme: dark)",
+      "(prefers-reduced-motion: reduce)",
+    ]
+      .map((query) => globalThis.matchMedia?.(query))
+      .filter((query): query is MediaQueryList => query !== undefined);
+    const preferenceChanged = () => {
+      this.bridge?.updateRenderStyle?.(this.currentStyle);
+      refresh();
+      this.paintScheduler.requestRepaint();
+    };
+    for (const query of preferences)
+      query.addEventListener?.("change", preferenceChanged);
     this.detachMetricObservers = () => {
+      for (const query of preferences)
+        query.removeEventListener?.("change", preferenceChanged);
       fonts?.removeEventListener?.("loadingdone", refresh);
       fonts?.removeEventListener?.("loadingerror", refresh);
       globalThis.window?.removeEventListener?.("resize", refresh);

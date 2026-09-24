@@ -1,10 +1,11 @@
 import { canRenderBoxDrawing } from "./BoxDrawingRenderer.ts";
 import { DomGlyphBackground } from "./DomGlyphBackground.ts";
-import { admitsImagePayload } from "./ImageAllocationBudget.ts";
+import { imagePayloadMetrics } from "./ImageAllocationBudget.ts";
 import {
   isSupportedImageFormat,
   normalizeScalingMode,
 } from "./normalizeWireTokens.ts";
+import { staticGifBase64 } from "./StaticGif.ts";
 import { registerDomSurfacePainterConformanceControl } from "./SurfacePainterConformanceControl.ts";
 import {
   resolvedSurfaceBackground,
@@ -16,21 +17,45 @@ import { fontForStyle } from "./SurfaceTypography.ts";
 import {
   isWebHostImageRecoveryId,
   type WebHostImagePayloadRequestHandler,
+  type WebHostSurfaceCell,
   type WebHostSurfaceDamage,
   type WebHostSurfaceFrame,
   type WebHostSurfaceImage,
-  type WebHostSurfaceLineStyle,
   type WebHostSurfaceStyle,
 } from "./WebHostSurfaceTransport.ts";
 import { webTUITerminalBackgroundColor } from "./WebHostTerminalStyle.ts";
 
 interface RenderedImage {
+  id: string;
   container: HTMLElement;
   image: HTMLElement;
   source: string;
+  decodedBytes: number;
+  payloadBytes: number;
+  generation: number;
+  state: "pending" | "ready" | "failed" | "evicted";
+}
+
+export const MAX_DOM_IMAGE_ENTRIES = 256;
+export const MAX_DOM_IMAGE_BYTES = 64 * 1024 * 1024;
+
+export interface DomSurfaceStatistics {
+  rows: number;
+  cells: number;
+  rowSeparators: number;
+  decorationNodes: number;
+  imageNodes: number;
+  styleCacheEntries: number;
+  geometryCacheEntries: number;
+  decodedImageBytes: number;
+  retainedPayloadBytes: number;
+  pendingImages: number;
+  failedImages: number;
+  rejectedImages: number;
 }
 
 export interface DomSurfacePainterOptions {
+  onResourceLimit?: (message: string) => void;
   /** Overrides anchor activation, including app-specific URL schemes. */
   onOpenHyperlink?: (url: string) => void;
   /**
@@ -45,7 +70,7 @@ export interface DomSurfacePainterOptions {
 /**
  * Draws SwiftTUI surface frames as a DOM element tree instead of canvas
  * pixels: one absolutely positioned row container per grid row, one `<span>`
- * per wire lead cell, and `<img>` elements for surface images.
+ * per wire lead cell, explicit sparse-space runs, and `<img>` elements for surface images.
  *
  * Rendering cells as real text buys what canvas cannot offer — the browser's
  * own font shaping and fallback (emoji, CJK), crisp text at any page zoom, an
@@ -59,12 +84,17 @@ export interface DomSurfacePainterOptions {
  * and geometric backgrounds each have a 512-entry, per-painter cache.
  */
 export class DomSurfacePainter implements WebHostSurfacePainter {
+  private rejectedImages = 0;
+  private forcedColors = false;
+  private forcedForeground = "CanvasText";
+  private readonly reportedLimits = new Set<string>();
   private readonly onImagePayloadMiss: WebHostImagePayloadRequestHandler;
   private root?: HTMLElement;
   private rowsLayer?: HTMLElement;
   private imagesLayer?: HTMLElement;
   private rowElements: HTMLElement[] = [];
   private cells: Map<number, HTMLElement>[] = [];
+  private rowBreaks: Text[] = [];
   private renderedImages = new Map<string, RenderedImage>();
   private appliedMetricsKey?: string;
   private renderedGridKey?: string;
@@ -78,20 +108,91 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   private readonly styleCache = new Map<string, Partial<CSSStyleDeclaration>>();
   private appliedCellStyles = new WeakMap<HTMLElement, string>();
   private readonly onOpenHyperlink?: (url: string) => void;
+  private readonly copySelection = (event: ClipboardEvent) => {
+    const selection = document.getSelection();
+    if (
+      !this.root ||
+      !selection ||
+      selection.isCollapsed ||
+      !event.clipboardData
+    )
+      return;
+    const ranges = Array.from({ length: selection.rangeCount }, (_, index) =>
+      selection.getRangeAt(index),
+    );
+    if (
+      ranges.some(
+        (range) => !this.root!.contains(range.commonAncestorContainer),
+      )
+    )
+      return;
+    // Every gap and row separator is authored in the visible text tree.
+    // Native selection serializers otherwise invent engine-specific block
+    // newlines. Preserve precisely the selected text offsets, including spaces.
+    event.clipboardData.setData(
+      "text/plain",
+      ranges.map((range) => range.cloneContents().textContent ?? "").join("\n"),
+    );
+    event.preventDefault();
+  };
 
   constructor(options: DomSurfacePainterOptions = {}) {
+    this.onResourceLimit = options.onResourceLimit ?? (() => {});
     this.onOpenHyperlink = options.onOpenHyperlink;
     this.onImagePayloadMiss = options.onImagePayloadMiss ?? (() => {});
     registerDomSurfacePainterConformanceControl(this, {
       evictImages: (ids) => {
-        for (const id of ids) {
-          this.renderedImages.get(id)?.container.remove();
-          this.renderedImages.delete(id);
-          this.reportedMissingImageIds.delete(id);
+        for (const [key, entry] of this.renderedImages) {
+          if (!ids.includes(entry.id)) continue;
+          entry.container.remove();
+          releaseImageEntry(entry);
+          this.renderedImages.delete(key);
+          this.reportedMissingImageIds.delete(entry.id);
         }
       },
-      visibleImageIDs: () => [...this.renderedImages.keys()].sort(),
+      visibleImageIDs: () =>
+        [
+          ...new Set(
+            [...this.renderedImages.values()].map((entry) => entry.id),
+          ),
+        ].sort(),
     });
+  }
+
+  private readonly onResourceLimit: (message: string) => void;
+
+  get statistics(): DomSurfaceStatistics {
+    const images = [...this.renderedImages.values()];
+    return {
+      rows: this.rowElements.length,
+      cells: this.cells.reduce((sum, cells) => sum + cells.size, 0),
+      rowSeparators: this.rowBreaks.length,
+      decorationNodes: 0, // Bounded SVG backgrounds, no extra live DOM nodes.
+      imageNodes: images.length * 2,
+      styleCacheEntries: this.styleCache.size,
+      geometryCacheEntries: this.glyphs.size,
+      decodedImageBytes: images.reduce(
+        (sum, image) => sum + image.decodedBytes,
+        0,
+      ),
+      retainedPayloadBytes: images.reduce(
+        (sum, image) => sum + image.payloadBytes,
+        0,
+      ),
+      pendingImages: images.filter((image) => image.state === "pending").length,
+      failedImages: images.filter((image) => image.state === "failed").length,
+      rejectedImages: this.rejectedImages,
+    };
+  }
+
+  private rejectImage(reason: string): void {
+    this.rejectedImages = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      this.rejectedImages + 1,
+    );
+    if (this.reportedLimits.has(reason)) return;
+    this.reportedLimits.add(reason);
+    this.onResourceLimit(reason);
   }
 
   /**
@@ -100,6 +201,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
    */
   attach(root: HTMLElement): void {
     this.root = root;
+    document.addEventListener?.("copy", this.copySelection);
 
     const rowsLayer = createElement("div");
     rowsLayer.className = "webhost-scene__surface-rows";
@@ -115,6 +217,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     root.replaceChildren(rowsLayer, imagesLayer);
     this.rowElements = [];
     this.cells = [];
+    this.rowBreaks = [];
     this.renderedImages = new Map();
     this.appliedMetricsKey = undefined;
     this.renderedGridKey = undefined;
@@ -145,13 +248,26 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       this.reportedMissingImageIds.clear();
     }
 
-    const metricsKey = metricsKeyFor(metrics);
-    const metricsChanged = metricsKey !== this.appliedMetricsKey;
+    const forcedColors =
+      globalThis.matchMedia?.("(forced-colors: active)").matches ?? false;
+    const currentForcedForeground =
+      forcedColors && this.forcedColors
+        ? globalThis.getComputedStyle?.(root).color
+        : undefined;
+    this.forcedColors = forcedColors;
+    const metricsKey = `${metricsKeyFor(metrics)}|${forcedColors}`;
+    const metricsChanged =
+      metricsKey !== this.appliedMetricsKey ||
+      (currentForcedForeground !== undefined &&
+        currentForcedForeground !== this.forcedForeground);
     if (metricsChanged) {
       this.styleCache.clear();
       this.appliedCellStyles = new WeakMap();
       this.glyphs.clear();
       this.applyRootStyle(root, metrics);
+      if (forcedColors)
+        this.forcedForeground =
+          globalThis.getComputedStyle?.(root).color ?? "CanvasText";
       this.appliedMetricsKey = metricsKey;
     }
 
@@ -159,6 +275,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       clearSelection(rowsLayer);
       this.rowElements = [];
       this.cells = [];
+      this.rowBreaks = [];
       this.linkCells.clear();
       rowsLayer.replaceChildren();
       this.lastImageRecoveryFrame = undefined;
@@ -210,6 +327,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         if (row) clearSelection(row);
         row?.remove();
         this.cells.pop();
+        this.rowBreaks.pop();
       }
       this.rowElements.length = Math.min(
         this.rowElements.length,
@@ -238,6 +356,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   }
 
   dispose(): void {
+    document.removeEventListener?.("copy", this.copySelection);
     this.styleCache.clear();
     this.appliedCellStyles = new WeakMap();
     this.glyphs.clear();
@@ -248,6 +367,8 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     this.imagesLayer = undefined;
     this.rowElements = [];
     this.cells = [];
+    this.rowBreaks = [];
+    for (const entry of this.renderedImages.values()) releaseImageEntry(entry);
     this.renderedImages.clear();
     this.reportedMissingImageIds.clear();
     this.lastImageRecoveryFrame = undefined;
@@ -262,9 +383,8 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     const rowElement = this.ensureRowElement(y, metrics);
     const previous = this.cells[y] ?? new Map<number, HTMLElement>();
     const next = new Map<number, HTMLElement>();
-    const retainedColumns = new Set(
-      (frame.rows[y] ?? []).map((cell) => cell[0]),
-    );
+    const rowCells = copyableRow(frame.rows[y] ?? [], frame.width);
+    const retainedColumns = new Set(rowCells.map((cell) => cell[0]));
     // Remove absent predecessors before reconciling positions. Moving a
     // retained selected node to fill their old slot would collapse its Range.
     for (const [x, element] of previous) {
@@ -274,7 +394,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       }
     }
     let position = 0;
-    for (const [x, text, span, styleIndex] of frame.rows[y] ?? []) {
+    for (const [x, text, span, styleIndex] of rowCells) {
       const cellStyle = frame.styles[styleIndex] ?? undefined;
       const target = this.linkCells.get(y * frame.width + x);
       const isLink =
@@ -290,12 +410,21 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       if (!element) element = createElement(tag.toLowerCase());
       if (element.textContent !== text) {
         clearSelection(element);
-        element.textContent = text;
+        // Keep the existing text/layout object when its contents change.
+        // textContent's replace-all operation needlessly destroys and rebuilds
+        // every text node in a full-frame update.
+        const node = element.firstChild;
+        if (node?.nodeType === 3) node.nodeValue = text;
+        else element.textContent = text;
       }
       const key = JSON.stringify(cellStyle ?? null);
       let resolved = this.styleCache.get(key);
       if (!resolved) {
-        resolved = resolveCellStyle(cellStyle, metrics);
+        resolved = resolveCellStyle(
+          cellStyle,
+          metrics,
+          this.forcedColors ? this.forcedForeground : undefined,
+        );
         if (this.styleCache.size >= 512)
           this.styleCache.delete(this.styleCache.keys().next().value as string);
         this.styleCache.set(key, resolved);
@@ -306,18 +435,36 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         Object.assign(element.style, resolved, {
           left: `${x * metrics.cellWidth}px`,
           width: `${Math.max(1, span) * metrics.cellWidth}px`,
+          // Cancel flow advance so each relative offset starts at the row
+          // origin. This prevents WebKit zoom rounding from accumulating,
+          // while retaining inline text search in Firefox and WebKit.
+          marginRight: `${-Math.max(1, span) * metrics.cellWidth}px`,
         });
         const glyph = this.glyphs.image(
           geometricText,
           resolved.color ?? "",
           Math.max(1, span) * metrics.cellWidth,
           metrics.cellHeight,
+          this.forcedColors
+            ? {
+                ...cellStyle,
+                underline: cellStyle?.underline
+                  ? { ...cellStyle.underline, color: this.forcedForeground }
+                  : undefined,
+                strikethrough: cellStyle?.strikethrough
+                  ? { ...cellStyle.strikethrough, color: this.forcedForeground }
+                  : undefined,
+              }
+            : cellStyle,
+          x * metrics.cellWidth,
         );
         element.style.backgroundImage = glyph ?? "none";
         element.style.backgroundSize = "100% 100%";
         element.style.backgroundRepeat = "no-repeat";
         // Keep exactly one real text node for native selection/copy/find.
-        element.style.color = glyph ? "transparent" : (resolved.color ?? "");
+        element.style.color = geometricText
+          ? "transparent"
+          : (resolved.color ?? "");
         this.appliedCellStyles.set(element, presentationKey);
       }
       if (
@@ -351,6 +498,18 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       position += 1;
     }
     this.cells[y] = next;
+    let rowBreak = this.rowBreaks[y];
+    if (y < frame.rows.length - 1) {
+      if (!rowBreak) {
+        rowBreak = document.createTextNode("\n");
+        rowElement.appendChild(rowBreak);
+        this.rowBreaks[y] = rowBreak;
+      }
+    } else if (rowBreak) {
+      clearSelection(rowElement);
+      rowBreak.remove();
+      this.rowBreaks.length = y;
+    }
   }
 
   private ensureRowElement(y: number, metrics: SurfaceMetrics): HTMLElement {
@@ -363,15 +522,23 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         lineHeight: "inherit",
         letterSpacing: "0px",
         wordSpacing: "0px",
+        whiteSpace: "pre",
+        contain: "strict",
       });
       rowElement.style.position = "absolute";
       rowElement.style.left = "0";
       this.rowElements[y] = rowElement;
       this.rowsLayer?.appendChild(rowElement);
     }
-    rowElement.style.top = `${y * metrics.cellHeight}px`;
-    rowElement.style.height = `${metrics.cellHeight}px`;
-    rowElement.style.width = `${metrics.columns * metrics.cellWidth}px`;
+    const geometry = {
+      top: `${y * metrics.cellHeight}px`,
+      height: `${metrics.cellHeight}px`,
+      width: `${metrics.columns * metrics.cellWidth}px`,
+    };
+    for (const key of ["top", "height", "width"] as const) {
+      if (rowElement.style[key] !== geometry[key])
+        rowElement.style[key] = geometry[key];
+    }
     return rowElement;
   }
 
@@ -381,6 +548,10 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     style.position = "relative";
     style.overflow = "hidden";
     style.background = webTUITerminalBackgroundColor(metrics.style);
+    if (this.forcedColors) style.background = "Canvas";
+    style.color = this.forcedColors
+      ? "CanvasText"
+      : metrics.style.theme.foreground;
     style.font = fontForStyle(metrics.style);
     // Set after `font`: the shorthand resets line-height, and the grid needs
     // every row to be exactly one cell tall.
@@ -410,22 +581,33 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     const next = new Map<string, RenderedImage>();
     const currentMissingImageIds = new Set<string>();
     const newlyMissingImageIds = new Set<string>();
+    let decodedBytes = 0,
+      payloadBytes = 0;
+    const occurrences = new Map<string, number>();
+    const previousPayloads = new Map(
+      [...this.renderedImages.values()].map((entry) => [entry.id, entry]),
+    );
+    const currentPayloads = new Map(
+      images
+        .filter((image) => image.dataBase64 !== undefined)
+        .map((image) => [image.id, image.dataBase64!]),
+    );
     for (const rawImage of images) {
       if (!isSupportedImageFormat(rawImage.format)) {
         continue;
       }
       const image = {
         ...rawImage,
+        dataBase64: rawImage.dataBase64 ?? currentPayloads.get(rawImage.id),
         scalingMode: normalizeScalingMode(rawImage.scalingMode),
       };
       const [boundsX, boundsY, boundsWidth, boundsHeight] = image.bounds;
       const [clipX, clipY, clipWidth, clipHeight] = image.visibleBounds;
-      const existing = this.renderedImages.get(image.id);
-      if (
-        image.dataBase64 !== undefined &&
-        !admitsImagePayload(image.dataBase64)
-      )
-        continue;
+      const occurrence = occurrences.get(image.id) ?? 0;
+      occurrences.set(image.id, occurrence + 1);
+      const placementKey = JSON.stringify([image.id, occurrence]);
+      const existing = this.renderedImages.get(placementKey);
+      const previousPayload = previousPayloads.get(image.id);
       if (
         boundsWidth <= 0 ||
         boundsHeight <= 0 ||
@@ -434,7 +616,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       ) {
         continue;
       }
-      if (!existing && image.dataBase64 === undefined) {
+      if (!existing && !previousPayload && image.dataBase64 === undefined) {
         if (!isWebHostImageRecoveryId(image.id)) {
           continue;
         }
@@ -445,7 +627,35 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         continue;
       }
 
-      const entry = existing ?? makeImageEntry();
+      const source =
+        image.dataBase64 === undefined
+          ? previousPayload?.source
+          : `data:image/${image.format};base64,${image.dataBase64}`;
+      const changed = source !== existing?.source;
+      const allocation =
+        image.dataBase64 !== undefined && source !== previousPayload?.source
+          ? imagePayloadMetrics(image.dataBase64)
+          : previousPayload;
+      if (!allocation || !source) {
+        this.rejectImage(
+          "An image payload has invalid or excessive dimensions.",
+        );
+        continue;
+      }
+      if (
+        next.size >= MAX_DOM_IMAGE_ENTRIES ||
+        decodedBytes + allocation.decodedBytes > MAX_DOM_IMAGE_BYTES ||
+        payloadBytes + allocation.payloadBytes > MAX_DOM_IMAGE_BYTES
+      ) {
+        this.rejectImage(
+          "The visible image set exceeds the 256-image or 64 MiB image budget.",
+        );
+        continue;
+      }
+      decodedBytes += allocation.decodedBytes;
+      payloadBytes += allocation.payloadBytes;
+
+      const entry = existing ?? makeImageEntry(image.id);
       entry.container.style.left = `${clipX * metrics.cellWidth}px`;
       entry.container.style.top = `${clipY * metrics.cellHeight}px`;
       entry.container.style.width = `${clipWidth * metrics.cellWidth}px`;
@@ -456,21 +666,61 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       entry.image.style.height = `${boundsHeight * metrics.cellHeight}px`;
       entry.image.style.opacity = String(normalizedImageOpacity(image.opacity));
 
-      if (image.dataBase64) {
-        const source = `data:image/${image.format};base64,${image.dataBase64}`;
-        if (entry.source !== source) {
-          entry.image.setAttribute("src", source);
-          entry.source = source;
+      if (changed) {
+        const generation = ++entry.generation;
+        entry.source = source;
+        entry.decodedBytes = allocation.decodedBytes;
+        entry.payloadBytes = allocation.payloadBytes;
+        entry.state = "pending";
+        entry.container.setAttribute("data-image-state", "pending");
+        entry.image.onload = () => {
+          if (
+            this.renderedImages.get(placementKey) !== entry ||
+            entry.generation !== generation
+          )
+            return;
+          const img = entry.image as HTMLImageElement;
+          const actualBytes = img.naturalWidth * img.naturalHeight * 4;
+          if (actualBytes <= 0 || actualBytes > entry.decodedBytes) {
+            entry.state = "failed";
+            this.rejectImage(
+              "Decoded image dimensions exceed their admitted container dimensions.",
+            );
+          } else entry.state = "ready";
+          entry.container.setAttribute("data-image-state", entry.state);
+        };
+        entry.image.onerror = () => {
+          if (
+            this.renderedImages.get(placementKey) !== entry ||
+            entry.generation !== generation
+          )
+            return;
+          entry.state = "failed";
+          entry.container.setAttribute("data-image-state", "failed");
+        };
+        try {
+          const displayedSource =
+            image.format === "gif"
+              ? `data:image/gif;base64,${staticGifBase64(source.slice(source.indexOf(",") + 1))}`
+              : source;
+          entry.image.setAttribute("src", displayedSource);
+        } catch {
+          entry.image.removeAttribute("src");
+          entry.image.onload = null;
+          entry.image.onerror = null;
+          entry.state = "failed";
+          entry.container.setAttribute("data-image-state", "failed");
+          this.rejectImage("An image payload has an invalid GIF container.");
         }
       }
-      if (!existing) {
-        layer.appendChild(entry.container);
-      }
-      next.set(image.id, entry);
+      if (layer.children[next.size] !== entry.container)
+        layer.insertBefore(entry.container, layer.children[next.size] ?? null);
+      next.set(placementKey, entry);
     }
 
     for (const [id, entry] of this.renderedImages) {
       if (!next.has(id)) {
+        releaseImageEntry(entry);
         entry.container.remove();
       }
     }
@@ -525,14 +775,24 @@ function metricsKeyFor(metrics: SurfaceMetrics): string {
 function resolveCellStyle(
   style: WebHostSurfaceStyle | undefined,
   metrics: SurfaceMetrics,
+  forcedForeground?: string,
 ): Partial<CSSStyleDeclaration> {
+  const forcedColors = forcedForeground !== undefined;
   const elementStyle = {
-    position: "absolute",
-    display: "block",
+    position: "relative",
+    display: "inline-block",
+    verticalAlign: "top",
+    contain: "size",
     boxSizing: "border-box",
     padding: "0",
     margin: "0",
     border: "0",
+    textAlign: "left",
+    float: "none",
+    minWidth: "0",
+    maxWidth: "none",
+    minHeight: "0",
+    maxHeight: "none",
     textIndent: "0",
     textTransform: "none",
     fontFamily: "inherit",
@@ -549,63 +809,19 @@ function resolveCellStyle(
     overflow: "hidden",
     direction: "ltr",
     unicodeBidi: "isolate",
-    color: resolvedSurfaceForeground(style, metrics.style),
-    backgroundColor:
-      resolvedSurfaceBackground(style, metrics.style) ?? "transparent",
+    color: forcedForeground ?? resolvedSurfaceForeground(style, metrics.style),
+    backgroundColor: forcedColors
+      ? "Canvas"
+      : (resolvedSurfaceBackground(style, metrics.style) ?? "transparent"),
     fontWeight: (style?.em ?? 0) & 1 ? "700" : "normal",
     fontStyle: (style?.em ?? 0) & 2 ? "italic" : "normal",
-    opacity: String(style?.opacity ?? 1),
+    opacity: forcedColors ? "1" : String(style?.opacity ?? 1),
+    forcedColorAdjust: forcedColors ? "none" : "auto",
     textDecorationLine: "none",
     textDecorationStyle: "solid",
     textDecorationColor: resolvedSurfaceForeground(style, metrics.style),
   };
-  applyTextDecoration(elementStyle as CSSStyleDeclaration, style);
   return elementStyle;
-}
-
-function applyTextDecoration(
-  elementStyle: CSSStyleDeclaration,
-  style: WebHostSurfaceStyle | undefined,
-): void {
-  const lines: string[] = [];
-  if (style?.underline) {
-    lines.push("underline");
-  }
-  if (style?.strikethrough) {
-    lines.push("line-through");
-  }
-  if (lines.length === 0) {
-    return;
-  }
-
-  elementStyle.textDecorationLine = lines.join(" ");
-  const pattern = style?.underline?.pattern ?? style?.strikethrough?.pattern;
-  elementStyle.textDecorationStyle = decorationStyleFor(pattern);
-  // CSS shares one decoration color across both lines; the underline's color
-  // wins when the app styles them differently.
-  const color = style?.underline?.color ?? style?.strikethrough?.color;
-  if (color) {
-    elementStyle.textDecorationColor = color;
-  }
-}
-
-function decorationStyleFor(
-  pattern: WebHostSurfaceLineStyle["pattern"] | undefined,
-): string {
-  switch (pattern) {
-    case "dot":
-      return "dotted";
-    case "dash":
-    case "dashDot":
-    case "dashDotDot":
-      return "dashed";
-    case "double":
-      return "double";
-    case "curly":
-      return "wavy";
-    default:
-      return "solid";
-  }
 }
 
 function fillContainer(style: CSSStyleDeclaration): void {
@@ -620,7 +836,7 @@ function fillContainer(style: CSSStyleDeclaration): void {
   style.height = "100%";
 }
 
-function makeImageEntry(): RenderedImage {
+function makeImageEntry(id: string): RenderedImage {
   const container = createElement("div");
   container.className = "webhost-scene__surface-image";
   Object.assign(container.style, scopedBoxStyle);
@@ -633,11 +849,36 @@ function makeImageEntry(): RenderedImage {
   image.setAttribute("alt", "");
   image.setAttribute("draggable", "false");
   container.appendChild(image);
-  return { container, image, source: "" };
+  return {
+    id,
+    container,
+    image,
+    source: "",
+    decodedBytes: 0,
+    payloadBytes: 0,
+    generation: 0,
+    state: "pending",
+  };
+}
+
+function releaseImageEntry(entry: RenderedImage): void {
+  entry.generation++;
+  entry.state = "evicted";
+  entry.image.onload = null;
+  entry.image.onerror = null;
+  entry.image.removeAttribute("src");
+  entry.source = "";
+  entry.decodedBytes = entry.payloadBytes = 0;
 }
 
 const scopedBoxStyle = {
+  display: "block",
   boxSizing: "border-box",
+  float: "none",
+  minWidth: "0",
+  maxWidth: "none",
+  minHeight: "0",
+  maxHeight: "none",
   margin: "0",
   padding: "0",
   border: "0",
@@ -666,4 +907,22 @@ function selectionInvalidator(): (element: HTMLElement) => void {
       selection = null;
     }
   };
+}
+
+/** Spaces represent every unoccupied grid column; a wide cell contributes its
+ * supplied grapheme once, never a second continuation character. */
+function copyableRow(
+  cells: WebHostSurfaceCell[],
+  width: number,
+): WebHostSurfaceCell[] {
+  const result: WebHostSurfaceCell[] = [];
+  let end = 0;
+  for (const cell of cells) {
+    if (cell[0] > end)
+      result.push([end, " ".repeat(cell[0] - end), cell[0] - end, -1]);
+    result.push(cell);
+    end = cell[0] + Math.max(1, cell[2]);
+  }
+  if (end < width) result.push([end, " ".repeat(width - end), width - end, -1]);
+  return result;
 }

@@ -81,6 +81,53 @@ document.addEventListener("copy", () => {
   copied = document.getSelection()?.toString() ?? "";
 });
 const api = {
+  copyCorpus() {
+    const host = document.createElement("div");
+    host.id = "copy-corpus";
+    host.tabIndex = 0;
+    host.style.cssText = "position:relative;width:120px;height:48px";
+    document.body.append(host);
+    host.focus();
+    const painter = new DomSurfacePainter();
+    painter.attach(host);
+    painter.paint(
+      {
+        columns: 12,
+        rows: 2,
+        cellWidth: 10,
+        cellHeight: 24,
+        style: normalizeWebHostTerminalStyle({ fontSize: 16 }),
+      },
+      {
+        version: 2,
+        width: 12,
+        height: 2,
+        styles: [null],
+        rows: [
+          [
+            [2, "A", 1, 0],
+            [3, "🙂", 2, 0],
+            [7, "é", 1, 0],
+            [8, "B", 1, 0],
+          ],
+          [
+            [0, "<script>", 8, 0],
+            [10, "漢", 2, 0],
+          ],
+        ],
+      },
+    );
+    const range = document.createRange();
+    range.selectNodeContents(host);
+    const selection = document.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return {
+      text: host.textContent,
+      selected: selection.toString(),
+      scripts: host.querySelectorAll("script").length,
+    };
+  },
   linkPolicies() {
     const metrics: SurfaceMetrics = {
       columns: 12,
@@ -225,14 +272,14 @@ const api = {
       rows: 1,
       cellWidth: width,
       cellHeight: height,
-      pixelScale: 1,
+      pixelScale: devicePixelRatio,
       style: normalizeWebHostTerminalStyle({
         theme: { foreground: "#ff8000", background: "#000000" },
       }),
     };
-    canvas.width = width * texts.length;
-    canvas.height = height;
-    dom.style.width = `${canvas.width}px`;
+    canvas.width = Math.ceil(width * texts.length * devicePixelRatio);
+    canvas.height = Math.ceil(height * devicePixelRatio);
+    dom.style.width = `${width * texts.length}px`;
     dom.style.height = `${height}px`;
     const f: WebHostSurfaceFrame = {
       version: 2,
@@ -251,10 +298,11 @@ const api = {
     // compare geometry to Canvas separately from font/selection rendering.
     const actual = document.createElement("canvas");
     actual.width = canvas.width;
-    actual.height = height;
+    actual.height = canvas.height;
     const context = actual.getContext("2d")!;
     context.fillStyle = "#000000";
-    context.fillRect(0, 0, actual.width, height);
+    context.fillRect(0, 0, actual.width, actual.height);
+    context.scale(devicePixelRatio, devicePixelRatio);
     const elements = Array.from(
       dom.querySelectorAll<HTMLElement>(".webhost-scene__surface-row > *"),
     );
@@ -266,8 +314,13 @@ const api = {
     }
     const expected = canvas
       .getContext("2d")!
-      .getImageData(0, 0, canvas.width, height).data;
-    const rendered = context.getImageData(0, 0, canvas.width, height).data;
+      .getImageData(0, 0, canvas.width, canvas.height).data;
+    const rendered = context.getImageData(
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    ).data;
     let different = 0,
       total = 0;
     for (let i = 0; i < expected.length; i += 4) {

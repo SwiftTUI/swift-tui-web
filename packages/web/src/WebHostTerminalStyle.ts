@@ -46,6 +46,8 @@ export interface WebHostTerminalTheme {
 }
 
 export interface WebHostTerminalStyle {
+  /** Defaults to the live browser preference; true also reduces producer motion. */
+  reduceMotion?: boolean;
   fontSize?: number;
   fontFamily?: string;
   cursorStyle?: WebHostTerminalCursorStyle;
@@ -65,6 +67,7 @@ export interface ResolvedWebHostTerminalPalette {
 }
 
 export interface ResolvedWebHostTerminalStyle {
+  reduceMotion?: boolean;
   fontSize: number;
   fontFamily: string;
   cursorStyle: WebHostTerminalCursorStyle;
@@ -75,6 +78,8 @@ export interface ResolvedWebHostTerminalStyle {
 }
 
 export interface WebHostTerminalRenderStyle {
+  /** String-valued extension remains parseable by legacy Swift style codecs. */
+  reduceMotion?: "true" | "false";
   appearance: WebHostTerminalAppearance;
   theme?: WebHostTerminalTheme;
 }
@@ -147,6 +152,9 @@ export function normalizeWebHostTerminalStyle(
     cursorStyle: style.cursorStyle ?? "block",
     cursorBlink: style.cursorBlink ?? false,
     backgroundOpacity: normalizeOpacity(style.backgroundOpacity ?? 1),
+    ...(style.reduceMotion === undefined
+      ? {}
+      : { reduceMotion: style.reduceMotion }),
     palette,
     theme,
   };
@@ -171,7 +179,15 @@ export function resolveWebHostTerminalRenderStyle(
   style: WebHostTerminalStyle,
 ): WebHostTerminalRenderStyle {
   const normalized = normalizeWebHostTerminalStyle(style);
+  const reduceMotion =
+    normalized.reduceMotion ??
+    globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   return {
+    ...(reduceMotion === undefined
+      ? {}
+      : {
+          reduceMotion: reduceMotion ? ("true" as const) : ("false" as const),
+        }),
     appearance: {
       foregroundColor: normalized.theme.foreground,
       backgroundColor: normalized.theme.background,

@@ -136,30 +136,18 @@ test("runtime draws decoded surface frames into the canvas", async () => {
       globalAlpha: 0.5,
     });
 
-    const strokes = context.operations.filter(
-      (operation) => operation.type === "stroke",
+    expect(fillRectOperations(context, "#EBB33CFF")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ x: 0, y: 24.5, width: 4, height: 1 }),
+        expect.objectContaining({ x: 7, y: 24.5, width: 3, height: 1 }),
+      ]),
     );
-    expect(strokes).toContainEqual({
-      type: "stroke",
-      strokeStyle: "#EBB33CFF",
-      lineWidth: 1,
-      lineDash: [4, 3],
-      path: [
-        ["moveTo", 0, 25],
-        ["lineTo", 10, 25],
-      ],
-    });
-    expect(strokes).toContainEqual({
-      type: "stroke",
-      strokeStyle: "#E05757FF",
-      lineWidth: 1,
-      lineDash: [1, 3],
-      path: [
-        ["moveTo", 0, 13],
-        ["lineTo", 10, 13],
-      ],
-    });
-    expect(strokes.some((operation) => operation.lineWidth === 2)).toBe(true);
+    expect(fillRectOperations(context, "#E05757FF")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ x: 0, y: 12.5, width: 1, height: 1 }),
+        expect.objectContaining({ x: 4, y: 12.5, width: 1, height: 1 }),
+      ]),
+    );
   } finally {
     dom.restore();
   }
@@ -2743,7 +2731,7 @@ test("a burst of frames within one animation frame paints once, as the newest fr
 
     expect(context.operations).toEqual([]);
     expect(clock.scheduled).toBe(1);
-    expect(runtime.paintStatistics).toEqual({
+    expect(runtime.paintStatistics).toMatchObject({
       presentedFrames: 3,
       paints: mountPaints,
       coalescedFrames: 2,
@@ -2752,7 +2740,7 @@ test("a burst of frames within one animation frame paints once, as the newest fr
 
     clock.tick();
     // Exactly one paint, and it shows the newest frame only: never A or B.
-    expect(runtime.paintStatistics).toEqual({
+    expect(runtime.paintStatistics).toMatchObject({
       presentedFrames: 3,
       paints: mountPaints + 1,
       coalescedFrames: 2,
@@ -3512,6 +3500,11 @@ function installFakeDOM(options: FakeDOMOptions = {}): {
   const resizeObservers: FakeResizeObserver[] = [];
 
   globalThis.document = {
+    createTextNode: (text: string) => {
+      const node = new FakeElement("#text");
+      node.textContent = text;
+      return node;
+    },
     createElement: (tagName: string) => {
       if (tagName === "canvas") {
         const canvas = new FakeCanvasElement();
@@ -4000,9 +3993,13 @@ test("dom renderer mounts a DOM surface and renders decoded frames as text eleme
     expect(styled.style.backgroundColor).toBe("#E05757FF");
     expect(styled.style.fontWeight).toBe("700");
     expect(styled.style.fontStyle).toBe("italic");
-    expect(styled.style.textDecorationLine).toBe("underline line-through");
-    expect(styled.style.textDecorationStyle).toBe("dashed");
-    expect(styled.style.textDecorationColor).toBe("#EBB33CFF");
+    expect(styled.style.textDecorationLine).toBe("none");
+    expect(decodeURIComponent(styled.style.backgroundImage ?? "")).toContain(
+      "#EBB33CFF",
+    );
+    expect(decodeURIComponent(styled.style.backgroundImage ?? "")).toContain(
+      "#E05757FF",
+    );
     expect(styled.style.opacity).toBe("0.75");
 
     // Cell [1,"界",2,2]: double-width run occupies two cells.

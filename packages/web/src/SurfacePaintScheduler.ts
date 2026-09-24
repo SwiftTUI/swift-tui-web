@@ -75,6 +75,10 @@ export interface WebHostPaintStatistics {
   coalescedFrames: number;
   /** Whether a paint is scheduled but not yet delivered. */
   pending: boolean;
+  carriedImagePayloadBytes: number;
+  queuedAnnouncements: number;
+  queuedAnnouncementBytes: number;
+  resourceLimitExceeded: boolean;
 }
 
 interface PendingPaint {
@@ -85,6 +89,7 @@ interface PendingPaint {
   recoveredImagePayloadIds: Set<string>;
   accessibilityAnnouncements: WebHostAccessibilityAnnouncement[];
   coalescedFrameCount: number;
+  announcementBytes: number;
 }
 
 /**
@@ -118,6 +123,7 @@ export class SurfacePaintScheduler {
   private presentedFrames = 0;
   private paints = 0;
   private coalescedFrames = 0;
+  private resourceLimitExceeded = false;
 
   constructor(
     private readonly animationFrames:
@@ -127,6 +133,7 @@ export class SurfacePaintScheduler {
     private readonly canPresent: (
       frame: WebHostSurfaceFrame | undefined,
     ) => boolean = () => true,
+    private readonly onResourceLimit: (message: string) => void = () => {},
   ) {}
 
   get statistics(): WebHostPaintStatistics {
@@ -135,6 +142,12 @@ export class SurfacePaintScheduler {
       paints: this.paints,
       coalescedFrames: this.coalescedFrames,
       pending: this.pending !== undefined,
+      carriedImagePayloadBytes: [
+        ...(this.pending?.carriedImagePayloads.values() ?? []),
+      ].reduce((total, value) => total + value.length * 2, 0),
+      queuedAnnouncements: this.pending?.accessibilityAnnouncements.length ?? 0,
+      queuedAnnouncementBytes: this.pending?.announcementBytes ?? 0,
+      resourceLimitExceeded: this.resourceLimitExceeded,
     };
   }
 
@@ -171,6 +184,7 @@ export class SurfacePaintScheduler {
       recoveredImagePayloadIds: new Set(),
       accessibilityAnnouncements: [],
       coalescedFrameCount: 0,
+      announcementBytes: 0,
     };
     if (pending?.frame && pending.frame !== this.lastPaintedFrame) {
       // The superseded frame never reaches the painter: keep what only it
@@ -195,12 +209,45 @@ export class SurfacePaintScheduler {
       next.frame = frame;
       next.damage = damage;
     }
+    // Only payloads referenced by the candidate can be painted. A later
+    // reappearance uses the existing bounded resend-on-miss protocol.
+    const visibleIDs = new Set(next.frame?.images?.map((image) => image.id));
+    let carriedBytes = 0;
+    for (const [id, payload] of next.carriedImagePayloads) {
+      const bytes = payload.length * 2;
+      if (!visibleIDs.has(id) || carriedBytes + bytes > 64 * 1024 * 1024)
+        next.carriedImagePayloads.delete(id);
+      else carriedBytes += bytes;
+    }
+    for (const id of next.recoveredImagePayloadIds)
+      if (!visibleIDs.has(id)) next.recoveredImagePayloadIds.delete(id);
     for (const id of recoveredImagePayloadIds) {
+      if (next.recoveredImagePayloadIds.size >= 1024)
+        next.recoveredImagePayloadIds.delete(
+          next.recoveredImagePayloadIds.values().next().value!,
+        );
       next.recoveredImagePayloadIds.add(id);
     }
-    next.accessibilityAnnouncements.push(
-      ...(frame.accessibilityAnnouncements ?? []),
+    const announcements = frame.accessibilityAnnouncements ?? [];
+    const bytes = announcements.reduce(
+      (total, item) => total + item.message.length * 2,
+      0,
     );
+    if (
+      next.accessibilityAnnouncements.length + announcements.length > 1024 ||
+      next.announcementBytes + bytes > 256 * 1024
+    ) {
+      // Do not silently lose imperative assistive output. Fail this session
+      // visibly rather than retaining an unbounded hidden/suspended backlog.
+      this.resourceLimitExceeded = true;
+      this.dispose();
+      this.onResourceLimit(
+        "WebHost stopped: the pending announcement queue exceeded 1,024 messages or 256 KiB. Reload the scene to restart.",
+      );
+      return;
+    }
+    next.announcementBytes += bytes;
+    next.accessibilityAnnouncements.push(...announcements);
     this.pending = next;
     this.schedule();
   }
@@ -302,6 +349,7 @@ export class SurfacePaintScheduler {
       recoveredImagePayloadIds: new Set(),
       accessibilityAnnouncements: [],
       coalescedFrameCount: 0,
+      announcementBytes: 0,
     };
   }
 

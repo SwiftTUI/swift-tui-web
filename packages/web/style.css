@@ -30,3 +30,18 @@ canvas.webhost-scene__surface {
   width: 100%;
   height: 100%;
 }
+
+/* Print only the committed visible viewport. These rules preserve its grid;
+   virtual/offscreen application content is not an export document. */
+@media print {
+  .webhost-scene__surface--dom {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    break-inside: avoid;
+  }
+  .webhost-scene__accessibility-tree,
+  .webhost-scene__accessibility-announcer,
+  .webhost-scene__diagnostic {
+    display: none !important;
+  }
+}

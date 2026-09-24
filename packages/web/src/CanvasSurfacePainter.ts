@@ -1,4 +1,6 @@
+import { firstGifFrame } from "./StaticGif.ts";
 import { fontForStyle } from "./SurfaceTypography.ts";
+import { emitTextDecoration } from "./TextDecorationGeometry.ts";
 
 export { fontForStyle } from "./SurfaceTypography.ts";
 
@@ -797,24 +799,12 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
       return;
     }
     context.strokeStyle = line.color ?? fallbackColor;
-    context.lineWidth = line.pattern === "double" ? 2 : 1;
-    if (line.pattern === "dot") {
-      context.setLineDash([1, 3]);
-    } else if (line.pattern === "dash") {
-      context.setLineDash([4, 3]);
-    } else {
-      context.setLineDash([]);
-    }
-
+    context.fillStyle = line.color ?? fallbackColor;
     const lineY =
       placement === "underline"
         ? y + metrics.cellHeight - 2
         : y + Math.floor(metrics.cellHeight / 2);
-    context.beginPath();
-    context.moveTo(x, lineY);
-    context.lineTo(x + width, lineY);
-    context.stroke();
-    context.setLineDash([]);
+    emitTextDecoration(context, line.pattern, x, lineY, width);
   }
 }
 
@@ -891,17 +881,16 @@ async function decodeImage(
   dataBase64: string,
   format: NormalizedSurfaceImageFormat,
 ): Promise<CanvasImageSource> {
-  const bytes = decodeBase64Bytes(dataBase64);
+  let bytes = decodeBase64Bytes(dataBase64);
   if (!admitsImageBytes(bytes))
     throw new Error(
       "Image exceeds the raster budget or has an unsupported container",
     );
+  if (format === "gif") bytes = firstGifFrame(bytes);
   const blob = new Blob([bytes], { type: `image/${format}` });
 
   if (typeof createImageBitmap === "function") {
-    // Animated GIFs collapse to their first frame in createImageBitmap
-    // — that matches the Kitty path's first-frame composite. Phase 7
-    // will replace this with a frame ticker.
+    // Both decoder paths receive a static first-frame GIF container.
     return createImageBitmap(blob);
   }
 

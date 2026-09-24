@@ -34,6 +34,10 @@ let nextAlias = 0;
 
 /** One session owns one settled font choice. Late loads cannot replace its fallback. */
 export class DomFontResources {
+  private faceLeaseCount = 0;
+  get ownedFaceLeases(): number {
+    return this.faceLeaseCount;
+  }
   private disposed = false;
   private releaseFaces?: () => void;
   private cancelWait?: () => void;
@@ -108,11 +112,13 @@ export class DomFontResources {
         shared.set(key, entry);
       }
       entry.refs++;
+      this.faceLeaseCount = entry.faces.length;
       const owned = entry;
       let released = false;
       this.releaseFaces = () => {
         if (released) return;
         released = true;
+        this.faceLeaseCount = 0;
         if (--owned.refs === 0) {
           for (const face of owned.faces) doc.fonts.delete(face);
           if (shared.get(key) === owned) shared.delete(key);

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import type {} from "./dom-surface.fixture.ts";
 
@@ -5,6 +6,79 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/health");
   await page.addScriptTag({ url: "/dom-surface.js", type: "module" });
   await page.waitForFunction(() => !!window.domJourney);
+});
+
+test("native find sees one live text occurrence and print preserves the committed grid", async ({
+  page,
+}) => {
+  const found = await page.evaluate(() => {
+    const find = (
+      window as unknown as {
+        find(
+          text: string,
+          matchCase: boolean,
+          backwards: boolean,
+          wrap: boolean,
+        ): boolean;
+      }
+    ).find.bind(window);
+    document.getSelection()?.removeAllRanges();
+    const first = find("Select me", true, false, false);
+    const text = document.getSelection()?.toString();
+    const second = find("Select me", true, false, false);
+    return { first, text, second };
+  });
+  expect(found).toEqual({ first: true, text: "Select me", second: false });
+  await page.addStyleTag({ url: "/style.css" });
+  const cells = page.locator(".webhost-scene__surface-row").first();
+  const before = await cells.boundingBox();
+  await page.emulateMedia({ media: "print" });
+  expect(await cells.boundingBox()).toEqual(before);
+  expect(await cells.textContent()).toContain("Select me");
+});
+
+test("multiline sparse Unicode copies exactly with row breaks and boundary spaces", async ({
+  page,
+  browserName,
+}) => {
+  const result = await page.evaluate(() => window.domJourney.copyCorpus());
+  const expected = "  A🙂  éB   \n<script>  漢";
+  expect(result.text).toBe(expected);
+  expect(result.scripts).toBe(0);
+  if (process.platform === "darwin" && browserName === "webkit")
+    execFileSync("/usr/bin/pbcopy", { input: "clipboard fixture sentinel" });
+  if (browserName === "webkit" && process.platform === "linux")
+    expect(await page.evaluate(() => document.execCommand("copy"))).toBe(true);
+  else
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+c" : "Control+c",
+    );
+  // The macOS clipboard retains the original code points. WebKit normalizes
+  // them when exposing a native paste back to a page; test that separate
+  // browser boundary without mistaking it for corruption during copy.
+  if (process.platform === "darwin" && browserName === "webkit")
+    await expect
+      .poll(() => execFileSync("/usr/bin/pbpaste", { encoding: "utf8" }))
+      .toBe(expected);
+  await page.evaluate(() => {
+    const box = document.createElement("textarea");
+    box.id = "sparse-copy-target";
+    box.addEventListener(
+      "paste",
+      (event) =>
+        (box.dataset.clipboard =
+          event.clipboardData?.getData("text/plain") ?? ""),
+    );
+    document.body.append(box);
+    box.focus();
+  });
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+v" : "Control+v",
+  );
+  await expect(page.locator("#sparse-copy-target")).toHaveAttribute(
+    "data-clipboard",
+    browserName === "webkit" ? expected.normalize("NFC") : expected,
+  );
 });
 
 test("selection and copy survive other-row, same-row, cosmetic, font and resize paints", async ({
@@ -137,7 +211,7 @@ test("native anchors activate once and measured grid stays aligned through CSS z
   }
 });
 
-for (const dpr of [1, 2]) {
+for (const dpr of [1, 1.25, 1.5, 2, 3]) {
   test.describe(`glyphs at DPR ${dpr}`, () => {
     test.use({ deviceScaleFactor: dpr });
     for (const size of [
@@ -171,7 +245,7 @@ for (const dpr of [1, 2]) {
 test("removing a preceding run keeps the selected node in place", async ({
   page,
 }) => {
-  await page.evaluate(() => window.domJourney.select(1));
+  await page.evaluate(() => window.domJourney.select(2));
   expect(await page.evaluate(() => window.domJourney.state().selected)).toBe(
     "counter",
   );
@@ -235,7 +309,17 @@ test("global element rules cannot change cell, link or image box allocation", as
         const style = getComputedStyle(element);
         return {
           padding: style.padding,
-          margin: style.margin,
+          margin: [
+            style.marginTop,
+            style.marginRight,
+            style.marginBottom,
+            style.marginLeft,
+          ],
+          expectedEndMargin: element.parentElement?.classList.contains(
+            "webhost-scene__surface-row",
+          )
+            ? `${-Number.parseFloat(style.width)}px`
+            : "0px",
           border: style.borderWidth,
           sizing: style.boxSizing,
         };
@@ -244,7 +328,8 @@ test("global element rules cannot change cell, link or image box allocation", as
   for (const style of styles)
     expect(style).toEqual({
       padding: "0px",
-      margin: "0px",
+      margin: ["0px", style.expectedEndMargin, "0px", "0px"],
+      expectedEndMargin: style.expectedEndMargin,
       border: "0px",
       sizing: "border-box",
     });

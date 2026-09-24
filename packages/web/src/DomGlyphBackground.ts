@@ -1,9 +1,14 @@
-import { canRenderBoxDrawing, drawBoxDrawing } from "./BoxDrawingRenderer.ts";
+import { canRenderGeometricGlyph, emitGlyphGeometry } from "./GlyphGeometry.ts";
+import { SvgGeometrySink } from "./SvgGeometrySink.ts";
+import { emitTextDecoration } from "./TextDecorationGeometry.ts";
+import type { WebHostSurfaceStyle } from "./WebHostSurfaceTransport.ts";
 
-/** Per-painter, bounded SVG cache. Geometry is shared with the Canvas painter. */
+/** Per-painter, bounded SVG cache over renderer-neutral primitives. */
 export class DomGlyphBackground {
   private readonly cache = new Map<string, string>();
-
+  get size(): number {
+    return this.cache.size;
+  }
   clear(): void {
     this.cache.clear();
   }
@@ -13,56 +18,35 @@ export class DomGlyphBackground {
     color: string,
     width: number,
     height: number,
+    style?: WebHostSurfaceStyle,
+    phaseX = 0,
   ): string | undefined {
-    if (!canRenderBoxDrawing(text)) return undefined;
-    const key = JSON.stringify([text, color, width, height]);
+    const geometric = canRenderGeometricGlyph(text);
+    if (!geometric && !style?.underline && !style?.strikethrough)
+      return undefined;
+    const key = JSON.stringify([
+      text,
+      color,
+      width,
+      height,
+      style?.underline,
+      style?.strikethrough,
+      phaseX,
+    ]);
     const cached = this.cache.get(key);
     if (cached) return cached;
-    const shapes: string[] = [];
-    let path = "";
-    let dash: number[] = [];
-    const context = {
-      lineWidth: 1,
-      lineCap: "butt",
-      fillRect(x: number, y: number, w: number, h: number) {
-        shapes.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}"/>`);
-      },
-      beginPath() {
-        path = "";
-      },
-      moveTo(x: number, y: number) {
-        path += `M${x} ${y}`;
-      },
-      lineTo(x: number, y: number) {
-        path += `L${x} ${y}`;
-      },
-      bezierCurveTo(
-        a: number,
-        b: number,
-        c: number,
-        d: number,
-        x: number,
-        y: number,
-      ) {
-        path += `C${a} ${b} ${c} ${d} ${x} ${y}`;
-      },
-      setLineDash(value: number[]) {
-        dash = value;
-      },
-      stroke() {
-        shapes.push(
-          `<path d="${path}" fill="none" stroke="currentColor" stroke-width="${this.lineWidth}" stroke-linecap="${this.lineCap}" stroke-dasharray="${dash.join(" ")}"/>`,
-        );
-      },
-    };
-    if (!drawBoxDrawing(context, text, { x: 0, y: 0, width, height }))
-      return undefined;
-    const escapedColor = color
-      .replaceAll("&", "&amp;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("<", "&lt;");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" color="${escapedColor}" fill="currentColor">${shapes.join("")}</svg>`;
-    const result = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+    const sink = new SvgGeometrySink();
+    sink.color = color;
+    if (geometric) emitGlyphGeometry(sink, text, { x: 0, y: 0, width, height });
+    for (const [line, y] of [
+      [style?.underline, height - 2],
+      [style?.strikethrough, Math.floor(height / 2)],
+    ] as const) {
+      if (!line) continue;
+      sink.color = line.color ?? color;
+      emitTextDecoration(sink, line.pattern, 0, y, width, phaseX);
+    }
+    const result = sink.image(width, height);
     if (this.cache.size >= 512)
       this.cache.delete(this.cache.keys().next().value as string);
     this.cache.set(key, result);

@@ -60,6 +60,51 @@ function makeScheduler(
   return { scheduler, paints };
 }
 
+test("hidden scene payload ownership follows the latest visible set and announcement overload fails visibly", () => {
+  const clock = new ManualAnimationFrameScheduler();
+  const failures: string[] = [];
+  const scheduler = new SurfacePaintScheduler(
+    clock,
+    () => {
+      throw new Error("held frame painted");
+    },
+    () => true,
+    (message) => failures.push(message),
+  );
+  scheduler.setHeld(true);
+  for (let index = 0; index < 1500; index++) {
+    scheduler.present(frame({ images: [image(`png:${index}`, "payload")] }));
+    expect(scheduler.statistics.carriedImagePayloadBytes).toBe(0);
+  }
+  for (let index = 0; index < 1024; index++)
+    scheduler.present(
+      frame({
+        accessibilityAnnouncements: [
+          { message: "update", politeness: "polite" },
+        ],
+      }),
+    );
+  expect(scheduler.statistics.queuedAnnouncements).toBe(1024);
+  expect(failures).toHaveLength(0);
+  scheduler.present(
+    frame({
+      accessibilityAnnouncements: [
+        { message: "overflow", politeness: "polite" },
+      ],
+    }),
+  );
+  expect(failures).toHaveLength(1);
+  expect(scheduler.statistics).toMatchObject({
+    pending: false,
+    queuedAnnouncements: 0,
+    queuedAnnouncementBytes: 0,
+    carriedImagePayloadBytes: 0,
+    resourceLimitExceeded: true,
+  });
+  scheduler.setHeld(false);
+  clock.tick();
+});
+
 test("geometry filtering preserves an eligible candidate and carries every decoded side effect", () => {
   const clock = new ManualAnimationFrameScheduler();
   const paints: SurfacePaintRequest[] = [];
@@ -205,7 +250,7 @@ test("a burst of frames paints once, as the newest frame with unioned damage", (
   expect(clock.requests).toBe(2);
   expect(clock.scheduled).toBe(1);
   expect(paints).toHaveLength(1);
-  expect(scheduler.statistics).toEqual({
+  expect(scheduler.statistics).toMatchObject({
     presentedFrames: 4,
     paints: 1,
     coalescedFrames: 2,
@@ -226,7 +271,7 @@ test("a burst of frames paints once, as the newest frame with unioned damage", (
     request.accessibilityAnnouncements.map((entry) => entry.message),
   ).toEqual(["two", "three", "four"]);
   expect(request.coalescedFrameCount).toBe(2);
-  expect(scheduler.statistics).toEqual({
+  expect(scheduler.statistics).toMatchObject({
     presentedFrames: 4,
     paints: 2,
     coalescedFrames: 2,
@@ -536,7 +581,7 @@ test("without animation frames every presented frame paints synchronously", () =
   scheduler.requestRepaint();
   expect(paints).toHaveLength(3);
   expect(paints[2]!.frame).toBe(second);
-  expect(scheduler.statistics).toEqual({
+  expect(scheduler.statistics).toMatchObject({
     presentedFrames: 2,
     paints: 3,
     coalescedFrames: 0,

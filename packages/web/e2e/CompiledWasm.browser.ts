@@ -74,6 +74,7 @@ for (const mode of ["worker", "main-thread"] as const) {
     expect((await snapshot(page)).scenes).toEqual([
       "alpha",
       "animation",
+      "images",
       "deep",
       "accessibility",
       "beta",

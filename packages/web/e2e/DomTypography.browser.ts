@@ -113,7 +113,10 @@ test("wire lead cells preserve Unicode, order and allocation through replacement
     });
     const samples = await page.evaluate(() => window.typography.samples);
     for (const [y, row] of result.slice(0, 4).entries()) {
-      for (const [i, cell] of row.entries()) {
+      expect(row).toHaveLength(samples.length + 1);
+      expect(row.at(-1)?.text).toBe(" ".repeat(181));
+      expect(row.at(-1)?.width).toBe(181 * cw);
+      for (const [i, cell] of row.slice(0, samples.length).entries()) {
         const [x, text, span] = samples[i]!;
         expect(cell.text).toBe(text);
         expect(cell.x).toBeCloseTo(x * cw, 1);

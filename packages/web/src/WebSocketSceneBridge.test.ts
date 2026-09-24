@@ -10,6 +10,69 @@ import {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+test("reconnect handshakes cannot grow a full disconnected input queue", async () => {
+  const sockets: FakeWebSocket[] = [];
+  const errors: string[] = [];
+  const bridge = new WebSocketSceneBridge({
+    sceneId: "main",
+    token: "test",
+    baseURL: "http://localhost",
+    reconnectDelayMilliseconds: () => 0,
+    webSocketFactory: () => {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    },
+  });
+  bridge.bindOutput({
+    presentSurface: () => {},
+    writeError: (message) => errors.push(message),
+  });
+  sockets[0]!.serverClose(1006);
+  // The old session's input is discarded on close. Fill the new backlog
+  // before the reconnect timer prepends its capability handshake.
+  for (let i = 0; i < 1024; i++) bridge.sendInput(new Uint8Array([1]));
+  expect(errors).toHaveLength(0);
+  await Bun.sleep(5);
+  expect(errors).toHaveLength(1);
+  expect(sockets).toHaveLength(2);
+  expect(sockets[1]!.closeCode).toBe(1000);
+  sockets[1]!.open();
+  expect(sockets[1]!.sent).toHaveLength(0);
+});
+
+test("disconnected input and unbound output fail visibly at bounded backlogs", async () => {
+  for (const input of [true, false]) {
+    const socket = new FakeWebSocket();
+    const bridge = new WebSocketSceneBridge({
+      sceneId: "main",
+      token: "test",
+      baseURL: "http://localhost",
+      webSocketFactory: () => socket,
+    });
+    if (input)
+      for (let index = 0; index < 1100; index++)
+        bridge.sendInput(new Uint8Array(1024));
+    else
+      for (let index = 0; index < 300; index++) {
+        socket.message("output\n");
+        await Bun.sleep(0);
+      }
+    const errors: string[] = [];
+    bridge.bindOutput({
+      presentSurface: () => {},
+      writeError: (message) => errors.push(message),
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain(
+      input ? "disconnected input" : "unbound output",
+    );
+    expect(socket.closeCode).toBe(1000);
+    socket.open();
+    expect(socket.sent).toHaveLength(0);
+  }
+});
+
 test("oversized websocket envelopes are refused before conversion and recover once", async () => {
   const socket = new FakeWebSocket();
   const bridge = new WebSocketSceneBridge({
