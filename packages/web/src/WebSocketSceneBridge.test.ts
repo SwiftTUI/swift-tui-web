@@ -33,7 +33,7 @@ test("oversized websocket envelopes are refused before conversion and recover on
   };
   socket.message(oversized);
   socket.message("é".repeat(4 * 1024 * 1024 + 1));
-  await Promise.resolve();
+  await Bun.sleep(0);
   expect(copies).toBe(0);
   expect(
     socket.sent
@@ -43,7 +43,7 @@ test("oversized websocket envelopes are refused before conversion and recover on
   socket.message(
     '\u001Esurface:{"version":2,"width":1,"height":1,"styles":[null],"rows":[[]]}\n',
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
   expect(frames).toHaveLength(1);
   bridge.dispose();
 });
@@ -167,7 +167,7 @@ test("bridge decodes websocket output and sends queued input when the socket ope
   // The capability declaration always flushes first (queued at
   // construction), ahead of any caller-queued record.
   expect(decoder.decode(socket.sent[0])).toBe(
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
   );
   expect(decoder.decode(socket.sent[1])).toBe("\u001Eresize:100:32:9:18\n");
 
@@ -186,7 +186,7 @@ test("bridge decodes websocket output and sends queued input when the socket ope
         "legacy output\n",
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
 
   expect(frames).toHaveLength(1);
   expect(frames[0]).toMatchObject({
@@ -236,7 +236,7 @@ test("bridge buffers output until a runtime binds a sink", async () => {
       '\u001Esurface:{"version":1,"width":3,"height":1,"styles":[null],"rows":[[]]}\n',
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
 
   bridge.bindOutput({
     presentSurface: (frame) => frames.push(frame),
@@ -284,7 +284,7 @@ test("bridge dedupes keyframe requests until a stamped baseline recovers", async
         "\n",
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
 
   expect(frames).toHaveLength(0);
   expect(decoder.decode(socket.sent.at(-1))).toBe(
@@ -308,7 +308,7 @@ test("bridge dedupes keyframe requests until a stamped baseline recovers", async
         "\n",
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
   expect(
     socket.sent.filter(
       (chunk) =>
@@ -344,7 +344,7 @@ test("bridge dedupes keyframe requests until a stamped baseline recovers", async
         "\n",
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
 
   expect(frames).toHaveLength(2);
   expect(frames.at(-1)).toMatchObject({
@@ -376,7 +376,7 @@ test("bridge dedupes keyframe requests until a stamped baseline recovers", async
         "\n",
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
   expect(
     socket.sent.filter(
       (chunk) =>
@@ -412,12 +412,12 @@ test("websocket bridge sends coalesced image recovery and suppresses repeats unt
         "\n",
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
 
   bridge.requestImagePayloads(["png:z", "png:a", "png:z"]);
   bridge.requestImagePayloads(["png:a"]);
   expect(socket.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
     '\u001Eresync:{"scope":"images","ids":["png:a","png:z"]}\n',
   ]);
 
@@ -453,11 +453,11 @@ test("websocket bridge sends coalesced image recovery and suppresses repeats unt
         "\n",
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
   bridge.requestImagePayloads(["png:a", "png:z"]);
 
   expect(socket.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
     '\u001Eresync:{"scope":"images","ids":["png:a","png:z"]}\n',
     '\u001Eresync:{"scope":"images","ids":["png:a"]}\n',
   ]);
@@ -486,7 +486,7 @@ test("same-chunk payload repair clears the earlier payload-less miss in presenta
   });
 
   socket.message(encoder.encode(payloadMissThenRepairChunk(101)));
-  await Promise.resolve();
+  await Bun.sleep(0);
   bridge.requestImagePayloads(["png:same-chunk"]);
 
   expect(resyncMessages(socket)).toEqual([
@@ -506,7 +506,7 @@ test("pre-bind payload repair backlog clears the earlier miss when finally prese
   });
   socket.open();
   socket.message(encoder.encode(payloadMissThenRepairChunk(102)));
-  await Promise.resolve();
+  await Bun.sleep(0);
 
   bridge.bindOutput({
     presentSurface: (frame) => {
@@ -541,12 +541,12 @@ test("websocket queued send failure retains the request and preserves FIFO", () 
   socket.open();
 
   expect(socket.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
   ]);
 
   bridge.sendInput(encoder.encode("\u001Ekey:return:0\n"));
   expect(socket.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
     '\u001Eresync:{"scope":"images","ids":["png:queued"]}\n',
     "\u001Ekey:return:0\n",
   ]);
@@ -585,7 +585,7 @@ test("abnormal close reconnects with the handshake ahead of queued input", async
   expect(sockets).toHaveLength(2);
   sockets[1]!.open();
   expect(sockets[1]!.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    'caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    'caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
     decoder.decode(encodeRenderStyleControlMessage({ fontSize: 20 })),
     "resize:100:32:9:18\n",
     "key:return:0\n",
@@ -597,7 +597,7 @@ test("abnormal close reconnects with the handshake ahead of queued input", async
       'surface:{"version":1,"width":3,"height":1,"styles":[null],"rows":[[]]}\n',
     ),
   );
-  await Promise.resolve();
+  await Bun.sleep(0);
   expect(frames).toHaveLength(1);
 
   bridge.dispose();
@@ -674,7 +674,7 @@ test("repeated abnormal closes keep reconnecting with fresh handshakes", async (
   expect(sockets).toHaveLength(3);
   sockets[2]!.open();
   expect(decoder.decode(sockets[2]!.sent[0])).toBe(
-    'caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    'caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
   );
   // Exactly one capability declaration: each reconnect's handshake replaces
   // the previous attempt's queued one rather than stacking duplicates.
@@ -728,3 +728,58 @@ function resyncMessages(socket: FakeWebSocket): string[] {
     .map((chunk) => decoder.decode(chunk))
     .filter((message) => message.startsWith("\u001Eresync:"));
 }
+
+test("delayed Blob conversion preserves wire order and cannot cross reconnect or disposal", async () => {
+  const sockets: FakeWebSocket[] = [];
+  const bridge = new WebSocketSceneBridge({
+    sceneId: "main",
+    token: "test",
+    reconnectDelayMilliseconds: () => 0,
+    webSocketFactory: () => {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket;
+    },
+  });
+  const frames: number[] = [];
+  let resets = 0;
+  bridge.bindOutput({
+    presentSurface: (frame) => frames.push(frame.geometryRevision!),
+    resetSurfaceSession: () => resets++,
+  });
+  const record = (revision: number) =>
+    encoder.encode(
+      `\u001Esurface:${JSON.stringify({ version: 2, width: 1, height: 1, styles: [null], rows: [[]], geometryRevision: revision })}\n`,
+    );
+  let release!: (bytes: ArrayBuffer) => void;
+  const delayed = new Blob([record(1)]);
+  delayed.arrayBuffer = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  sockets[0]!.open();
+  sockets[0]!.message(delayed);
+  sockets[0]!.message(record(2));
+  await Bun.sleep(0);
+  expect(frames).toEqual([]);
+  release(record(1).buffer as ArrayBuffer);
+  await Bun.sleep(0);
+  expect(frames).toEqual([1, 2]);
+
+  sockets[0]!.message(delayed);
+  await Bun.sleep(0);
+  sockets[0]!.serverClose(1006);
+  await Bun.sleep(2);
+  expect(resets).toBe(1);
+  sockets[1]!.open();
+  sockets[1]!.message(record(3));
+  release(record(1).buffer as ArrayBuffer);
+  await Bun.sleep(0);
+  expect(frames).toEqual([1, 2, 3]);
+  sockets[1]!.message(delayed);
+  await Bun.sleep(0);
+  bridge.dispose();
+  release(record(4).buffer as ArrayBuffer);
+  await Bun.sleep(0);
+  expect(frames).toEqual([1, 2, 3]);
+});

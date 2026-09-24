@@ -216,7 +216,9 @@ clusters, emoji sequences and wire cell order. Paragraph bidi reordering and
 contextual shaping across independent cells are outside this cell-wire profile;
 Arabic/Indic paragraph fidelity requires a richer shared text contract.
 
-The runtime measures the mount's content box, preserving fractional origins
+Give the app mount a definite size through your stylesheet, flex/grid layout or
+inline styles; the host preserves those sizing rules. The runtime measures the
+mount's content box, preserving fractional origins
 and subtracting borders/padding. Hidden or sub-cell mounts defer presentation
 until measurable. CSS zoom and positive axis-aligned scale/translation are
 supported; rotation, skew, reflection and perspective report an embedding
@@ -237,18 +239,34 @@ into the painted frame, and their accessibility announcements are delivered in
 order with the paint. Frames are still decoded and applied in transport order;
 only the paint is deferred.
 
-Two clocks follow from this, and each piece of runtime state follows one of
-them:
+Canvas updates input routing on receipt and paints its surface and ARIA sidecar
+together at the next animation frame. DOM updates input routing, text and ARIA
+bounds together with the visible frame.
 
-- **On receipt:** pointer geometry (link targets, wheel-chaining scroll
-  regions, the hit-testing grid), `preferredGridSize`, and
-  `focusPresentation`. Input is routed to an app that already lives in the
-  newest frame, so it is resolved against that frame.
-- **With the paint:** the visible surface and the ARIA sidecar (tree, focus,
-  live regions), so assistive technology describes what is on screen.
+DOM hosts declare `geometryRevisions` and wait for a producer's revision-zero
+acknowledgement before sending revision-bearing geometry or pointer records.
+A capable producer captures the revision before layout and echoes it on every
+full or delta frame. A resize or font change retains the old presentation until
+the newest requested revision arrives; late old replies cannot replace it.
+User text-size changes reproject the visible frame and its semantic bounds
+together while waiting. `geometrySnapshot.sourceRevision` identifies its
+producer layout; `projected: true` marks this temporary display. The matching
+producer frame clears that marker. A wait longer than one second produces a
+visible diagnostic; the terminal's `data-geometry-pending` attribute identifies
+the outstanding revision.
 
-Resizes, restyles, and a document that becomes visible again paint
-synchronously and fully; disposing a runtime cancels its pending paint.
+Pointer events name the visible source geometry and are rejected by Swift if its
+current request or applied interaction map has moved on. Changing geometry
+cancels an active pointer gesture without activating its former target.
+
+An older producer remains usable with legacy resize/input records, but does not
+provide the correlated-geometry guarantee. Reconnecting resets correlation,
+queued paints and decoder state; delayed Blob conversions cannot reach the next
+session. Typography revisions are independent of transport `epoch`/`gen`.
+
+Resizes and restyles paint a complete matching frame as soon as available.
+A document becoming visible again remeasures before painting; disposal cancels
+pending paints, font callbacks and socket work.
 
 `WebHostAppOptions.paintScheduling` (forwarded to every scene runtime as
 `WebHostSceneRuntimeOptions.paintScheduling`) accepts an animation-frame pair

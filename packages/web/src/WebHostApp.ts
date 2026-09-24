@@ -361,8 +361,8 @@ class InternalWebHostAppController implements WebHostAppController {
     this.mount.style.background =
       "linear-gradient(180deg, #0f172a 0%, #111827 100%)";
     this.mount.style.boxSizing = "border-box";
-    this.mount.style.width = "100%";
-    this.mount.style.height = "100%";
+    // The embedder owns the mount size, including stylesheet/flex/grid rules.
+    // Replacing it with 100% can collapse an auto-height parent in DOM mode.
     this.mount.style.minWidth = "0";
     this.mount.style.minHeight = "0";
     this.mount.style.overflow = "hidden";

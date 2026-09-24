@@ -39,6 +39,25 @@ let controller: WebHostAppController | undefined;
 let disposed = false;
 let jspiStarts = 0;
 let jspiSettled = 0;
+let animationFrame = 0;
+const geometryTimings: {
+  revision: number;
+  sent: number;
+  animationFrame: number;
+  received?: number;
+  painted?: number;
+}[] = [];
+const sentInputs: string[] = [];
+let finalSizeDelivered = 0;
+function observeAnimationFrame() {
+  animationFrame++;
+  const revision = runtimes[0]?.geometrySnapshot?.sourceRevision;
+  const timing = geometryTimings.find((item) => item.revision === revision);
+  if (timing && timing.painted === undefined)
+    timing.painted = performance.now();
+  if (!disposed) requestAnimationFrame(observeAnimationFrame);
+}
+requestAnimationFrame(observeAnimationFrame);
 
 // Observe the real export promise so teardown proves the WASM invocation
 // returned, even after its bridge has been closed. Execution is unchanged.
@@ -65,6 +84,11 @@ class ObservedBridge extends BrowserWASIBridge {
     super.bindOutput({
       ...sink,
       presentSurface(frame, recovered) {
+        const timing = geometryTimings.find(
+          (item) => item.revision === frame.geometryRevision,
+        );
+        if (timing && timing.received === undefined)
+          timing.received = performance.now();
         frames[sceneId] = frame;
         frameCounts[sceneId] = (frameCounts[sceneId] ?? 0) + 1;
         const text = frame.rows
@@ -139,12 +163,17 @@ const api = {
       inputLatencies,
       heartbeats,
       paints: runtimes.map((r) => r.paintStatistics),
+      geometry: runtimes.map((r) => r.geometrySnapshot),
+      geometryTimings,
+      sentInputs,
+      finalSizeDelivered,
     };
   },
   async start(
     mode: "worker" | "main-thread" | "auto",
     scene = "alpha",
     environment?: Record<string, string>,
+    renderer: "canvas" | "dom" = "canvas",
   ) {
     if (controller) throw new Error("The compiled WASM app is already started");
     controller = await createWebHostApp({
@@ -152,6 +181,7 @@ const api = {
       manifestUrl: new URL("/scene-manifest.json", location.href),
       initialSceneId: scene,
       environment,
+      renderer,
       bridgeFactory(options) {
         const bridge = new ObservedBridge({
           sceneId: options.sceneId,
@@ -167,14 +197,43 @@ const api = {
         new URL("/app.wasm", location.href),
         {
           executionMode: mode,
-          onRuntimeCreated: (runtime) =>
+          onRuntimeCreated: (runtime) => {
             runtimes.push(
               runtime as import("../dist/index.js").WebHostSceneRuntime,
-            ),
+            );
+            // Test-only observation of the actual input routing boundary.
+            // Forward every byte unchanged into the production shared queue.
+            const observed = runtime as unknown as {
+              onInput(chunk: Uint8Array): void;
+            };
+            const send = observed.onInput.bind(runtime);
+            observed.onInput = (chunk) => {
+              const text = new TextDecoder().decode(chunk);
+              sentInputs.push(text);
+              const revision = /^geometry:(\d+):/.exec(text.slice(1))?.[1];
+              if (revision)
+                geometryTimings.push({
+                  revision: Number(revision),
+                  sent: performance.now(),
+                  animationFrame,
+                });
+              send(chunk);
+            };
+          },
           workerModuleURL: new URL("/compiled-wasm-worker.js", location.href),
         },
       ),
     });
+  },
+  setFontSize(fontSize: number) {
+    for (const runtime of runtimes) runtime.setStyle({ fontSize });
+  },
+  resizeMount(width: number, height: number) {
+    const mount = requiredElement("wasm-mount");
+    mount.style.width = `${width}px`;
+    mount.style.height = `${height}px`;
+    for (const runtime of runtimes) runtime.refreshGeometry();
+    finalSizeDelivered = performance.now();
   },
   beginSample() {
     inputLatencies.length = 0;

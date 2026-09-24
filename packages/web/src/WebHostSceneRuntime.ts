@@ -14,6 +14,8 @@ import {
   type DomGeometrySnapshot,
 } from "./DomGeometry.ts";
 import { DomSurfacePainter } from "./DomSurfacePainter.ts";
+import { encodeGeometryControlMessage } from "./HostGeometryProtocol.ts";
+import { HostGeometrySession } from "./HostGeometrySession.ts";
 import {
   type CellLocation,
   InputEventEncoder,
@@ -204,36 +206,12 @@ export function coarsePrimaryPointer(): boolean {
 }
 
 /**
- * Coordinates a single SwiftTUI scene's browser presentation: it owns the DOM
- * mount, canvas, accessibility tree, and bridge wiring, and delegates the heavy
- * responsibilities to focused collaborators — {@link CanvasSurfacePainter} for
- * canvas drawing, {@link InputEventEncoder} for wire-message encoding, and the
- * {@link PointerGeometry} helpers for pixel→cell hit-testing and wheel chaining.
- *
- * ## What advances when a frame arrives
- *
- * Surface frames are decoded and applied in transport order, but the visible
- * paint is batched: all frames received within one animation frame are painted
- * once, as the newest frame (see {@link SurfacePaintScheduler}). Two clocks
- * therefore exist, and each piece of state follows one of them deliberately:
- *
- * - **Immediately, on receipt:** pointer geometry (link targets under the
- *   pointer, wheel-chaining scroll regions, the cell grid used for
- *   hit-testing), `preferredGridSize`, and `focusPresentation`. Input is
- *   routed to an app that has already moved to the newest frame, so resolving
- *   a click or wheel against an older, still-visible frame would disagree with
- *   what the app does with that input.
- * - **With the visible frame, at the next animation frame:** the painted
- *   surface and the ARIA sidecar (tree, focus, live regions). Assistive
- *   technology then always describes exactly what is on screen, and DOM
- *   mutation for the tree is coalesced with the paint. Imperative
- *   announcements from every coalesced frame are delivered, in order, with that
- *   paint; only live-region *label* changes collapse to their final value, as
- *   they would for any rapid update.
- *
- * Clipboard writes, runtime issues, frame diagnostics, and text output are
- * not visual and stay synchronous and ordered. Resizes, restyles, and a
- * document becoming visible again paint synchronously and fully.
+ * One scene runtime with replaceable Canvas and DOM presenters. Canvas retains
+ * receipt-time input routing. DOM publishes text, pointer/link routing and its
+ * ARIA sidecar together, only when the captured producer geometry matches the
+ * latest measurable host request. Until then the previous frame stays visible.
+ * Transport decoding and nonvisual controls remain ordered and synchronous;
+ * visual frames coalesce without dropping announcements or image payloads.
  */
 export class WebHostSceneRuntime {
   readonly descriptor: WebHostSceneDescriptor;
@@ -258,10 +236,17 @@ export class WebHostSceneRuntime {
   private domSurfaceRoot?: HTMLElement;
   private lastDomSurfaceSize?: { width: number; height: number };
   private domGeometry?: DomGeometryController;
+  private readonly geometrySession = new HostGeometrySession();
   private readonly embeddingMount: HTMLElement;
   private geometryRefreshHandle?: number;
   private geometryDiagnostic?: string;
+  private geometryMeasurable = false;
+  private capturedPointerId?: number;
+  private canceledPointerId?: number;
   private disposed = false;
+  private stagedFontChange = false;
+  private reprojecting = false;
+  private geometryWaitTimer?: ReturnType<typeof setTimeout>;
   private readonly domFontOptions?: DomFontOptions;
   private fontResources?: DomFontResources;
   private activeFontResources?: DomFontResources;
@@ -339,6 +324,7 @@ export class WebHostSceneRuntime {
     this.paintScheduler = new SurfacePaintScheduler(
       paintScheduling === "synchronous" ? undefined : paintScheduling,
       (request) => this.paint(request),
+      (frame) => !this.domGeometry || this.geometrySession.canPresent(frame),
     );
     this.onOpenHyperlink = options.onOpenHyperlink;
     this.suspendWhenHidden = options.suspendWhenHidden ?? true;
@@ -401,6 +387,15 @@ export class WebHostSceneRuntime {
     this.installResizeObserver();
 
     this.bridge?.bindOutput({
+      resetSurfaceSession: () => {
+        this.finishGeometryWait();
+        this.geometrySession.resetConnection();
+        this.paintScheduler.resetSession();
+        this.terminalMount.setAttribute("aria-busy", "true");
+        this.lastSentResize = undefined;
+        this.cancelGeometryPointer();
+        this.refreshGeometry();
+      },
       presentSurface: (frame, recoveredImagePayloadIds) =>
         this.presentSurface(frame, recoveredImagePayloadIds),
       writeClipboard: (text) => this.writeClipboard(text),
@@ -480,6 +475,7 @@ export class WebHostSceneRuntime {
         : style,
     );
     if (this.domGeometry) {
+      this.stagedFontChange = true;
       this.loadDomFont(next);
       return;
     }
@@ -559,6 +555,7 @@ export class WebHostSceneRuntime {
     // Before the painter: a paint scheduled for the next animation frame must
     // never run against a disposed painter or a removed mount.
     this.disposed = true;
+    this.finishGeometryWait();
     this.fontResources?.dispose();
     if (this.activeFontResources !== this.fontResources)
       this.activeFontResources?.dispose();
@@ -608,21 +605,20 @@ export class WebHostSceneRuntime {
     };
   }
 
-  /**
-   * Receives one decoded frame in transport order. The frame becomes current
-   * at once — pointer geometry, `preferredGridSize`, and `focusPresentation`
-   * read it from here on — while the paint and the ARIA sidecar wait for the
-   * scheduler's next animation frame (or happen now, under synchronous
-   * scheduling). The surface's backing size is adjusted inside that paint, so
-   * a resize never clears the canvas ahead of the frame that fills it.
-   */
+  /** Decode every frame; DOM eligibility is checked again at paint time. */
   private presentSurface(
     frame: WebHostSurfaceFrame,
     recoveredImagePayloadIds?: readonly string[],
   ): void {
-    this.currentFrame = frame;
-    this.columns = Math.max(1, Math.round(frame.width));
-    this.rows = Math.max(1, Math.round(frame.height));
+    if (this.disposed) return;
+    if (this.domGeometry) {
+      this.geometrySession.observe(frame);
+      this.sendGeometryIfNeeded();
+    } else {
+      this.currentFrame = frame;
+      this.columns = Math.max(1, Math.round(frame.width));
+      this.rows = Math.max(1, Math.round(frame.height));
+    }
     this.paintScheduler.present(frame, recoveredImagePayloadIds);
   }
 
@@ -855,20 +851,31 @@ export class WebHostSceneRuntime {
       }
 
       this.nativePointerGesture = false;
+      this.canceledPointerId = undefined;
       const button = this.inputEncoder.pointerButton(event.button);
       this.activePointerButton = button;
       this.hasCapturedPointer = true;
+      this.capturedPointerId = event.pointerId;
       this.pointerDownLinkTarget =
         button === "primary" ? this.linkTarget(location) : undefined;
       this.terminalMount.focus?.({ preventScroll: true });
       this.terminalMount.setPointerCapture?.(event.pointerId);
       this.onInput(
-        this.inputEncoder.encodePointerDown(location, button, event),
+        this.inputEncoder.encodePointerDown(
+          location,
+          button,
+          event,
+          this.geometrySession.pointerRevision,
+        ),
       );
       event.preventDefault();
     };
 
     const handlePointerUp = (event: PointerEvent) => {
+      if (event.pointerId === this.canceledPointerId) {
+        this.canceledPointerId = undefined;
+        return;
+      }
       if (
         !this.hasCapturedPointer &&
         (this.nativePointerGesture ||
@@ -883,6 +890,7 @@ export class WebHostSceneRuntime {
         : this.cellLocation(event);
       this.terminalMount.releasePointerCapture?.(event.pointerId);
       this.hasCapturedPointer = false;
+      this.capturedPointerId = undefined;
       const downLinkTarget = this.pointerDownLinkTarget;
       this.pointerDownLinkTarget = undefined;
       if (!location) {
@@ -892,7 +900,14 @@ export class WebHostSceneRuntime {
       const button =
         this.inputEncoder.pointerButton(event.button) ??
         this.activePointerButton;
-      this.onInput(this.inputEncoder.encodePointerUp(location, button, event));
+      this.onInput(
+        this.inputEncoder.encodePointerUp(
+          location,
+          button,
+          event,
+          this.geometrySession.pointerRevision,
+        ),
+      );
       // A click — down and up over the same link target — opens the link,
       // mirroring the Android host's tap-to-open. The app still receives the
       // pointer messages above.
@@ -906,6 +921,7 @@ export class WebHostSceneRuntime {
     };
 
     const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerId === this.canceledPointerId) return;
       if (
         !this.hasCapturedPointer &&
         (this.nativePointerGesture ||
@@ -931,6 +947,7 @@ export class WebHostSceneRuntime {
           location,
           this.activePointerButton,
           event,
+          this.geometrySession.pointerRevision,
         ),
       );
     };
@@ -963,7 +980,13 @@ export class WebHostSceneRuntime {
         return;
       }
 
-      this.onInput(this.inputEncoder.encodeWheel(location, event));
+      this.onInput(
+        this.inputEncoder.encodeWheel(
+          location,
+          event,
+          this.geometrySession.pointerRevision,
+        ),
+      );
       event.preventDefault();
     };
 
@@ -998,6 +1021,7 @@ export class WebHostSceneRuntime {
     if (this.fontPending) return;
     if (this.domGeometry) {
       let snapshot: DomGeometrySnapshot | undefined;
+      this.geometryMeasurable = false;
       try {
         snapshot = this.domGeometry.measure(this.currentStyle);
       } catch (error) {
@@ -1007,23 +1031,56 @@ export class WebHostSceneRuntime {
         this.geometryDiagnostic = message;
       }
       if (!snapshot) {
+        this.cancelGeometryPointer();
         this.paintScheduler.setHeld(true);
         return;
       }
+      const previous = this.domGeometry.presented;
+      const userTypographyChanged =
+        !this.stagedFontChange &&
+        previous &&
+        this.currentFrame &&
+        (previous.cellWidth !== snapshot.cellWidth ||
+          previous.cellHeight !== snapshot.cellHeight ||
+          previous.baseline !== snapshot.baseline ||
+          previous.fontSize !== snapshot.fontSize);
       this.cellWidth = snapshot.cellWidth;
       this.cellHeight = snapshot.cellHeight;
       this.columns = snapshot.columns;
       this.rows = snapshot.rows;
       this.surfaceCSSWidth = snapshot.content.width;
       this.surfaceCSSHeight = snapshot.content.height;
+      try {
+        if (this.domGeometry.presented?.revision !== snapshot.revision)
+          this.cancelGeometryPointer();
+        this.geometrySession.request(snapshot);
+      } catch (error) {
+        this.writeOutput(`${String(error)}\n`);
+        this.paintScheduler.setHeld(true);
+        return;
+      }
+      this.geometryMeasurable = true;
       if (snapshot.bounded && this.geometryDiagnostic !== "bounded") {
         this.writeOutput(
           "DOM viewport exceeds the supported grid; showing a bounded viewport.\n",
         );
         this.geometryDiagnostic = "bounded";
       } else if (!snapshot.bounded) this.geometryDiagnostic = undefined;
-      this.sendResizeIfNeeded();
+      if (this.geometrySession.negotiated) this.sendGeometryIfNeeded();
+      else this.sendResizeIfNeeded();
       this.paintScheduler.setHeld(false);
+      if (
+        userTypographyChanged &&
+        this.geometrySession.negotiated &&
+        !this.geometrySession.canPresent(this.currentFrame)
+      ) {
+        this.reprojecting = true;
+        try {
+          this.paintScheduler.reprojectVisible();
+        } finally {
+          this.reprojecting = false;
+        }
+      }
       this.paintScheduler.repaintNow();
       return;
     }
@@ -1077,6 +1134,49 @@ export class WebHostSceneRuntime {
       current.cellWidth,
       current.cellHeight,
     );
+  }
+
+  private cancelGeometryPointer(): void {
+    if (this.capturedPointerId !== undefined) {
+      this.canceledPointerId = this.capturedPointerId;
+      if (this.terminalMount.hasPointerCapture?.(this.capturedPointerId)) {
+        this.terminalMount.releasePointerCapture?.(this.capturedPointerId);
+      }
+    }
+    this.capturedPointerId = undefined;
+    this.hasCapturedPointer = false;
+    this.pointerDownLinkTarget = undefined;
+  }
+
+  private finishGeometryWait(): void {
+    if (this.geometryWaitTimer !== undefined)
+      clearTimeout(this.geometryWaitTimer);
+    this.geometryWaitTimer = undefined;
+    this.terminalMount.removeAttribute("data-geometry-pending");
+  }
+
+  private sendGeometryIfNeeded(): void {
+    const request = this.geometrySession.takeRequest();
+    if (!request) return;
+    this.terminalMount.setAttribute("aria-busy", "true");
+    this.terminalMount.setAttribute(
+      "data-geometry-pending",
+      String(request.revision),
+    );
+    if (this.geometryWaitTimer === undefined) {
+      this.geometryWaitTimer = setTimeout(() => {
+        this.geometryWaitTimer = undefined;
+        if (
+          !this.disposed &&
+          this.terminalMount.getAttribute("data-geometry-pending")
+        ) {
+          this.writeOutput(
+            "Waiting for the app to finish layout for the requested display geometry.\n",
+          );
+        }
+      }, 1000);
+    }
+    this.onInput(encodeGeometryControlMessage(request));
   }
 
   private resizeSurface(): boolean {
@@ -1158,8 +1258,12 @@ export class WebHostSceneRuntime {
   private paint(request: SurfacePaintRequest): void {
     if (this.domGeometry?.pending) {
       const pending = this.domGeometry.pending;
+      if (!this.reprojecting) this.geometrySession.didPresent(request.frame);
+      this.currentFrame = request.frame;
       const snapshot = Object.freeze({
         ...pending,
+        sourceRevision: request.frame?.geometryRevision,
+        projected: this.reprojecting || undefined,
         columns: request.frame?.width ?? pending.columns,
         rows: request.frame?.height ?? pending.rows,
       });
@@ -1191,6 +1295,14 @@ export class WebHostSceneRuntime {
       request.frame,
       request.accessibilityAnnouncements,
     );
+    if (this.domGeometry && !this.fontPending && !this.reprojecting) {
+      this.stagedFontChange = false;
+      this.finishGeometryWait();
+      const previous = this.activeFontResources;
+      this.activeFontResources = this.fontResources;
+      if (previous !== this.activeFontResources) previous?.dispose();
+      this.terminalMount.removeAttribute("aria-busy");
+    }
   }
 
   private syncAccessibilityTree(
@@ -1295,8 +1407,6 @@ export class WebHostSceneRuntime {
         )
           return;
         this.fontResult = result;
-        const previousResources = this.activeFontResources;
-        this.activeFontResources = resources;
         this.fontPending = false;
         this.loadingFont?.remove();
         this.loadingFont = undefined;
@@ -1306,7 +1416,6 @@ export class WebHostSceneRuntime {
         this.bridge?.updateRenderStyle(this.currentStyle);
         if (result.diagnostic) this.writeOutput(`${result.diagnostic}\n`);
         this.resizeToMount();
-        previousResources?.dispose();
       })
       .catch((error) => {
         if (this.disposed || resources !== this.fontResources) return;
@@ -1333,10 +1442,20 @@ export class WebHostSceneRuntime {
   }
 
   private cellLocation(event: MouseEvent): CellLocation | undefined {
+    if (
+      this.domGeometry &&
+      (!this.geometryMeasurable || !this.geometrySession.allowsPointer)
+    )
+      return undefined;
     return cellLocationForEvent(event, this.pointerMetrics());
   }
 
   private rawCellLocation(event: MouseEvent): CellLocation | undefined {
+    if (
+      this.domGeometry &&
+      (!this.geometryMeasurable || !this.geometrySession.allowsPointer)
+    )
+      return undefined;
     return rawCellLocationForEvent(event, this.pointerMetrics());
   }
 }

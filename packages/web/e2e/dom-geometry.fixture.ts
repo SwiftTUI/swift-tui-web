@@ -15,6 +15,49 @@ const runtimes: {
   inputs: string[];
 }[] = [];
 const api = {
+  acknowledge(id: number) {
+    runtimes[id]!.bridge.stdout.write(
+      `\u001esurface:${JSON.stringify({ version: 2, geometryRevision: 0, width: 1, height: 1, styles: [null], rows: [[]] })}\n`,
+    );
+  },
+  requested(id: number) {
+    const message = runtimes[id]!.inputs.filter((input) =>
+      input.startsWith("\u001egeometry:"),
+    ).at(-1);
+    if (!message) throw new Error("No geometry request received");
+    const [, revision, columns, rows, cellWidth, cellHeight] = message
+      .trim()
+      .split(":")
+      .map(Number);
+    return {
+      revision: revision!,
+      columns: columns!,
+      rows: rows!,
+      cellWidth: cellWidth!,
+      cellHeight: cellHeight!,
+    };
+  },
+  presentGeometry(
+    id: number,
+    request: { revision: number; columns: number; rows: number },
+    text: string,
+  ) {
+    runtimes[id]!.bridge.stdout.write(
+      `\u001esurface:${JSON.stringify({
+        version: 2,
+        geometryRevision: request.revision,
+        width: request.columns,
+        height: request.rows,
+        styles: [null],
+        rows: Array.from({ length: request.rows }, () =>
+          Array.from({ length: request.columns }, (_, x) => [x, text, 1, 0]),
+        ),
+        accessibilityTree: [
+          { id: "/button", role: "button", label: text, rect: [0, 0, 2, 1] },
+        ],
+      })}\n`,
+    );
+  },
   async create(
     font: DomFontOptions = { assetBase: "/fonts/" },
     hidden = false,

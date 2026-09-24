@@ -60,6 +60,78 @@ function makeScheduler(
   return { scheduler, paints };
 }
 
+test("geometry filtering preserves an eligible candidate and carries every decoded side effect", () => {
+  const clock = new ManualAnimationFrameScheduler();
+  const paints: SurfacePaintRequest[] = [];
+  const scheduler = new SurfacePaintScheduler(
+    clock,
+    (request) => paints.push(request),
+    (frame) => frame?.geometryRevision === 2,
+  );
+  scheduler.present(
+    frame({
+      geometryRevision: 1,
+      gen: 1,
+      images: [image("png:one", "first")],
+      accessibilityAnnouncements: [{ message: "one", politeness: "polite" }],
+    }),
+  );
+  clock.tick();
+  expect(paints).toEqual([]);
+  expect(clock.requests).toBe(0);
+  scheduler.present(
+    frame({
+      geometryRevision: 2,
+      gen: 2,
+      images: [image("png:one"), image("png:two")],
+      accessibilityAnnouncements: [{ message: "two", politeness: "polite" }],
+    }),
+  );
+  scheduler.present(
+    frame({
+      geometryRevision: 1,
+      gen: 3,
+      images: [image("png:two", "late")],
+      accessibilityAnnouncements: [{ message: "three", politeness: "polite" }],
+    }),
+    ["png:two"],
+  );
+  clock.tick();
+  expect(paints).toHaveLength(1);
+  expect(paints[0]!.frame!.geometryRevision).toBe(2);
+  expect(paints[0]!.frame!.gen).toBe(2);
+  expect(paints[0]!.frame!.images?.map((image) => image.dataBase64)).toEqual([
+    "first",
+    "late",
+  ]);
+  expect(
+    paints[0]!.accessibilityAnnouncements.map((item) => item.message),
+  ).toEqual(["one", "two", "three"]);
+  expect(paints[0]!.recoveredImagePayloadIds).toEqual(["png:two"]);
+  expect(paints[0]!.damage).toBeUndefined();
+});
+
+test("a newer geometry request invalidates the queued paint without spinning animation frames", () => {
+  const clock = new ManualAnimationFrameScheduler();
+  const paints: SurfacePaintRequest[] = [];
+  let revision = 1;
+  const scheduler = new SurfacePaintScheduler(
+    clock,
+    (request) => paints.push(request),
+    (frame) => frame?.geometryRevision === revision,
+  );
+  scheduler.present(frame({ geometryRevision: 1 }));
+  revision = 2;
+  clock.tick();
+  scheduler.requestRepaint();
+  expect(paints).toEqual([]);
+  expect(clock.requests).toBe(1);
+  scheduler.present(frame({ geometryRevision: 2 }));
+  clock.tick();
+  expect(paints).toHaveLength(1);
+  expect(paints[0]!.frame!.geometryRevision).toBe(2);
+});
+
 test("an unmeasurable mount holds one latest frame with payloads and ordered announcements", () => {
   const clock = new ManualAnimationFrameScheduler();
   const { scheduler, paints } = makeScheduler(clock);

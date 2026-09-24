@@ -52,53 +52,72 @@ export class InputEventEncoder {
     location: CellLocation,
     button: PointerButton,
     event: PointerEvent,
+    geometryRevision?: number,
   ): Uint8Array {
-    return encodeMouseInputMessage({
-      kind: "down",
-      x: location.x,
-      y: location.y,
-      button,
-      modifiers: modifierMask(event),
-    });
+    return encodeMouseInputMessage(
+      {
+        kind: "down",
+        x: location.x,
+        y: location.y,
+        button,
+        modifiers: modifierMask(event),
+      },
+      geometryRevision,
+    );
   }
 
   encodePointerUp(
     location: CellLocation,
     button: PointerButton,
     event: PointerEvent,
+    geometryRevision?: number,
   ): Uint8Array {
-    return encodeMouseInputMessage({
-      kind: "up",
-      x: location.x,
-      y: location.y,
-      button,
-      modifiers: modifierMask(event),
-    });
+    return encodeMouseInputMessage(
+      {
+        kind: "up",
+        x: location.x,
+        y: location.y,
+        button,
+        modifiers: modifierMask(event),
+      },
+      geometryRevision,
+    );
   }
 
   encodePointerMove(
     location: CellLocation,
     button: PointerButton,
     event: PointerEvent,
+    geometryRevision?: number,
   ): Uint8Array {
-    return encodeMouseInputMessage({
-      kind: event.buttons ? "dragged" : "moved",
-      x: location.x,
-      y: location.y,
-      button,
-      modifiers: modifierMask(event),
-    });
+    return encodeMouseInputMessage(
+      {
+        kind: event.buttons ? "dragged" : "moved",
+        x: location.x,
+        y: location.y,
+        button,
+        modifiers: modifierMask(event),
+      },
+      geometryRevision,
+    );
   }
 
-  encodeWheel(location: CellLocation, event: WheelEvent): Uint8Array {
-    return encodeMouseInputMessage({
-      kind: "scrolled",
-      x: location.x,
-      y: location.y,
-      deltaX: normalizedWheelDelta(event.deltaX),
-      deltaY: normalizedWheelDelta(event.deltaY),
-      modifiers: modifierMask(event),
-    });
+  encodeWheel(
+    location: CellLocation,
+    event: WheelEvent,
+    geometryRevision?: number,
+  ): Uint8Array {
+    return encodeMouseInputMessage(
+      {
+        kind: "scrolled",
+        x: location.x,
+        y: location.y,
+        deltaX: normalizedWheelDelta(event.deltaX),
+        deltaY: normalizedWheelDelta(event.deltaY),
+        modifiers: modifierMask(event),
+      },
+      geometryRevision,
+    );
   }
 
   /** Translates a DOM `MouseEvent.button` index into the wire button identity. */

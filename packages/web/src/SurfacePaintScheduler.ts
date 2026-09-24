@@ -124,6 +124,9 @@ export class SurfacePaintScheduler {
       | WebHostAnimationFrameScheduler
       | undefined,
     private readonly paint: (request: SurfacePaintRequest) => void,
+    private readonly canPresent: (
+      frame: WebHostSurfaceFrame | undefined,
+    ) => boolean = () => true,
   ) {}
 
   get statistics(): WebHostPaintStatistics {
@@ -150,6 +153,10 @@ export class SurfacePaintScheduler {
     }
     this.presentedFrames += 1;
     const pending = this.pending;
+    const keepEligibleCandidate =
+      !this.canPresent(frame) &&
+      pending?.frame !== undefined &&
+      this.canPresent(pending.frame);
     const previous = pending ? pending.frame : this.lastPaintedFrame;
     const damage = promotesToFullRepaint(previous, frame)
       ? undefined
@@ -176,8 +183,18 @@ export class SurfacePaintScheduler {
       next.coalescedFrameCount += 1;
       this.coalescedFrames += 1;
     }
-    next.frame = frame;
-    next.damage = damage;
+    if (keepEligibleCandidate) {
+      // Decode order and presentation eligibility are different: a late old
+      // layout must not displace a frame already paired with requested metrics.
+      for (const image of frame.images ?? []) {
+        if (image.dataBase64 !== undefined)
+          next.carriedImagePayloads.set(image.id, image.dataBase64);
+      }
+      next.damage = undefined;
+    } else {
+      next.frame = frame;
+      next.damage = damage;
+    }
     for (const id of recoveredImagePayloadIds) {
       next.recoveredImagePayloadIds.add(id);
     }
@@ -225,6 +242,7 @@ export class SurfacePaintScheduler {
     if (!pending) {
       return;
     }
+    if (!this.canPresent(pending.frame)) return;
     this.pending = undefined;
     const frame = pending.frame
       ? spliceCarriedImagePayloads(pending.frame, pending.carriedImagePayloads)
@@ -238,6 +256,26 @@ export class SurfacePaintScheduler {
       accessibilityAnnouncements: pending.accessibilityAnnouncements,
       coalescedFrameCount: pending.coalescedFrameCount,
     });
+  }
+
+  /** Reproject visible content without consuming the newer pending frame or side effects. */
+  reprojectVisible(): void {
+    if (this.disposed || !this.lastPaintedFrame) return;
+    this.paints++;
+    this.paint({
+      frame: this.lastPaintedFrame,
+      damage: undefined,
+      recoveredImagePayloadIds: [],
+      accessibilityAnnouncements: [],
+      coalescedFrameCount: 0,
+    });
+  }
+
+  /** Retire frames and side effects owned by a disconnected transport session. */
+  resetSession(): void {
+    this.cancelScheduled();
+    this.pending = undefined;
+    this.lastPaintedFrame = undefined;
   }
 
   /** Cancels any scheduled paint and ignores everything afterwards. */
@@ -269,6 +307,7 @@ export class SurfacePaintScheduler {
 
   private schedule(): void {
     if (this.held) return;
+    if (this.pending && !this.canPresent(this.pending.frame)) return;
     if (!this.animationFrames) {
       this.flush();
       return;
@@ -314,6 +353,7 @@ function promotesToFullRepaint(
     previous.width !== frame.width ||
     previous.height !== frame.height ||
     previous.epoch !== frame.epoch ||
+    previous.geometryRevision !== frame.geometryRevision ||
     frame.damage === undefined
   );
 }

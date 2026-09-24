@@ -154,6 +154,8 @@ test("app accepts existing custom bridges without the optional image recovery se
 
 test("app host frame contains padding within its mount", async () => {
   const mount = makeElement("main");
+  mount.style.width = "640px";
+  mount.style.height = "240px";
   let sceneRoot: ReturnType<typeof makeElement> | undefined;
   const controller = await createWebHostApp({
     mount: mount as unknown as HTMLElement,
@@ -172,8 +174,8 @@ test("app host frame contains padding within its mount", async () => {
   const mountStyle = mount.style as Record<string, string>;
   const sceneStyle = sceneRoot?.style as Record<string, string>;
   expect(mountStyle.boxSizing).toBe("border-box");
-  expect(mountStyle.width).toBe("100%");
-  expect(mountStyle.height).toBe("100%");
+  expect(mountStyle.width).toBe("640px");
+  expect(mountStyle.height).toBe("240px");
   expect(mountStyle.overflow).toBe("hidden");
   expect(mountStyle.padding).toBe("1rem");
   expect(sceneStyle.boxSizing).toBe("border-box");
@@ -275,7 +277,7 @@ test("app controller uses the embedded WebSocket bridge when configured", async 
   runtimeOptions?.onInput(new TextEncoder().encode("input-record"));
   // The bridge's capability declaration always flushes first on open.
   expect(new TextDecoder().decode(socket.sent[0])).toBe(
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
   );
   expect(new TextDecoder().decode(socket.sent[1])).toBe("input-record");
 

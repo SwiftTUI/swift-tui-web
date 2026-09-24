@@ -19,6 +19,9 @@ export interface DomContentBox {
 /** CSS layout pitch is independent of device-pixel output scale. */
 export interface DomGeometrySnapshot {
   readonly revision: number;
+  /** Producer layout revision; differs during a user-font reprojection. */
+  readonly sourceRevision?: number;
+  readonly projected?: boolean;
   readonly fontIdentity: string;
   readonly fontSize: number;
   readonly cellWidth: number;

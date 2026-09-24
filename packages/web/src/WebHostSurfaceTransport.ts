@@ -4,6 +4,7 @@
  * https://github.com/SwiftTUI/swift-tui/blob/main/docs/HOST-WIRE-CONTRACT.md
  */
 
+import { isGeometryRevision } from "./HostGeometryProtocol.ts";
 import {
   fitsJSONDepth,
   fitsSurfaceBudget,
@@ -214,6 +215,8 @@ export interface WebHostSurfaceFrame {
   epoch?: number;
   gen?: number;
   sequence?: number;
+  /** Captured layout revision; zero acknowledges support before a correlated layout. */
+  geometryRevision?: number;
   width: number;
   height: number;
   styles: Array<WebHostSurfaceStyle | null>;
@@ -240,6 +243,7 @@ export interface WebHostSurfaceDeltaFrame {
   gen?: number;
   baselineGen?: number;
   sequence?: number;
+  geometryRevision?: number;
   width: number;
   height: number;
   /**
@@ -300,6 +304,8 @@ export type WebHostResyncRequest =
   | { scope: "images"; ids?: string[] };
 
 export interface WebHostOutputSink {
+  /** Invalidates presentation/input correlation when a transport connection ends. */
+  resetSurfaceSession?(): void;
   presentSurface(
     frame: WebHostSurfaceFrame,
     recoveredImagePayloadIds?: readonly string[],
@@ -753,6 +759,7 @@ export class WebHostOutputDecoder {
       epoch: frame.epoch,
       gen: frame.gen,
       sequence: frame.sequence,
+      geometryRevision: frame.geometryRevision,
       width: frame.width,
       height: frame.height,
       styles,
@@ -937,7 +944,7 @@ export function encodeCapabilitiesControlMessage(): Uint8Array {
   // the same release. Measured at Stage SV, the full retransmit it replaces was
   // 69.7% of late-record bytes in a style-churning epoch.
   return textEncoder.encode(
-    `${recordPrefix}caps:{"acceptsDeltaFrames":true,"styleAppend":true}\n`,
+    `${recordPrefix}caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n`,
   );
 }
 
@@ -996,11 +1003,18 @@ export function encodePasteInputMessage(text: string): Uint8Array {
   );
 }
 
-export function encodeMouseInputMessage(input: WebHostMouseInput): Uint8Array {
+export function encodeMouseInputMessage(
+  input: WebHostMouseInput,
+  geometryRevision?: number,
+): Uint8Array {
+  if (geometryRevision !== undefined && !isGeometryRevision(geometryRevision))
+    throw new RangeError("Invalid pointer geometry revision");
   return textEncoder.encode(
     recordPrefix +
       [
-        "mouse",
+        ...(geometryRevision === undefined
+          ? ["mouse"]
+          : ["mouseGeometry", geometryRevision]),
         input.kind,
         formatCellCoordinate(input.x),
         formatCellCoordinate(input.y),
@@ -1098,6 +1112,8 @@ function hasValidAdditiveFrameFields(
   return (
     isOptionalSafeInteger(frame.epoch) &&
     isOptionalSafeInteger(frame.gen) &&
+    (frame.geometryRevision === undefined ||
+      isGeometryRevision(frame.geometryRevision, true)) &&
     (frame.links === undefined || isWebHostSurfaceLinks(frame.links)) &&
     (frame.linkTargets === undefined ||
       isWebHostSurfaceLinkTargets(frame.linkTargets)) &&

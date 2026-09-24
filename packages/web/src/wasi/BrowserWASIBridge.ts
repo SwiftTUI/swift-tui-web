@@ -66,6 +66,7 @@ export class BrowserWASIBridge {
       SWIFTTUI_MODE: "browser",
       SWIFTTUI_TRANSPORT: "surface",
       SWIFTTUI_SURFACE_DELTA: "1",
+      SWIFTTUI_GEOMETRY_REVISIONS: "1",
       SWIFTTUI_SCENE: options.sceneId,
       SWIFTTUI_COLUMNS: String(Math.max(1, options.columns)),
       SWIFTTUI_ROWS: String(Math.max(1, options.rows)),

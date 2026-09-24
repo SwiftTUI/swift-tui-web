@@ -69,7 +69,11 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
   private socket: WebSocketSceneSocket;
   private readonly createSocket: WebSocketSceneBridgeFactory;
   private readonly reconnectDelayMilliseconds: (attempt: number) => number;
-  private readonly decoder = new WebHostOutputDecoder();
+  private decoder = new WebHostOutputDecoder();
+  private receiveGeneration = 0;
+  private receiveTail: Promise<void> = Promise.resolve();
+  private pendingReceives = 0;
+  private pendingReceiveBytes = 0;
   private readonly queuedInput: Uint8Array[] = [];
   private readonly queuedOutput: WebHostOutputRecord[] = [];
   private sink?: WebHostOutputSink;
@@ -91,13 +95,45 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
   };
 
   private readonly handleMessage = (event: MessageEvent) => {
-    void this.receive(event.data);
+    const generation = this.receiveGeneration;
+    const message = event.data;
+    const bytes =
+      typeof message === "string"
+        ? message.length * 3
+        : message instanceof Blob
+          ? message.size
+          : message instanceof ArrayBuffer || ArrayBuffer.isView(message)
+            ? message.byteLength
+            : 0;
+    const retainedBytes = Math.min(bytes, HOST_WIRE_MAX_RECORD_BYTES * 2);
+    if (
+      this.pendingReceives >= 32 ||
+      this.pendingReceiveBytes + retainedBytes > HOST_WIRE_MAX_RECORD_BYTES * 4
+    ) {
+      this.socket.close(1009, "WebHost receive backlog exceeded");
+      this.resetReceiveSession();
+      return;
+    }
+    this.pendingReceives++;
+    this.pendingReceiveBytes += retainedBytes;
+    this.receiveTail = this.receiveTail
+      .then(() => this.receive(message, generation))
+      .catch(() => {
+        if (!this.disposed && generation === this.receiveGeneration) {
+          this.deliver(this.decoder.rejectOversizedMessage());
+          this.sendPendingResyncRequests();
+        }
+      })
+      .finally(() => {
+        if (generation === this.receiveGeneration) {
+          this.pendingReceives--;
+          this.pendingReceiveBytes -= retainedBytes;
+        }
+      });
   };
 
   private readonly handleClose = (event: CloseEvent) => {
-    for (const record of this.decoder.flush()) {
-      this.deliver(record);
-    }
+    this.resetReceiveSession();
     // A normal closure (1000) is deliberate: the server shut down, or a new
     // client attached and the channel closed this one as superseded.
     // Auto-reconnecting after a supersession would steal the session back
@@ -190,6 +226,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
       return;
     }
     this.disposed = true;
+    this.resetReceiveSession();
     if (this.reconnectTimer !== undefined) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -269,8 +306,18 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     }
   }
 
-  private async receive(message: unknown): Promise<void> {
-    if (this.disposed) {
+  private resetReceiveSession(): void {
+    this.receiveGeneration++;
+    this.receiveTail = Promise.resolve();
+    this.pendingReceives = 0;
+    this.pendingReceiveBytes = 0;
+    this.decoder = new WebHostOutputDecoder();
+    this.queuedOutput.length = 0;
+    this.sink?.resetSurfaceSession?.();
+  }
+
+  private async receive(message: unknown, generation: number): Promise<void> {
+    if (this.disposed || generation !== this.receiveGeneration) {
       return;
     }
 
@@ -288,6 +335,7 @@ export class WebSocketSceneBridge implements WebHostSceneBridge {
     const bytes = await (oversized
       ? undefined
       : bytesFromWebSocketMessage(message));
+    if (this.disposed || generation !== this.receiveGeneration) return;
     if (oversized) {
       this.deliver(this.decoder.rejectOversizedMessage());
       this.sendPendingResyncRequests();

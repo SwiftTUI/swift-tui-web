@@ -4081,15 +4081,28 @@ test("dom renderer leaves Alt-drag pointer input to native text selection", asyn
   try {
     const inputs: Uint8Array[] = [];
     const mount = new FakeElement("div");
+    const bridge = new BrowserWASIBridge({ sceneId: "main" });
     const runtime = new WebHostSceneRuntime({
       mount: mount as unknown as HTMLElement,
       descriptor: { id: "main", title: "Main", isDefault: true },
       style: {},
       onInput: (chunk) => inputs.push(chunk),
       renderer: "dom",
+      bridge,
     });
     await runtime.mount();
     await runtime.fontReady;
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+        }),
+      ),
+    );
 
     let prevented = 0;
     runtime.terminalMount.dispatch(
