@@ -198,6 +198,7 @@ test("unrelated row damage leaves retained text and link rows untouched", async 
         characterData: true,
       });
     await window.domJourney.update("other-row");
+    await window.domJourney.update("unchanged");
     records.push(...observer.takeRecords());
     observer.disconnect();
     return records.map((record) => record.type);
