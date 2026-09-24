@@ -1,6 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type BuildAppWasmOptions, buildAppWasm } from "./buildAppWasm.ts";
+import { copyDomFontAssets } from "./copyDomFontAssets.ts";
 import { generateSceneManifest } from "./generateSceneManifest.ts";
 
 export interface BuildSwiftTUIWebAppOptions extends BuildAppWasmOptions {
@@ -19,4 +20,5 @@ export async function buildSwiftTUIWebApp(
     swiftCommand: options.swiftCommand,
   });
   await buildAppWasm(options);
+  await copyDomFontAssets(options.outputDirectory);
 }

@@ -125,7 +125,9 @@ test("native anchors activate once and measured grid stays aligned through CSS z
   for (const zoom of [1, 1.25, 2]) {
     await page.evaluate((zoom) => window.domJourney.resize(zoom), zoom);
     const g = await page.evaluate(() => window.domJourney.geometry());
-    expect(Math.abs(g.textWidth - g.runWidth)).toBeLessThan(2);
+    // A legacy multi-character tuple retains its natural shaping. The wire
+    // span, rather than stretched font advances, determines the cell box.
+    expect(g.textWidth).toBeLessThanOrEqual(g.runWidth + 1);
     expect(g.image.naturalWidth).toBe(1);
     expect(g.image.width).toBeCloseTo(g.cells[0]!.width * 2, 1);
     expect(g.image.clipWidth).toBeCloseTo(g.cells[0]!.width * 1.5, 1);
@@ -177,6 +179,74 @@ test("removing a preceding run keeps the selected node in place", async ({
   expect(await page.evaluate(() => window.domJourney.state().selected)).toBe(
     "counter",
   );
+});
+
+test("unrelated row damage leaves retained text and link rows untouched", async ({
+  page,
+}) => {
+  const mutations = await page.evaluate(async () => {
+    const rows = document.querySelectorAll(".webhost-scene__surface-row");
+    const records: MutationRecord[] = [];
+    const observer = new MutationObserver((changes) =>
+      records.push(...changes),
+    );
+    for (const index of [0, 2])
+      observer.observe(rows[index]!, {
+        subtree: true,
+        attributes: true,
+        childList: true,
+        characterData: true,
+      });
+    await window.domJourney.update("other-row");
+    records.push(...observer.takeRecords());
+    observer.disconnect();
+    return records.map((record) => record.type);
+  });
+  expect(mutations).toEqual([]);
+});
+
+test("global element rules cannot change cell, link or image box allocation", async ({
+  page,
+}) => {
+  const before = await page.evaluate(() => window.domJourney.geometry());
+  await page.addStyleTag({
+    content: `
+    div, span, a, img { box-sizing:content-box; padding:18px; margin:9px;
+      border:2px solid; font:30px/3 serif; letter-spacing:3px;
+      text-align:right; text-indent:12px; text-transform:uppercase; }
+  `,
+  });
+  const after = await page.evaluate(() => window.domJourney.geometry());
+  expect(after.cells.map((cell) => cell.width)).toEqual(
+    before.cells.map((cell) => cell.width),
+  );
+  expect(after.cells.map((cell) => cell.height)).toEqual(
+    before.cells.map((cell) => cell.height),
+  );
+  expect(after.image.width).toBe(before.image.width);
+  expect(after.image.clipWidth).toBe(before.image.clipWidth);
+  const styles = await page
+    .locator(
+      ".webhost-scene__surface-row > *, .webhost-scene__surface-image, .webhost-scene__surface-image img",
+    )
+    .evaluateAll((elements) =>
+      elements.map((element) => {
+        const style = getComputedStyle(element);
+        return {
+          padding: style.padding,
+          margin: style.margin,
+          border: style.borderWidth,
+          sizing: style.boxSizing,
+        };
+      }),
+    );
+  for (const style of styles)
+    expect(style).toEqual({
+      padding: "0px",
+      margin: "0px",
+      border: "0px",
+      sizing: "border-box",
+    });
 });
 
 test("pointer coordinates use the zoomed DOM grid", async ({ page }) => {

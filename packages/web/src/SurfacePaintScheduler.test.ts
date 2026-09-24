@@ -60,6 +60,41 @@ function makeScheduler(
   return { scheduler, paints };
 }
 
+test("an unmeasurable mount holds one latest frame with payloads and ordered announcements", () => {
+  const clock = new ManualAnimationFrameScheduler();
+  const { scheduler, paints } = makeScheduler(clock);
+  scheduler.setHeld(true);
+  scheduler.present(
+    frame({
+      gen: 1,
+      images: [image("png:one", "payload")],
+      accessibilityAnnouncements: [{ message: "first", politeness: "polite" }],
+    }),
+  );
+  scheduler.present(
+    frame({
+      gen: 2,
+      images: [image("png:one")],
+      accessibilityAnnouncements: [
+        { message: "second", politeness: "assertive" },
+      ],
+    }),
+  );
+  scheduler.repaintNow();
+  clock.tick();
+  expect(paints).toHaveLength(0);
+  expect(scheduler.statistics.pending).toBe(true);
+  scheduler.setHeld(false);
+  clock.tick();
+  expect(paints).toHaveLength(1);
+  expect(paints[0]?.frame?.gen).toBe(2);
+  expect(paints[0]?.frame?.images?.[0]?.dataBase64).toBe("payload");
+  expect(paints[0]?.accessibilityAnnouncements.map((a) => a.message)).toEqual([
+    "first",
+    "second",
+  ]);
+});
+
 test("a burst of frames paints once, as the newest frame with unioned damage", () => {
   const clock = new ManualAnimationFrameScheduler();
   const { scheduler, paints } = makeScheduler(clock);

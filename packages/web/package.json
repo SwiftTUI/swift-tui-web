@@ -17,6 +17,7 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "fonts",
     "style.css"
   ],
   "exports": {
@@ -45,6 +46,7 @@
       "import": "./dist/websocket.js"
     },
     "./style.css": "./style.css",
+    "./fonts/*": "./fonts/*",
     "./package.json": "./package.json"
   },
   "scripts": {

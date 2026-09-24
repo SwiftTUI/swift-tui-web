@@ -19,6 +19,10 @@ for (const asset of ["assets/app.wasm", "scene-manifest.json"]) {
 for (const [entry, output] of [
   ["compiled-wasm.fixture.ts", "compiled-wasm.js"],
   ["dom-surface.fixture.ts", "dom-surface.js"],
+  ["dom-typography.fixture.ts", "dom-typography.js"],
+  ["dom-geometry.fixture.ts", "dom-geometry.js"],
+  ["font-qualification.fixture.ts", "font-qualification.js"],
+  ["dom-performance.fixture.ts", "dom-performance.js"],
   ["accessibility-actions.fixture.ts", "accessibility-actions.js"],
   ["compiled-wasm-worker.ts", "compiled-wasm-worker.js"],
 ] as const) {
@@ -29,6 +33,7 @@ for (const [entry, output] of [
     format: "esm",
     naming: output,
     sourcemap: "external",
+    minify: entry === "dom-performance.fixture.ts",
   });
   if (!result.success)
     throw new AggregateError(result.logs, `Could not build ${entry}`);
@@ -91,9 +96,23 @@ const server = Bun.serve({
     if (path === "/favicon.ico") {
       return new Response(null, { status: 204, headers });
     }
+    if (
+      /^\/fonts\/(SourceCodePro-(Regular|Bold|It|BoldIt)\.ttf\.woff2|manifest\.json)$/.test(
+        path,
+      )
+    ) {
+      return new Response(
+        Bun.file(join(repositoryRoot, "packages/web", path.slice(1))),
+        { headers },
+      );
+    }
 
     const wasmAssets: Record<string, string> = {
+      "/font-qualification.js": join(outputDirectory, "font-qualification.js"),
+      "/dom-performance.js": join(outputDirectory, "dom-performance.js"),
       "/dom-surface.js": join(outputDirectory, "dom-surface.js"),
+      "/dom-typography.js": join(outputDirectory, "dom-typography.js"),
+      "/dom-geometry.js": join(outputDirectory, "dom-geometry.js"),
       "/accessibility-actions.js": join(
         outputDirectory,
         "accessibility-actions.js",

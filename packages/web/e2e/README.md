@@ -175,6 +175,49 @@ from the console and repeat; search `REPLACED!` after
 custom JavaScript search implementation. The automated selection/copy journey
 is not claimed as browser-chrome find automation.
 
+## DOM typography and geometry corpus
+
+`DomTypography.browser.ts` verifies the actual bundled WOFF2 hashes, four
+faces at 12/14/16/20/24/32 CSS px, per-face advances/baselines, Unicode lead
+allocation and wide-to-narrow replacement. `DomGeometry.browser.ts` measures
+the public runtime with Canvas contexts forbidden. It covers fractional
+padding/borders, hidden startup, standalone chrome, small flex/grid mounts,
+adverse page span styles, 200% text enlargement, CSS zoom at
+80/100/125/150/175/200/300/400%, positive axis-aligned transforms and five
+device-scale factors (1/1.25/1.5/2/3). Cell-edge oracles check columns 1 and 200
+and the first/last visible rows; input oracles use the browser-delivered client
+coordinates, which can be quantized by native event injection. Font cases
+cover shared ownership, each failed face, delayed completion, fallback pinning,
+offline reuse, unrelated document fonts and disposal during loading.
+
+These are separate from browser-chrome zoom and physical-device gestures. For
+native/manual checks, serve the fixture with `bun run packages/web/e2e/serve.ts`
+after the normal package and WASM builds, then load a local HTML page containing
+`<script type="module" src="/font-qualification.js"></script>` for font metrics.
+Its visible PASS/FAIL heading and JSON record are usable in native Safari.
+For the runtime corpus load `/dom-geometry.js`, call
+`const id = await domGeometryJourney.create(); await domGeometryJourney.ready(id)`
+and `domGeometryJourney.present(id)` in browser developer tools. Use the
+browser's own zoom controls at 80/100/200/400%, Firefox's text-only zoom and
+minimum-font settings, and compare `domGeometryJourney.state(id).geometry`
+with the mounted cells. Repeat in a scrolled parent, move between displays
+of different scales, and resize to 320/375/768 CSS px. Preserve and restore
+browser preferences. Record actual browser/OS, input steps, screenshots and
+results separately; viewport, CSS zoom and emulated DPR do not qualify these
+manual lanes. Pinch, mobile keyboard and orientation require real devices.
+
+`SWIFTTUI_DOM_PERF=1 bun run test:browser:built DomPerformance --project=chromium`
+measures the retained-cell painter on prepared 120×40 (10% and full changes)
+and 240×80 mixed-style frames. Each workload repeats five times after warmup,
+with JSON sample distributions, node counts, identity/final-frame assertions
+and a Chromium main-thread trace. These opt-in measurements are evaluated on a
+named reference machine; ordinary CI reports an explicit skip.
+Trace recording is segmented by workload/repeat and rejects buffer loss.
+Run `bun packages/web/e2e/analyze-dom-performance.ts <result-directory>` to
+derive p50/p95/max JS and main-thread pipeline CPU durations from the saved
+samples and traces. Nested events and work inside the measured JS interval
+are counted once. This does not measure GPU completion or input latency.
+
 ## Measured JSPI policy qualification
 
 Run `SWIFTTUI_JSPI_QUALIFY=1 bun run test:browser:built JspiQualification` after

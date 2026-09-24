@@ -114,6 +114,7 @@ export class SurfacePaintScheduler {
   private lastPaintedFrame?: WebHostSurfaceFrame;
   private handle?: number;
   private disposed = false;
+  private held = false;
   private presentedFrames = 0;
   private paints = 0;
   private coalescedFrames = 0;
@@ -216,7 +217,7 @@ export class SurfacePaintScheduler {
 
   /** Delivers the pending paint immediately, if there is one. */
   flush(): void {
-    if (this.disposed) {
+    if (this.disposed || this.held) {
       return;
     }
     this.cancelScheduled();
@@ -267,6 +268,7 @@ export class SurfacePaintScheduler {
   }
 
   private schedule(): void {
+    if (this.held) return;
     if (!this.animationFrames) {
       this.flush();
       return;
@@ -286,6 +288,14 @@ export class SurfacePaintScheduler {
     }
     this.animationFrames?.cancelAnimationFrame(this.handle);
     this.handle = undefined;
+  }
+
+  /** Retains the latest frame, payloads and announcements until presentation is measurable. */
+  setHeld(held: boolean): void {
+    if (this.disposed || held === this.held) return;
+    this.held = held;
+    if (held) this.cancelScheduled();
+    else if (this.pending) this.schedule();
   }
 }
 

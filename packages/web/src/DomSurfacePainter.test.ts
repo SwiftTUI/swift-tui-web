@@ -69,7 +69,7 @@ test("full paint renders positioned row and cell elements with resolved styles",
   }
 });
 
-test("root style pins the grid: line height, ligatures, and letter-spacing correction", () => {
+test("root style pins line height and isolates text without advance correction", () => {
   const dom = installFakeDOM({ measuredAdvance: 7.5 });
   try {
     const painter = new DomSurfacePainter();
@@ -83,8 +83,9 @@ test("root style pins the grid: line height, ligatures, and letter-spacing corre
     expect(root.style.lineHeight).toBe("18px");
     expect(root.style.fontVariantLigatures).toBe("none");
     expect(root.style.userSelect).toBe("text");
-    // cellWidth 8 - measured advance 7.5 → each glyph stretched to the cell.
-    expect(root.style.letterSpacing).toBe("0.5px");
+    expect(root.style.letterSpacing).toBe("0px");
+    expect(root.style.fontKerning).toBe("none");
+    expect(root.style.direction).toBe("ltr");
     // The same backgroundOpacity-folded color the canvas painter fills with.
     expect(root.style.background).toBe("rgba(30, 34, 42, 1)");
   } finally {

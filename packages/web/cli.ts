@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import {
   buildAppWasm,
   buildSwiftTUIWebApp,
+  copyDomFontAssets,
   generateSceneManifest,
   type WasmBuildConfiguration,
 } from "../build/index.ts";
@@ -69,6 +70,7 @@ async function bunBuildWeb(options: {
   outputDirectory: string;
 }): Promise<void> {
   await mkdir(options.outputDirectory, { recursive: true });
+  await copyDomFontAssets(options.outputDirectory);
   const proc = Bun.spawn({
     cmd: ["bun", "build", "./index.html", "--outdir", options.outputDirectory],
     stdout: "pipe",

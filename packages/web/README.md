@@ -147,7 +147,9 @@ await createWebHostApp({
   Underline and strikethrough use CSS `text-decoration`; their patterns and
   SVG edge antialiasing can differ from Canvas. DOM metrics are measured in
   the styled mount and refreshed on font loading, style changes, resize,
-  viewport zoom and DPR changes. `letter-spacing` aligns long monospace runs.
+  viewport zoom and DPR changes. Each wire lead keeps its original Unicode
+  text and declared span in an integral CSS cell box; no advance correction,
+  grapheme splitting or Canvas measurement is used in DOM mode.
 
   Unchanged cell text nodes survive row damage, full paints, theme changes and
   resize. Changing/removing selected text, shrinking away its row, or changing
@@ -166,6 +168,63 @@ await createWebHostApp({
 
 The option is also available for each scene runtime through
 `WebHostSceneRuntimeOptions.renderer`. The package exports `DomSurfacePainter` for custom DOM runtimes.
+
+### DOM typography and embedding
+
+DOM mode defaults to the four bundled Source Code Pro faces (regular, bold,
+italic and bold italic), with synthesis and discretionary ligatures disabled.
+The unmodified WOFF2 files total 273,700 bytes. Their exact upstream release,
+SHA-256 hashes and SIL Open Font License are included under `fonts/` in this
+package. `@swifttui/build` copies them into
+`assets/swifttui-fonts/2184c1f2bac4/` beside an app's output. Custom build systems
+can call its `copyDomFontAssets(outputDirectory)` API. Serve these assets from
+your origin; no external font service is required. The runtime resolves the
+directory against `document.baseURI`. For a different deployment layout, set
+`domFont: { assetBase: new URL("./fonts/", import.meta.url) }` on the app or
+scene runtime.
+
+The first coherent DOM presentation waits for all four faces, concurrently
+with app startup, for at most two seconds by default. `domFont.timeoutMs`
+configures that wait (capped at ten seconds). While waiting, the mount exposes
+a loading status. Failure chooses and measures Menlo, Consolas, Liberation
+Mono or the platform monospace fallback once and reports a diagnostic. A late
+preferred font cannot replace that session's fallback. An explicit style
+change or remount starts a new font transaction. Multiple embeds share loaded
+faces in the same document; disposal releases only the disposing embed's
+ownership. A supplied `style.fontFamily` opts into the embedder's custom font
+and its fallback stack.
+`runtime.fontReady` resolves the active transaction's readiness/fallback result;
+`runtime.fontStatus` exposes its settled result. `runtime.geometrySnapshot`
+exposes the current immutable CSS geometry for host diagnostics.
+
+Under a Content Security Policy, allow the selected asset origin in `font-src`
+(normally `'self'`). The DOM presenter sets scoped CSS properties through the
+element's `style` API, which is distinct from setting a raw style attribute
+under [`style-src-attr`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/style-src-attr).
+Its owned SVG glyph backgrounds and wire images require `img-src data:`.
+Permit the embedder's own stylesheet through its chosen stylesheet policy.
+These requirements are separate from the app's existing script, worker and
+WASM policy. A blocked font follows the bounded fallback policy above; no
+browser security setting needs to be disabled.
+
+The typography corpus covers 12, 14, 16, 20, 24 and 32 CSS px. CJK falls back
+through PingFang SC, Hiragino Sans and Noto Sans CJK SC; emoji falls back through
+Apple Color Emoji, Segoe UI Emoji and Noto Color Emoji. Availability and artwork
+depend on the OS. No CJK font is bundled. The line box includes measured
+fallbacks, and ink is clipped to its declared span. The host preserves combining
+clusters, emoji sequences and wire cell order. Paragraph bidi reordering and
+contextual shaping across independent cells are outside this cell-wire profile;
+Arabic/Indic paragraph fidelity requires a richer shared text contract.
+
+The runtime measures the mount's content box, preserving fractional origins
+and subtracting borders/padding. Hidden or sub-cell mounts defer presentation
+until measurable. CSS zoom and positive axis-aligned scale/translation are
+supported; rotation, skew, reflection and perspective report an embedding
+diagnostic and suspend geometry changes. CSS cell pitch stays independent of
+device scale. Actual text enlargement remeasures pitch and requests layout.
+Call `runtime.refreshGeometry()` after changing ancestor CSS that does not
+otherwise trigger a resize observation. Oversized mounts use the wire's bounded
+viewport (1,024 cells per axis and 65,536 total cells) with a diagnostic.
 
 ### Paint scheduling
 

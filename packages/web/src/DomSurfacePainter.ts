@@ -1,5 +1,4 @@
-import { fontForStyle } from "./CanvasSurfacePainter.ts";
-import { measureDomCells } from "./DomCellMetrics.ts";
+import { canRenderBoxDrawing } from "./BoxDrawingRenderer.ts";
 import { DomGlyphBackground } from "./DomGlyphBackground.ts";
 import { admitsImagePayload } from "./ImageAllocationBudget.ts";
 import {
@@ -13,6 +12,7 @@ import {
   type SurfaceMetrics,
   type WebHostSurfacePainter,
 } from "./SurfaceRenderer.ts";
+import { fontForStyle } from "./SurfaceTypography.ts";
 import {
   isWebHostImageRecoveryId,
   type WebHostImagePayloadRequestHandler,
@@ -45,7 +45,7 @@ export interface DomSurfacePainterOptions {
 /**
  * Draws SwiftTUI surface frames as a DOM element tree instead of canvas
  * pixels: one absolutely positioned row container per grid row, one `<span>`
- * per styled cell run, and `<img>` elements for surface images.
+ * per wire lead cell, and `<img>` elements for surface images.
  *
  * Rendering cells as real text buys what canvas cannot offer — the browser's
  * own font shaping and fallback (emoji, CJK), crisp text at any page zoom, an
@@ -54,8 +54,8 @@ export interface DomSurfacePainterOptions {
  *
  * Damage handling mirrors the canvas painter at row granularity: a frame
  * carrying scoped damage patches only the touched rows; geometry or style
- * changes restyle all rows while retaining unchanged text nodes. Alignment is kept
- * exact with `letter-spacing` measured in the styled mount. Resolved styles
+ * changes restyle all rows while retaining unchanged text nodes. Each lead cell
+ * keeps its supplied Unicode text and span, without advance correction. Resolved styles
  * and geometric backgrounds each have a 512-entry, per-painter cache.
  */
 export class DomSurfacePainter implements WebHostSurfacePainter {
@@ -71,12 +71,12 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   private renderedLinksKey?: string;
   private readonly linkCells = new Map<number, string>();
   private hasRenderedFrame = false;
-  private letterSpacing?: { key: string; value: string };
   private reportedMissingImageIds = new Set<string>();
   private lastImageRecoveryFrame?: WebHostSurfaceFrame;
   private lastEpoch?: number;
   private readonly glyphs = new DomGlyphBackground();
   private readonly styleCache = new Map<string, Partial<CSSStyleDeclaration>>();
+  private appliedCellStyles = new WeakMap<HTMLElement, string>();
   private readonly onOpenHyperlink?: (url: string) => void;
 
   constructor(options: DomSurfacePainterOptions = {}) {
@@ -136,6 +136,9 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     if (!root || !rowsLayer) {
       return;
     }
+    // Selection queries can synchronize layout. Read once before mutations,
+    // then use DOM Range intersection (no geometry reads) during the patch.
+    const clearSelection = selectionInvalidator();
 
     if (frame?.epoch !== undefined && frame.epoch !== this.lastEpoch) {
       this.lastEpoch = frame.epoch;
@@ -146,13 +149,14 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     const metricsChanged = metricsKey !== this.appliedMetricsKey;
     if (metricsChanged) {
       this.styleCache.clear();
+      this.appliedCellStyles = new WeakMap();
       this.glyphs.clear();
       this.applyRootStyle(root, metrics);
       this.appliedMetricsKey = metricsKey;
     }
 
     if (!frame) {
-      clearChangedSelection(rowsLayer);
+      clearSelection(rowsLayer);
       this.rowElements = [];
       this.cells = [];
       this.linkCells.clear();
@@ -203,7 +207,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     if (fullRepaint) {
       for (let y = this.rowElements.length; y > frame.rows.length; y -= 1) {
         const row = this.rowElements[y - 1];
-        if (row) clearChangedSelection(row);
+        if (row) clearSelection(row);
         row?.remove();
         this.cells.pop();
       }
@@ -212,14 +216,14 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         frame.rows.length,
       );
       for (let y = 0; y < frame.rows.length; y += 1) {
-        this.rebuildRow(y, frame, metrics);
+        this.rebuildRow(y, frame, metrics, clearSelection);
       }
     } else {
       for (const [row] of damage.textRows) {
         if (row < 0 || row >= frame.rows.length) {
           continue;
         }
-        this.rebuildRow(row, frame, metrics);
+        this.rebuildRow(row, frame, metrics, clearSelection);
       }
     }
 
@@ -230,12 +234,12 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   }
 
   invalidateFontMetrics(): void {
-    this.letterSpacing = undefined;
     this.appliedMetricsKey = undefined;
   }
 
   dispose(): void {
     this.styleCache.clear();
+    this.appliedCellStyles = new WeakMap();
     this.glyphs.clear();
     this.linkCells.clear();
     this.root?.replaceChildren();
@@ -253,6 +257,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     y: number,
     frame: WebHostSurfaceFrame,
     metrics: SurfaceMetrics,
+    clearSelection: (element: HTMLElement) => void,
   ): void {
     const rowElement = this.ensureRowElement(y, metrics);
     const previous = this.cells[y] ?? new Map<number, HTMLElement>();
@@ -264,7 +269,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     // retained selected node to fill their old slot would collapse its Range.
     for (const [x, element] of previous) {
       if (!retainedColumns.has(x)) {
-        clearChangedSelection(element);
+        clearSelection(element);
         element.remove();
       }
     }
@@ -278,13 +283,13 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       const tag = isLink ? "A" : "SPAN";
       let element = previous.get(x);
       if (element && element.tagName !== tag) {
-        clearChangedSelection(element);
+        clearSelection(element);
         element.remove();
         element = undefined;
       }
       if (!element) element = createElement(tag.toLowerCase());
       if (element.textContent !== text) {
-        clearChangedSelection(element);
+        clearSelection(element);
         element.textContent = text;
       }
       const key = JSON.stringify(cellStyle ?? null);
@@ -295,21 +300,26 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
           this.styleCache.delete(this.styleCache.keys().next().value as string);
         this.styleCache.set(key, resolved);
       }
-      Object.assign(element.style, resolved, {
-        left: `${x * metrics.cellWidth}px`,
-        width: `${Math.max(1, span) * metrics.cellWidth}px`,
-      });
-      const glyph = this.glyphs.image(
-        text,
-        resolved.color ?? "",
-        Math.max(1, span) * metrics.cellWidth,
-        metrics.cellHeight,
-      );
-      element.style.backgroundImage = glyph ?? "none";
-      element.style.backgroundSize = "100% 100%";
-      element.style.backgroundRepeat = "no-repeat";
-      // Keep exactly one real text node for native selection/copy/find.
-      element.style.color = glyph ? "transparent" : (resolved.color ?? "");
+      const geometricText = canRenderBoxDrawing(text) ? text : "";
+      const presentationKey = JSON.stringify([key, x, span, geometricText]);
+      if (this.appliedCellStyles.get(element) !== presentationKey) {
+        Object.assign(element.style, resolved, {
+          left: `${x * metrics.cellWidth}px`,
+          width: `${Math.max(1, span) * metrics.cellWidth}px`,
+        });
+        const glyph = this.glyphs.image(
+          geometricText,
+          resolved.color ?? "",
+          Math.max(1, span) * metrics.cellWidth,
+          metrics.cellHeight,
+        );
+        element.style.backgroundImage = glyph ?? "none";
+        element.style.backgroundSize = "100% 100%";
+        element.style.backgroundRepeat = "no-repeat";
+        // Keep exactly one real text node for native selection/copy/find.
+        element.style.color = glyph ? "transparent" : (resolved.color ?? "");
+        this.appliedCellStyles.set(element, presentationKey);
+      }
       if (isLink && target !== undefined) {
         element.setAttribute("data-surface-link", target);
         element.setAttribute("tabindex", "-1"); // ARIA sidecar owns keyboard accessibility.
@@ -344,6 +354,12 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     if (!rowElement) {
       rowElement = createElement("div");
       rowElement.className = "webhost-scene__surface-row";
+      Object.assign(rowElement.style, scopedBoxStyle, {
+        font: "inherit",
+        lineHeight: "inherit",
+        letterSpacing: "0px",
+        wordSpacing: "0px",
+      });
       rowElement.style.position = "absolute";
       rowElement.style.left = "0";
       this.rowElements[y] = rowElement;
@@ -357,6 +373,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
 
   private applyRootStyle(root: HTMLElement, metrics: SurfaceMetrics): void {
     const style = root.style;
+    Object.assign(style, scopedBoxStyle);
     style.position = "relative";
     style.overflow = "hidden";
     style.background = webTUITerminalBackgroundColor(metrics.style);
@@ -364,45 +381,16 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     // Set after `font`: the shorthand resets line-height, and the grid needs
     // every row to be exactly one cell tall.
     style.lineHeight = `${metrics.cellHeight}px`;
-    style.letterSpacing = this.letterSpacingFor(metrics);
+    style.letterSpacing = "0px";
+    style.wordSpacing = "0px";
+    style.fontKerning = "none";
+    style.fontSynthesis = "none";
+    style.direction = "ltr";
+    style.unicodeBidi = "isolate";
     // Ligature-capable monospace fonts would merge runs like "->" into one
     // glyph and break the column grid.
     style.fontVariantLigatures = "none";
     style.userSelect = "text";
-  }
-
-  /**
-   * The per-glyph advance correction that stretches the font's natural
-   * monospace advance to exactly `cellWidth`, so long runs stay on the cell
-   * grid instead of drifting by the sub-pixel remainder of the runtime's
-   * ceil'd cell measurement.
-   */
-  private letterSpacingFor(metrics: SurfaceMetrics): string {
-    const font = fontForStyle(metrics.style);
-    const key = `${font}|${metrics.cellWidth}`;
-    if (this.letterSpacing?.key === key) {
-      return this.letterSpacing.value;
-    }
-
-    let advance = this.root
-      ? measureDomCells(this.root, metrics.style)?.advance
-      : undefined;
-    if (advance === undefined) {
-      const context = (
-        createElement("canvas") as HTMLCanvasElement
-      ).getContext?.("2d");
-      if (context) {
-        context.font = font;
-        advance = context.measureText("W").width;
-      }
-    }
-    const value =
-      advance && advance > 0
-        ? `${Math.round((metrics.cellWidth - advance) * 1000) / 1000}px`
-        : "0px";
-
-    this.letterSpacing = { key, value };
-    return value;
   }
 
   private reconcileImages(
@@ -536,9 +524,27 @@ function resolveCellStyle(
 ): Partial<CSSStyleDeclaration> {
   const elementStyle = {
     position: "absolute",
+    display: "block",
+    boxSizing: "border-box",
+    padding: "0",
+    margin: "0",
+    border: "0",
+    textIndent: "0",
+    textTransform: "none",
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    lineHeight: "inherit",
+    letterSpacing: "0px",
+    wordSpacing: "0px",
+    fontKerning: "none",
+    fontSynthesis: "none",
+    fontVariantLigatures: "none",
     top: "0",
     height: "100%",
     whiteSpace: "pre",
+    overflow: "hidden",
+    direction: "ltr",
+    unicodeBidi: "isolate",
     color: resolvedSurfaceForeground(style, metrics.style),
     backgroundColor:
       resolvedSurfaceBackground(style, metrics.style) ?? "transparent",
@@ -599,6 +605,10 @@ function decorationStyleFor(
 }
 
 function fillContainer(style: CSSStyleDeclaration): void {
+  Object.assign(style, scopedBoxStyle, {
+    font: "inherit",
+    lineHeight: "inherit",
+  });
   style.position = "absolute";
   style.left = "0";
   style.top = "0";
@@ -609,16 +619,28 @@ function fillContainer(style: CSSStyleDeclaration): void {
 function makeImageEntry(): RenderedImage {
   const container = createElement("div");
   container.className = "webhost-scene__surface-image";
+  Object.assign(container.style, scopedBoxStyle);
   container.style.position = "absolute";
   container.style.overflow = "hidden";
 
   const image = createElement("img");
+  Object.assign(image.style, scopedBoxStyle);
   image.style.position = "absolute";
   image.setAttribute("alt", "");
   image.setAttribute("draggable", "false");
   container.appendChild(image);
   return { container, image, source: "" };
 }
+
+const scopedBoxStyle = {
+  boxSizing: "border-box",
+  margin: "0",
+  padding: "0",
+  border: "0",
+  textAlign: "left",
+  textIndent: "0",
+  textTransform: "none",
+};
 
 function createElement(tagName: string): HTMLElement {
   if (typeof document === "undefined") {
@@ -628,13 +650,16 @@ function createElement(tagName: string): HTMLElement {
 }
 
 /** Only a mutation of selected content cancels a live selection. */
-function clearChangedSelection(element: HTMLElement): void {
-  const selection = globalThis.document?.getSelection?.();
-  if (!selection || selection.isCollapsed) return;
-  for (let index = 0; index < selection.rangeCount; index += 1) {
-    if (selection.getRangeAt(index).intersectsNode(element)) {
+function selectionInvalidator(): (element: HTMLElement) => void {
+  let selection = globalThis.document?.getSelection?.();
+  if (!selection || selection.isCollapsed) return () => {};
+  const ranges = Array.from({ length: selection.rangeCount }, (_, index) =>
+    selection!.getRangeAt(index),
+  );
+  return (element) => {
+    if (selection && ranges.some((range) => range.intersectsNode(element))) {
       selection.removeAllRanges();
-      return;
+      selection = null;
     }
-  }
+  };
 }

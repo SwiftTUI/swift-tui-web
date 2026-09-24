@@ -1,3 +1,4 @@
+import { DOM_FONT_FAMILY, type DomFontOptions } from "./DomFontResources.ts";
 import type { WebHostPaintScheduling } from "./SurfacePaintScheduler.ts";
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
 import {
@@ -82,6 +83,7 @@ export interface WebHostAppOptions {
    * See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
+  domFont?: DomFontOptions;
   /**
    * How scene elements occupy the mount. `"fill"` (default) keeps the
    * embedding contract — every scene stretches to 100% of the mount in both
@@ -133,6 +135,7 @@ export async function createWebHostApp(
     visibilityDocument:
       options.visibilityDocument ?? defaultVisibilityDocument(),
     renderer: options.renderer,
+    domFont: options.domFont,
     sceneFrame: options.sceneFrame,
     paintScheduling: options.paintScheduling,
   });
@@ -155,6 +158,7 @@ class InternalWebHostAppController implements WebHostAppController {
   private readonly bridges = new Map<string, WebHostSceneBridge>();
   private readonly suspendHiddenScenes?: boolean;
   private readonly renderer?: WebHostSurfaceRendererKind;
+  private readonly domFont?: DomFontOptions;
   private readonly sceneFrame: WebHostSceneFrameMode;
   private readonly paintScheduling?: WebHostPaintScheduling;
   private readonly visibilityDocument?: WebHostVisibilityDocument;
@@ -173,11 +177,17 @@ class InternalWebHostAppController implements WebHostAppController {
     suspendHiddenScenes?: boolean;
     visibilityDocument?: WebHostVisibilityDocument;
     renderer?: WebHostSurfaceRendererKind;
+    domFont?: DomFontOptions;
     sceneFrame?: WebHostSceneFrameMode;
     paintScheduling?: WebHostPaintScheduling;
   }) {
     this.mount = options.mount;
-    this.style = normalizeWebHostTerminalStyle(options.style ?? {});
+    this.style = normalizeWebHostTerminalStyle(
+      options.renderer === "dom" && !options.style?.fontFamily
+        ? { ...options.style, fontFamily: DOM_FONT_FAMILY }
+        : (options.style ?? {}),
+    );
+    this.domFont = options.domFont;
     this.environment = options.environment;
     this.embeddedHost = options.embeddedHost;
     this.bridgeFactory = options.bridgeFactory;
@@ -301,6 +311,7 @@ class InternalWebHostAppController implements WebHostAppController {
       onInput: (chunk) => bridge.sendInput(chunk),
       suspendWhenHidden: this.suspendHiddenScenes,
       renderer: this.renderer,
+      domFont: this.domFont,
       sceneFrame: this.sceneFrame,
       paintScheduling: this.paintScheduling,
     });

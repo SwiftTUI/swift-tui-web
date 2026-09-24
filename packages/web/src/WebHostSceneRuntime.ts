@@ -2,9 +2,17 @@ import { AccessibilityTreeMounter } from "./AccessibilityTree.ts";
 import {
   type CanvasSurfaceMetrics,
   CanvasSurfacePainter,
-  fontForStyle,
 } from "./CanvasSurfacePainter.ts";
-import { measureDomCells } from "./DomCellMetrics.ts";
+import {
+  DOM_FONT_FAMILY,
+  type DomFontOptions,
+  DomFontResources,
+  type DomFontResult,
+} from "./DomFontResources.ts";
+import {
+  DomGeometryController,
+  type DomGeometrySnapshot,
+} from "./DomGeometry.ts";
 import { DomSurfacePainter } from "./DomSurfacePainter.ts";
 import {
   type CellLocation,
@@ -28,6 +36,7 @@ import {
   type WebHostPaintStatistics,
 } from "./SurfacePaintScheduler.ts";
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
+import { fontForStyle } from "./SurfaceTypography.ts";
 import type { WebHostSceneDescriptor } from "./WebHostSceneManifest.ts";
 import type {
   WebHostAccessibilityAnnouncement,
@@ -121,6 +130,7 @@ export interface WebHostSceneRuntimeOptions {
    * pointer input to the app. See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
+  domFont?: DomFontOptions;
   /**
    * How the scene element occupies the mount. `"fill"` (default) stretches
    * to 100% of the mount in both directions with no resize handle;
@@ -247,6 +257,17 @@ export class WebHostSceneRuntime {
   private canvasScale = 1;
   private domSurfaceRoot?: HTMLElement;
   private lastDomSurfaceSize?: { width: number; height: number };
+  private domGeometry?: DomGeometryController;
+  private readonly embeddingMount: HTMLElement;
+  private geometryRefreshHandle?: number;
+  private geometryDiagnostic?: string;
+  private disposed = false;
+  private readonly domFontOptions?: DomFontOptions;
+  private fontResources?: DomFontResources;
+  private activeFontResources?: DomFontResources;
+  private fontPending = false;
+  private fontResult?: DomFontResult;
+  private loadingFont?: HTMLElement;
   private accessibilityTree?: AccessibilityTreeMounter;
   private diagnosticText?: HTMLElement;
   private resizeObserver?: ResizeObserver;
@@ -285,7 +306,13 @@ export class WebHostSceneRuntime {
 
   constructor(options: WebHostSceneRuntimeOptions) {
     this.descriptor = options.descriptor;
-    this.currentStyle = normalizeWebHostTerminalStyle(options.style);
+    this.embeddingMount = options.mount;
+    this.currentStyle = normalizeWebHostTerminalStyle(
+      options.renderer === "dom" && !options.style.fontFamily
+        ? { ...options.style, fontFamily: DOM_FONT_FAMILY }
+        : options.style,
+    );
+    this.domFontOptions = options.domFont;
     this.bridge = options.bridge;
     this.onInput = options.onInput;
     this.onFrameDiagnostic = options.onFrameDiagnostic;
@@ -366,6 +393,10 @@ export class WebHostSceneRuntime {
       this.accessibilityTree.element,
       this.accessibilityTree.announcerElement,
     );
+    if (this.domSurfaceRoot) {
+      this.domGeometry = new DomGeometryController(this.terminalMount);
+      this.paintScheduler.setHeld(true);
+    }
     this.installInputHandlers();
     this.installResizeObserver();
 
@@ -381,6 +412,7 @@ export class WebHostSceneRuntime {
     });
 
     this.applyStyle(this.currentStyle);
+    if (this.domGeometry) this.loadDomFont(this.currentStyle);
     this.installPointerParadigmObserver();
     this.sendPointerCapabilitiesIfChanged(coarsePrimaryPointer());
     this.measureCells();
@@ -442,7 +474,16 @@ export class WebHostSceneRuntime {
   protected onRuntimeSuspensionChange(_suspended: boolean): void {}
 
   setStyle(style: WebHostTerminalStyle): void {
-    this.currentStyle = normalizeWebHostTerminalStyle(style);
+    const next = normalizeWebHostTerminalStyle(
+      this.domGeometry && !style.fontFamily
+        ? { ...style, fontFamily: DOM_FONT_FAMILY }
+        : style,
+    );
+    if (this.domGeometry) {
+      this.loadDomFont(next);
+      return;
+    }
+    this.currentStyle = next;
     this.applyStyle(this.currentStyle);
     this.bridge?.updateRenderStyle(this.currentStyle);
     this.measureCells();
@@ -459,10 +500,28 @@ export class WebHostSceneRuntime {
     if (!this.diagnosticText) {
       const diagnosticText = document.createElement("pre");
       diagnosticText.className = "webhost-scene__diagnostic";
+      if (this.rendererKind === "dom") {
+        diagnosticText.setAttribute("role", "status");
+        Object.assign(diagnosticText.style, {
+          position: "absolute",
+          inset: "auto 0 0",
+          zIndex: "5",
+          boxSizing: "border-box",
+          margin: "0",
+          padding: "8px",
+          maxHeight: "50%",
+          overflow: "auto",
+          whiteSpace: "pre-wrap",
+          font: "12px/1.4 system-ui, sans-serif",
+          color: "#fff",
+          background: "#402020",
+        });
+      }
       this.diagnosticText = diagnosticText;
       this.terminalMount.appendChild(diagnosticText);
     }
-    this.diagnosticText.textContent = `${this.diagnosticText.textContent ?? ""}${text}`;
+    this.diagnosticText.textContent =
+      `${this.diagnosticText.textContent ?? ""}${text}`.slice(-16384);
   }
 
   notifyRuntimeIssue(issue: WebHostRuntimeIssue): void {
@@ -499,6 +558,13 @@ export class WebHostSceneRuntime {
   dispose(): void {
     // Before the painter: a paint scheduled for the next animation frame must
     // never run against a disposed painter or a removed mount.
+    this.disposed = true;
+    this.fontResources?.dispose();
+    if (this.activeFontResources !== this.fontResources)
+      this.activeFontResources?.dispose();
+    if (this.geometryRefreshHandle !== undefined)
+      globalThis.cancelAnimationFrame?.(this.geometryRefreshHandle);
+    this.domGeometry?.dispose();
     this.paintScheduler.dispose();
     this.painter.dispose();
     this.detachInputHandlers?.();
@@ -643,6 +709,10 @@ export class WebHostSceneRuntime {
     this.element.style.gridTemplateRows = "auto minmax(0, 1fr)";
 
     this.terminalMount.style.position = "relative";
+    // Keep the terminal in the flexible track when page chrome hides the
+    // header. Auto-placement into the first, intrinsic track can collapse an
+    // initially empty DOM surface before its first geometry request.
+    this.terminalMount.style.gridRow = "2";
     this.terminalMount.style.boxSizing = "border-box";
     this.terminalMount.style.width = "100%";
     if (this.sceneFrame === "resizable") {
@@ -692,6 +762,10 @@ export class WebHostSceneRuntime {
 
   private installResizeObserver(): void {
     const refresh = () => {
+      if (this.domGeometry) {
+        this.refreshGeometry();
+        return;
+      }
       if (this.painter instanceof DomSurfacePainter)
         this.painter.invalidateFontMetrics();
       this.resizeToMount();
@@ -699,9 +773,13 @@ export class WebHostSceneRuntime {
     if (typeof ResizeObserver !== "undefined") {
       this.resizeObserver = new ResizeObserver(refresh);
       this.resizeObserver.observe(this.terminalMount);
+      if (this.domGeometry) this.resizeObserver.observe(this.embeddingMount);
+      if (this.domGeometry)
+        this.resizeObserver.observe(this.domGeometry.probe.element);
     }
     const fonts = document.fonts;
     fonts?.addEventListener?.("loadingdone", refresh);
+    fonts?.addEventListener?.("loadingerror", refresh);
     globalThis.window?.addEventListener?.("resize", refresh);
     globalThis.window?.visualViewport?.addEventListener("resize", refresh);
     let dpr: MediaQueryList | undefined;
@@ -719,6 +797,7 @@ export class WebHostSceneRuntime {
     watchDpr();
     this.detachMetricObservers = () => {
       fonts?.removeEventListener?.("loadingdone", refresh);
+      fonts?.removeEventListener?.("loadingerror", refresh);
       globalThis.window?.removeEventListener?.("resize", refresh);
       globalThis.window?.visualViewport?.removeEventListener("resize", refresh);
       dpr?.removeEventListener?.("change", changedDpr);
@@ -915,6 +994,39 @@ export class WebHostSceneRuntime {
   }
 
   private resizeToMount(): void {
+    if (this.disposed) return;
+    if (this.fontPending) return;
+    if (this.domGeometry) {
+      let snapshot: DomGeometrySnapshot | undefined;
+      try {
+        snapshot = this.domGeometry.measure(this.currentStyle);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message !== this.geometryDiagnostic)
+          this.writeOutput(`${message}\n`);
+        this.geometryDiagnostic = message;
+      }
+      if (!snapshot) {
+        this.paintScheduler.setHeld(true);
+        return;
+      }
+      this.cellWidth = snapshot.cellWidth;
+      this.cellHeight = snapshot.cellHeight;
+      this.columns = snapshot.columns;
+      this.rows = snapshot.rows;
+      this.surfaceCSSWidth = snapshot.content.width;
+      this.surfaceCSSHeight = snapshot.content.height;
+      if (snapshot.bounded && this.geometryDiagnostic !== "bounded") {
+        this.writeOutput(
+          "DOM viewport exceeds the supported grid; showing a bounded viewport.\n",
+        );
+        this.geometryDiagnostic = "bounded";
+      } else if (!snapshot.bounded) this.geometryDiagnostic = undefined;
+      this.sendResizeIfNeeded();
+      this.paintScheduler.setHeld(false);
+      this.paintScheduler.repaintNow();
+      return;
+    }
     this.measureCells();
     const rect = this.terminalMount.getBoundingClientRect?.();
     const width =
@@ -1018,12 +1130,7 @@ export class WebHostSceneRuntime {
 
   private measureCells(): void {
     if (this.domSurfaceRoot) {
-      const measured = measureDomCells(this.terminalMount, this.currentStyle);
-      if (measured) {
-        this.cellWidth = measured.width;
-        this.cellHeight = measured.height;
-        return;
-      }
+      return; // DOM geometry is measured by its controller; never request Canvas.
     }
     const canvas = this.canvas ?? document.createElement("canvas");
     const context = canvas.getContext?.("2d");
@@ -1049,6 +1156,28 @@ export class WebHostSceneRuntime {
    * scheduler with the newest frame and everything coalesced into it.
    */
   private paint(request: SurfacePaintRequest): void {
+    if (this.domGeometry?.pending) {
+      const pending = this.domGeometry.pending;
+      const snapshot = Object.freeze({
+        ...pending,
+        columns: request.frame?.width ?? pending.columns,
+        rows: request.frame?.height ?? pending.rows,
+      });
+      this.domGeometry.present(snapshot);
+      this.cellWidth = snapshot.cellWidth;
+      this.cellHeight = snapshot.cellHeight;
+      this.columns = Math.max(1, snapshot.columns);
+      this.rows = Math.max(1, snapshot.rows);
+      if (this.accessibilityTree) {
+        Object.assign(this.accessibilityTree.element.style, {
+          inset: "auto",
+          left: `${snapshot.content.offsetX}px`,
+          top: `${snapshot.content.offsetY}px`,
+          width: `${this.columns * snapshot.cellWidth}px`,
+          height: `${this.rows * snapshot.cellHeight}px`,
+        });
+      }
+    }
     // Sizing the backing store clears it, so it happens here, immediately
     // before the frame that fills it — never on receipt of a deferred frame.
     const resized = this.resizeSurface();
@@ -1100,17 +1229,90 @@ export class WebHostSceneRuntime {
 
   private pointerMetrics(): PointerGeometryMetrics {
     const domRect = this.domSurfaceRoot?.getBoundingClientRect?.();
+    const presented = this.domGeometry?.presented;
+    const columns = presented?.columns ?? this.columns;
+    const rows = presented?.rows ?? this.rows;
     return {
       rect:
         this.surfaceElement?.getBoundingClientRect?.() ??
         this.terminalMount.getBoundingClientRect?.(),
-      cellWidth: domRect?.width ? domRect.width / this.columns : this.cellWidth,
-      cellHeight: domRect?.height
-        ? domRect.height / this.rows
-        : this.cellHeight,
-      columns: this.columns,
-      rows: this.rows,
+      cellWidth: domRect?.width ? domRect.width / columns : this.cellWidth,
+      cellHeight: domRect?.height ? domRect.height / rows : this.cellHeight,
+      columns,
+      rows,
     };
+  }
+
+  /** Remeasure after embedding CSS changes; invalidations coalesce in one animation frame. */
+  refreshGeometry(): void {
+    if (this.disposed || this.geometryRefreshHandle !== undefined) return;
+    if (!globalThis.requestAnimationFrame) {
+      this.resizeToMount();
+      return;
+    }
+    this.geometryRefreshHandle = requestAnimationFrame(() => {
+      this.geometryRefreshHandle = undefined;
+      this.resizeToMount();
+    });
+  }
+
+  get geometrySnapshot(): DomGeometrySnapshot | undefined {
+    return this.domGeometry?.presented;
+  }
+
+  get fontStatus(): DomFontResult | undefined {
+    return this.fontResult;
+  }
+  get fontReady(): Promise<DomFontResult> | undefined {
+    return this.fontResources?.ready;
+  }
+
+  private loadDomFont(style: ResolvedWebHostTerminalStyle): void {
+    if (this.fontResources !== this.activeFontResources)
+      this.fontResources?.dispose();
+    this.fontPending = true;
+    this.paintScheduler.setHeld(true);
+    this.terminalMount.setAttribute("aria-busy", "true");
+    if (!this.loadingFont) {
+      this.loadingFont = document.createElement("div");
+      this.loadingFont.setAttribute("role", "status");
+      this.loadingFont.textContent = "Loading display font…";
+      this.terminalMount.appendChild(this.loadingFont);
+    }
+    const resources = new DomFontResources(
+      this.terminalMount.ownerDocument ?? document,
+      style.fontFamily,
+      style.fontSize,
+      this.domFontOptions,
+    );
+    this.fontResources = resources;
+    void resources.ready
+      .then((result) => {
+        if (
+          this.disposed ||
+          resources !== this.fontResources ||
+          result.status === "disposed"
+        )
+          return;
+        this.fontResult = result;
+        const previousResources = this.activeFontResources;
+        this.activeFontResources = resources;
+        this.fontPending = false;
+        this.loadingFont?.remove();
+        this.loadingFont = undefined;
+        this.terminalMount.removeAttribute("aria-busy");
+        this.currentStyle = { ...style, fontFamily: result.family };
+        this.applyStyle(this.currentStyle);
+        this.bridge?.updateRenderStyle(this.currentStyle);
+        if (result.diagnostic) this.writeOutput(`${result.diagnostic}\n`);
+        this.resizeToMount();
+        previousResources?.dispose();
+      })
+      .catch((error) => {
+        if (this.disposed || resources !== this.fontResources) return;
+        this.fontPending = false;
+        this.writeOutput(`DOM font configuration failed: ${String(error)}\n`);
+      });
   }
 
   /**

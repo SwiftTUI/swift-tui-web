@@ -305,10 +305,14 @@ for (const renderer of ["canvas", "dom"]) {
     await present(page, nested);
     await assertBounds();
     const tree = page.locator(".webhost-scene__accessibility-tree");
-    const terminal = await page
-      .locator(".webhost-scene__terminal")
+    const projection = await page
+      .locator(
+        renderer === "dom"
+          ? ".webhost-scene__surface"
+          : ".webhost-scene__terminal",
+      )
       .boundingBox();
-    expect(await tree.boundingBox()).toEqual(terminal);
+    expect(await tree.boundingBox()).toEqual(projection);
     await expect(tree).toHaveCSS("clip-path", "none");
     await expect(tree).toHaveCSS("overflow", "visible");
     const button = page.getByRole("button", { name: "Increment" });

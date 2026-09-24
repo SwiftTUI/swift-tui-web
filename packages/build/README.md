@@ -6,8 +6,8 @@ compile a SwiftTUI app to `wasm32-wasi` and capture its scene manifest.**
 [![npm](https://img.shields.io/npm/v/@swifttui/build)](https://www.npmjs.com/package/@swifttui/build)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 
-`@swifttui/build` turns a SwiftTUI app into the two artifacts the browser needs:
-an `app.wasm` and a `scene-manifest.json`. It drives the Swift toolchain, runs a
+`@swifttui/build` produces an `app.wasm`, a `scene-manifest.json`, and the DOM
+host's bundled font assets and license notice. It drives the Swift toolchain, runs a
 browser `WebAssembly.compile` validation pass, and packages the result. It
 is separate from [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web),
 the browser runtime. Thus, runtime imports do not include Swift processes, Node
@@ -52,6 +52,14 @@ await buildSwiftTUIWebApp({
   outputDirectory: "dist",
 });
 ```
+
+The full build copies the runtime package's four verified WOFF2 faces, their
+manifest and OFL notice into `assets/swifttui-fonts/2184c1f2bac4/`. Deploy that
+directory with the app. Build systems that package WASM separately can use
+`await copyDomFontAssets(outputDirectory)` from `@swifttui/build`; it validates
+the installed asset hashes before copying. Runtime `domFont.assetBase` can
+point at another same-origin asset directory. Font loading does not depend on
+an external font service.
 
 Toolchain defaults match the repo:
 

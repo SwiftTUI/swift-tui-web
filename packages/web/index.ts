@@ -1,3 +1,10 @@
+export {
+  DOM_FONT_ASSET_PATH,
+  DOM_FONT_FACES,
+  DOM_FONT_FAMILY,
+  type DomFontOptions,
+  type DomFontResult,
+} from "./src/DomFontResources.ts";
 export * from "./src/DomSurfacePainter.ts";
 export type {
   WebHostAnimationFrameScheduler,

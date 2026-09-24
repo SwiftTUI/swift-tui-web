@@ -3663,6 +3663,16 @@ class FakeElement {
   }
 
   getBoundingClientRect(): typeof this.rect {
+    if (this.style.font === "inherit" && this.style.whiteSpace === "pre") {
+      const width =
+        this.textContent === "W".repeat(64)
+          ? 640
+          : ["漢", "🙂", "👩‍💻"].includes(this.textContent)
+            ? 20
+            : 10;
+      return { ...this.rect, width, height: 27 };
+    }
+    if (this.style.lineHeight === "1.5") return { ...this.rect, height: 27 };
     if (
       this.style.visibility === "hidden" &&
       this.textContent === "W".repeat(64)
@@ -3960,6 +3970,7 @@ test("dom renderer mounts a DOM surface and renders decoded frames as text eleme
     });
 
     await runtime.mount();
+    await runtime.fontReady;
 
     const terminalMount = runtime.terminalMount as unknown as FakeElement;
     const surface = terminalMount.children[0]!;
@@ -3971,7 +3982,7 @@ test("dom renderer mounts a DOM surface and renders decoded frames as text eleme
 
     bridge.stdout.write(encoder.encode(transportFixture("web-surface-styled")));
 
-    // Frame is 4x2 at cellWidth 10 (measureText fake) and cellHeight 27.
+    // Frame is 4x2 at cellWidth 10 and cellHeight 27 from the CSS-probe fake.
     expect(surface.style.width).toBe("40px");
     expect(surface.style.height).toBe("54px");
     expect(surface.style.lineHeight).toBe("27px");
@@ -4038,6 +4049,7 @@ test("runtime forwards observable DOM image misses through the optional bridge s
       renderer: "dom",
     });
     await runtime.mount();
+    await runtime.fontReady;
 
     sink?.presentSurface({
       version: 2,
@@ -4077,6 +4089,7 @@ test("dom renderer leaves Alt-drag pointer input to native text selection", asyn
       renderer: "dom",
     });
     await runtime.mount();
+    await runtime.fontReady;
 
     let prevented = 0;
     runtime.terminalMount.dispatch(
