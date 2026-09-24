@@ -38,6 +38,7 @@ export class AccessibilityTreeMounter {
   private acknowledgedRequestID = 0n;
   private pendingValues = new Map<string, bigint>();
   private pendingFocus?: { id: string; requestID: bigint };
+  private runtimeFocusedElement?: HTMLElement;
 
   constructor(
     private readonly sendAction?: (
@@ -67,6 +68,7 @@ export class AccessibilityTreeMounter {
     announcements: WebHostAccessibilityAnnouncement[] = [],
     options: AccessibilityTreePresentationOptions = {},
   ): void {
+    const activeBeforePresentation = document.activeElement;
     // Nodes the app marked hidden stay out of the assistive-technology tree,
     // mirroring the Android host's overlay filter. Hidden is per-node on the
     // wire, so children of a hidden node re-parent to the mount root.
@@ -143,19 +145,30 @@ export class AccessibilityTreeMounter {
     this.announceLiveRegionChanges(visibleNodes, normalizedAnnouncements);
 
     const focused = visibleNodes.find((node) => node.isFocused);
-    if (
-      this.pendingFocus !== undefined &&
-      this.pendingFocus.requestID <= this.acknowledgedRequestID
-    ) {
+    const element = focused ? this.nodesById.get(focused.id) : undefined;
+    const pending = this.pendingFocus;
+    const focusAcknowledged =
+      pending !== undefined && pending.requestID <= this.acknowledgedRequestID;
+    // Reconcile a focus response only while the user is still on its target.
+    // Moving to a disabled node or outside the scene produces no newer runtime
+    // focus request, but must still supersede an in-flight assistive request.
+    const synchronize = focusAcknowledged
+      ? activeBeforePresentation === this.nodesById.get(pending.id)
+      : element !== this.runtimeFocusedElement ||
+        element === activeBeforePresentation;
+    this.runtimeFocusedElement = element;
+    if (focusAcknowledged) {
       this.pendingFocus = undefined;
     }
     if (
       (options.synchronizeFocus ?? true) &&
-      focused &&
+      synchronize &&
+      element &&
       this.pendingFocus === undefined
     ) {
-      const element = this.nodesById.get(focused.id);
-      if (element && document.activeElement !== element)
+      // An unchanged runtime focus is state, not a new request to take focus.
+      // Repaints must let assistive navigation leave editable controls.
+      if (document.activeElement !== element)
         element.focus?.({ preventScroll: true });
     }
     this.presenting = false;

@@ -160,6 +160,78 @@ test("assistive controls return typed requests and retain pending edits until ac
   expect(await records(page)).toEqual(beforeDisabled);
 });
 
+test("unchanged frames preserve navigation past a field and reconcile rejected focus once", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  const snapshot = structuredClone(nodes);
+  snapshot.push({
+    id: "password",
+    actionTarget: "6:password",
+    role: "secureField",
+    label: "Password",
+    rect: [0, 5, 10, 1],
+    actions: ["focus", "setValue"],
+    isFocused: true,
+  });
+  await present(page, snapshot);
+  const password = page.getByLabel("Password", { exact: true });
+  const disabled = page.getByRole("button", { name: "Unavailable" });
+  await expect(password).toBeFocused();
+  await disabled.focus();
+  await present(page, snapshot);
+  await expect(disabled).toBeFocused();
+  await page.evaluate(() => {
+    const outside = document.createElement("button");
+    outside.textContent = "Outside scene";
+    document.body.appendChild(outside);
+    outside.focus();
+  });
+  await present(page, snapshot);
+  await expect(
+    page.getByRole("button", { name: "Outside scene" }),
+  ).toBeFocused();
+
+  // A real runtime focus transition still reaches the browser.
+  snapshot.at(-1)!.isFocused = false;
+  snapshot[3]!.isFocused = true;
+  await present(page, snapshot);
+  const name = page.getByRole("textbox", { name: "Name" });
+  await expect(name).toBeFocused();
+  const button = page.getByRole("button", { name: "Increment" });
+  await button.focus();
+  const requestID = (await records(page)).at(-1)!.split(":")[1]!;
+  await present(page, snapshot);
+  await expect(button).toBeFocused();
+  const rejected = {
+    requestID,
+    target: "1:button",
+    result: "outOfScope" as const,
+  };
+  await present(page, snapshot, rejected);
+  await expect(name).toBeFocused();
+  await disabled.focus();
+  await present(page, snapshot, rejected);
+  await expect(disabled).toBeFocused();
+
+  // A late acknowledgement must not undo navigation that sent no focus action.
+  await button.focus();
+  const lateID = (await records(page)).at(-1)!.split(":")[1]!;
+  await disabled.focus();
+  snapshot[3]!.isFocused = false;
+  snapshot[0]!.isFocused = true;
+  await present(page, snapshot, {
+    requestID: lateID,
+    target: "1:button",
+    result: "accepted",
+  });
+  await expect(disabled).toBeFocused();
+  await present(page, snapshot);
+  await expect(disabled).toBeFocused();
+});
+
 for (const renderer of ["canvas", "dom"]) {
   test(`${renderer} assistive bounds match scene coordinates through nested and hidden parents`, async ({
     page,
