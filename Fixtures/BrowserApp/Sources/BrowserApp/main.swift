@@ -76,6 +76,7 @@ struct AccessibilityWorkload: View {
   @State private var name = ""
   @State private var secret = ""
   @State private var showControl = true
+  @FocusState private var nameFocused: Bool
 
   var body: some View {
     VStack(spacing: 0) {
@@ -84,11 +85,17 @@ struct AccessibilityWorkload: View {
       Button("Activate") { count += 1 }
       Toggle("Enabled", isOn: $enabled)
       Slider("Gain", value: $gain, in: 0...10, step: 1)
-      TextField("Name", text: $name)
+      TextField("Name", text: $name).focused($nameFocused)
       SecureField("Password", text: $secret)
       Button("Unavailable") { count += 100 }.disabled(true)
       Button("Toggle control") { showControl.toggle() }
       if showControl { Button("Removable") { count += 10 } }
+      Button("Focus Name") { nameFocused = true }
+      HStack(spacing: 1) {
+        Text("Decorative star")
+        Text("Decorative dot")
+      }
+      .accessibilityHidden()
     }
   }
 }

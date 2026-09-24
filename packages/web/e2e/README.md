@@ -57,6 +57,11 @@ Alpha and Beta keep independent counters through repeated controller scene
 switches. Disposal removes the host DOM and closes both browser workers, or
 settles both actual JSPI export promises, including the hidden scene.
 
+The accessibility scene includes a **Focus Name** button that sets Swift
+`@FocusState`, and visible **Decorative star / Decorative dot** text inside an
+`accessibilityHidden()` group. These provide app-driven focus and hidden-subtree
+observations for native accessibility inspection and screen-reader walkthroughs.
+
 | Engine project | Required engine classification | Worker prerequisites | JSPI journey |
 | --- | --- | --- | --- |
 | Chromium | V8; full stack profile | Cross-origin isolation and SharedArrayBuffer | Run when both JSPI functions exist |
