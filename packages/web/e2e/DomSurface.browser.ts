@@ -53,8 +53,8 @@ test("multiline sparse Unicode copies exactly with row breaks and boundary space
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+c" : "Control+c",
     );
-  // The macOS clipboard retains the original code points. WebKit normalizes
-  // them when exposing a native paste back to a page; test that separate
+  // The macOS clipboard retains the original code points. macOS WebKit
+  // normalizes them when exposing a native paste back to a page; test that separate
   // browser boundary without mistaking it for corruption during copy.
   if (process.platform === "darwin" && browserName === "webkit")
     await expect
@@ -77,7 +77,9 @@ test("multiline sparse Unicode copies exactly with row breaks and boundary space
   );
   await expect(page.locator("#sparse-copy-target")).toHaveAttribute(
     "data-clipboard",
-    browserName === "webkit" ? expected.normalize("NFC") : expected,
+    browserName === "webkit" && process.platform === "darwin"
+      ? expected.normalize("NFC")
+      : expected,
   );
 });
 
