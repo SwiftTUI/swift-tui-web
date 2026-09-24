@@ -1,14 +1,15 @@
 # `@swifttui/web`
 
 **Browser runtime for [SwiftTUI](https://swifttui.sh) apps: draw a
-Swift-authored UI into a `<canvas>` without a terminal emulator.**
+Swift-authored UI through Canvas or an experimental DOM renderer.**
 
 [![npm](https://img.shields.io/npm/v/@swifttui/web)](https://www.npmjs.com/package/@swifttui/web)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 
 `@swifttui/web` is the browser host for SwiftTUI. A SwiftTUI app compiles to
 `wasm32-wasi` and sends a structured raster surface on stdout. This package
-loads the scene manifest and renders that surface in a canvas. It mounts an
+loads the scene manifest and renders that surface using Canvas by default, or
+DOM with `renderer: "dom"`. It mounts an
 ARIA tree for accessibility and sends input to the running app. Thus, the same
 view code runs in a terminal and on a web page. The package does not load a
 terminal emulator.
@@ -115,6 +116,15 @@ stdin works.
 
 ## Renderers
 
+**The DOM renderer is experimental.** It is opt-in, has known native-find and
+performance limitations, and is not a production-qualified or WCAG-conformant
+host profile. Canvas remains the default. The APIs and behavior described here
+are the state of this repository's HEAD; released 0.14.0 has the earlier DOM
+presenter with system fonts, without the packaged font and correlated-geometry
+features below. In that release the semantic sidecar's bounds can lag the
+visible DOM layout after resize, although pointer input on the visible control
+and keyboard activation still work in the counter demo.
+
 One option selects between two surface presenters. Both presenters consume the
 same frames:
 
@@ -122,7 +132,7 @@ same frames:
 await createWebHostApp({
   mount,
   manifestUrl,
-  renderer: "dom", // "canvas" is the default
+  renderer: "dom", // Experimental; "canvas" is the default.
 });
 ```
 
@@ -138,7 +148,7 @@ await createWebHostApp({
   host's scale-to-fit fallback. If a browser font makes a declared single-cell
   glyph wider than one cell, its excess ink is truncated. Select a font whose
   fallback metrics fit the grid when that distinction matters.
-- **`"dom"`** renders fixed-width lead cells in absolutely positioned rows. It uses
+- **`"dom"` (experimental)** renders fixed-width lead cells in absolutely positioned rows. It uses
   browser font shaping and fallback for emoji and CJK. Text stays sharp at each
   page zoom, and the element tree is inspectable. Hold Alt/Option and drag to
   select and copy app text. A drag without Alt/Option remains pointer input for
@@ -180,6 +190,72 @@ await createWebHostApp({
 
 The option is also available for each scene runtime through
 `WebHostSceneRuntimeOptions.renderer`. The package exports `DomSurfacePainter` for custom DOM runtimes.
+
+### Experimental DOM quickstart
+
+The renderer consumes the same Swift raster frames and WASM artifact as Canvas;
+it does not translate a Swift view tree into browser flow layout. Size the mount
+explicitly and include the package stylesheet:
+
+```html
+<div id="counter" style="width: 100%; height: 24rem"></div>
+```
+
+```ts
+import { createWebHostApp, DOM_FONT_ASSET_PATH } from "@swifttui/web";
+import { createWasmSceneRuntimeFactory } from "@swifttui/web/wasi";
+import "@swifttui/web/style.css";
+
+const output = new URL("./TerminalApp/dist/", import.meta.url);
+const controller = await createWebHostApp({
+  mount: document.getElementById("counter")!,
+  manifestUrl: new URL("scene-manifest.json", output),
+  renderer: "dom", // Experimental.
+  style: { fontSize: 16 }, // Omit fontFamily to use the packaged DOM profile.
+  domFont: { assetBase: new URL(DOM_FONT_ASSET_PATH, output) },
+  sceneRuntimeFactory: createWasmSceneRuntimeFactory(
+    new URL("assets/app.wasm", output),
+    { workerModuleURL: new URL("./wasm-scene-worker.js", import.meta.url) },
+  ),
+});
+
+window.addEventListener("pagehide", (event) => {
+  if (!event.persisted) void controller.dispose();
+});
+```
+
+Bundle `wasm-scene-worker.js` as an ESM entry point containing:
+
+```ts
+import { startWasmSceneWorker } from "@swifttui/web/wasi-worker";
+startWasmSceneWorker();
+```
+
+Use `@swifttui/build` to generate the manifest/WASM and copy the font assets as
+described below. Worker execution requires the existing WASI isolation headers;
+renderer choice does not change that execution contract. A custom runtime
+factory can instead use the same renderer with a WebSocket-backed Swift app.
+
+The maintained [counter example](https://github.com/SwiftTUI/swift-tui-counter-demo/tree/main/WebExample)
+provides `npm run build:dom`, `npm run dev:dom`, and a `/dom.html` page sharing
+the ordinary counter artifact. Its bootstrap also supports released 0.14.0 by
+detecting the packaged-font API rather than requiring it.
+
+### Experimental support boundary
+
+| Area | Current boundary |
+| --- | --- |
+| Presentation | Fixed cell allocation, clipped HTML text, SVG decorations and HTML images. No browser-flow re-layout or paragraph shaping across independent cells. |
+| Native find | Chromium cannot find words spanning separate wire cells. Firefox and WebKit pass that case in the tested browser matrix. Single-cell find is insufficient evidence for general text. |
+| Selection and print | Mounted viewport only. Alt/Option-drag selects; normal pointer gestures go to Swift. Replaced selected content clears selection. Offscreen content is not exported. |
+| Accessibility | The shared semantic sidecar sends typed actions to Swift; visible text is not a second accessible control tree. The complete DOM control/AT journey and bounded WCAG claim are not qualified. IME/composition is outside the current input contract. |
+| Browser evidence | Local automated checks cover Chromium 149, Firefox 151 and Playwright WebKit 26.5. They do not establish current stable Safari, Windows High Contrast/AT or physical iOS/Android acceptance. |
+| Performance | Measured layout/paint-inclusive p95 misses the 8ms partial-update and 50ms large mixed-frame targets. A final thirty-minute soak and complete control-latency qualification are absent. |
+| Mobile and preferences | Media-query emulation exists. Real Windows High Contrast and physical mobile interaction/AT are unqualified; emulation is not that evidence. |
+
+Use the experimental renderer for evaluation and test it with your own content
+and target browsers. The detailed behavior, asset policy, transform limits,
+fallbacks, memory bounds and disposal semantics follow in this section.
 
 ### Images, preferences and resource ownership
 

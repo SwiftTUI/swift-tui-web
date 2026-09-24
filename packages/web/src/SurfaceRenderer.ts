@@ -10,11 +10,13 @@ import type { ResolvedWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
  *
  * - `"canvas"` (default): paints cells onto a 2D `<canvas>` — pixel-exact
  *   box-drawing seams and decoration patterns, one DOM node total.
- * - `"dom"`: renders cells as positioned inline text elements — native
+ * - `"dom"` (experimental): renders cells as positioned inline text elements — native
  *   font rendering (fallback glyphs, subpixel AA, crisp zoom), an
  *   inspectable element tree, and real selectable text (hold Alt/Option and
  *   drag). Box/block/Braille glyphs and independent underline/strike patterns share
  *   renderer-neutral geometry via SVG backgrounds.
+ *   This opt-in presenter has incomplete browser/AT/performance qualification;
+ *   Chromium native find cannot join text across separate wire cells.
  */
 export type WebHostSurfaceRendererKind = "canvas" | "dom";
 

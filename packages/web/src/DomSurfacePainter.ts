@@ -68,6 +68,8 @@ export interface DomSurfacePainterOptions {
 }
 
 /**
+ * Experimental presenter; see the package README for its support boundary.
+ *
  * Draws SwiftTUI surface frames as a DOM element tree instead of canvas
  * pixels: one absolutely positioned row container per grid row, one `<span>`
  * per wire lead cell, explicit sparse-space runs, and `<img>` elements for surface images.

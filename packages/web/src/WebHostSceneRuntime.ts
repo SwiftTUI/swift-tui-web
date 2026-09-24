@@ -126,12 +126,13 @@ export interface WebHostSceneRuntimeOptions {
   suspendWhenHidden?: boolean;
   /**
    * Which surface presenter draws the scene's frames. `"canvas"` (default)
-   * paints onto a 2D `<canvas>`; `"dom"` renders cells as absolutely
+   * paints onto a 2D `<canvas>`; experimental `"dom"` renders cells as absolutely
    * positioned text elements — native font rendering and, uniquely, real
    * text selection: hold Alt/Option and drag to select instead of sending
    * pointer input to the app. See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
+  /** Font asset location and bounded readiness wait for the experimental DOM presenter. */
   domFont?: DomFontOptions;
   /**
    * How the scene element occupies the mount. `"fill"` (default) stretches

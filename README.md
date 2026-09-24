@@ -4,8 +4,8 @@
 
 The browser-host packages for [SwiftTUI](https://swifttui.sh). Author your `App`
 once and ship the same `View` tree, `@State`, and `@FocusState` to the browser,
-rendered through Canvas or DOM with a semantic accessibility tree, without a rewrite or a
-terminal emulator such as `xterm.js`.
+rendered through Canvas or the experimental DOM renderer with a semantic
+accessibility tree, without a rewrite or a terminal emulator such as `xterm.js`.
 
 [![npm @swifttui/web](https://img.shields.io/npm/v/@swifttui/web?label=%40swifttui%2Fweb)](https://www.npmjs.com/package/@swifttui/web)
 [![npm @swifttui/build](https://img.shields.io/npm/v/@swifttui/build?label=%40swifttui%2Fbuild)](https://www.npmjs.com/package/@swifttui/build)
@@ -14,10 +14,10 @@ terminal emulator such as `xterm.js`.
 A SwiftTUI app compiles to `wasm32-wasi` and streams a structured raster surface.
 `@swifttui/web` paints that surface into the page through its DOM or canvas
 engine and mounts a real ARIA accessibility tree.
-The ARIA tree is a one-way semantic presentation preview: reading order,
-names, roles, hidden state, announcements, and runtime-origin focus are
-presented, but assistive-origin focus, activation, adjustment, and editing do
-not route back into SwiftTUI.
+The ARIA tree presents reading order, names, roles, hidden state, announcements
+and focus. With the typed action contract, assistive focus, activation,
+adjustment and supported value edits route back to SwiftTUI. The DOM renderer's
+complete assistive-technology and production qualification remains incomplete.
 Thus, the same `App` and `Scene` run in a terminal and on a web page. These two
 packages deliver two of SwiftTUI's five hosts: a **static WASI bundle** and a
 **localhost WebHost**. The framework itself lives in
@@ -25,6 +25,10 @@ packages deliver two of SwiftTUI's five hosts: a **static WASI bundle** and a
 contains the browser deployment packages.
 
 > Status: beta. The public API can change as the framework develops.
+
+> **DOM renderer: experimental and opt-in.** Canvas is the default. See the
+> [DOM setup, behavior and known limits](packages/web/README.md#renderers),
+> including native find, accessibility, fonts, embedding and performance.
 
 | Package | Role |
 | --- | --- |

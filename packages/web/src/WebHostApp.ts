@@ -78,11 +78,12 @@ export interface WebHostAppOptions {
   visibilityDocument?: WebHostVisibilityDocument;
   /**
    * Which surface presenter every scene runtime uses: `"canvas"` (default)
-   * paints frames onto a 2D `<canvas>`; `"dom"` renders them as absolutely
+   * paints frames onto a 2D `<canvas>`; experimental `"dom"` renders them as absolutely
    * positioned text elements. Forwarded to each scene runtime as `renderer`.
    * See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
+  /** Font asset location and bounded readiness wait for the experimental DOM presenter. */
   domFont?: DomFontOptions;
   /**
    * How scene elements occupy the mount. `"fill"` (default) keeps the
