@@ -11,6 +11,12 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-09-25
+
+Lockstep version bump only; the package contents are unchanged from 0.15.0.
+The SwiftTUI framework 0.15.1 caps its `swift-collections` dependency below
+1.7.0 (see the swift-tui changelog), and every lockstep package moves with it.
+
 ## [0.15.0] - 2026-09-25
 
 Paints are batched per animation frame, the experimental DOM presenter is
@@ -324,7 +330,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.15.0...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.15.1...HEAD
+[0.15.1]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.15.1
 [0.15.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.15.0
 [0.14.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.14.0
 [0.13.5]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.5

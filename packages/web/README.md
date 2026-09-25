@@ -119,7 +119,7 @@ stdin works.
 **The DOM renderer is experimental.** It is opt-in, has known native-find and
 performance limitations, and is not a production-qualified or WCAG-conformant
 host profile. Canvas remains the default. The APIs and behavior described here
-are the state of this repository's HEAD; released 0.15.0 has the earlier DOM
+are the state of this repository's HEAD; released 0.15.1 has the earlier DOM
 presenter with system fonts, without the packaged font and correlated-geometry
 features below. In that release the semantic sidecar's bounds can lag the
 visible DOM layout after resize, although pointer input on the visible control
@@ -238,7 +238,7 @@ factory can instead use the same renderer with a WebSocket-backed Swift app.
 
 The maintained [counter example](https://github.com/SwiftTUI/swift-tui-counter-demo/tree/main/WebExample)
 provides `npm run build:dom`, `npm run dev:dom`, and a `/dom.html` page sharing
-the ordinary counter artifact. Its bootstrap also supports released 0.15.0 by
+the ordinary counter artifact. Its bootstrap also supports released 0.15.1 by
 detecting the packaged-font API rather than requiring it.
 
 ### Experimental support boundary
