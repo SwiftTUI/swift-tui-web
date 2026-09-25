@@ -434,6 +434,8 @@ defines exact units, framing recovery, and bitmap limits.
 ## Notes
 
 - Scene switching is controller-managed and retains existing scene runtimes.
+- Runtime issues appear in diagnostic output and the browser console:
+  errors use `console.error`, warnings use `console.warn`.
 - Terminal styling is host-owned through `WebHostTerminalStyle`, which carries
   one active palette/theme pair plus the runtime payload sent into SwiftTUI.
 - Hosts with multiple themes swap entire `WebHostTerminalStyle` objects. The

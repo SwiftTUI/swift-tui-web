@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { ManualAnimationFrameScheduler } from "./ManualAnimationFrameScheduler.ts";
 import {
   WebHostSceneRuntime,
@@ -27,6 +27,54 @@ import {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+test.each(["error", "warning"] as const)(
+  "runtime issues reach the browser console at %s severity without stopping frames",
+  async (severity) => {
+    const dom = installFakeDOM();
+    const log = spyOn(
+      console,
+      severity === "error" ? "error" : "warn",
+    ).mockImplementation(() => {});
+    try {
+      const bridge = new BrowserWASIBridge({
+        sceneId: "main",
+        columns: 4,
+        rows: 2,
+      });
+      const runtime = new WebHostSceneRuntime({
+        mount: new FakeElement("div") as unknown as HTMLElement,
+        descriptor: { id: "main", title: "Main", isDefault: true },
+        style: {},
+        bridge,
+        onInput: () => {},
+      });
+      await runtime.mount();
+      const issue = {
+        severity,
+        code: "lifecycle.userExitUnsupported",
+        message:
+          "Exit keys cannot end an app on this host. The session is still running.",
+        description: `SwiftTUI runtime ${severity} [lifecycle.userExitUnsupported] Session is still running.`,
+      };
+      bridge.stdout.write(
+        encoder.encode(`\u001eruntimeIssue:${JSON.stringify(issue)}\n`),
+      );
+      expect(log).toHaveBeenCalledWith(issue.description);
+
+      bridge.stdout.write(
+        encoder.encode(transportFixture("web-surface-styled")),
+      );
+      expect(
+        fillTextOperations(dom.canvases[0]!.context, "A").length,
+      ).toBeGreaterThan(0);
+      runtime.dispose();
+    } finally {
+      log.mockRestore();
+      dom.restore();
+    }
+  },
+);
 
 test("hidden scenes stay out of layout even after style updates", () => {
   const dom = installFakeDOM();
