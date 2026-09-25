@@ -44,7 +44,7 @@ integer from 1 through 65535.
 
 `CompiledWasm.browser.ts` executes the two counter scenes in `Fixtures/BrowserApp`,
 which also contains two performance probes and an accessibility control scene. The app is pinned to the public HTTPS
-`swift-tui` tag **0.14.0**, with transitive
+`swift-tui` tag **0.15.0**, with transitive
 versions recorded in `Package.resolved`. `build-wasm-fixture.ts` calls the public
 `@swifttui/build` entry point to capture the native scene manifest and compile,
 optimize, strip and validate the WASI module. No sibling checkout or Bazel is
@@ -109,7 +109,7 @@ same bridge with a synthetic semantic frame. All three engines verify focus,
 activation, adjustment, native input editing, acknowledgements, rejected-value
 restoration, disabled nodes, removed listeners and update-echo suppression.
 These protocol checks do not execute Swift or listen to a screen reader.
-The public Swift fixture remains pinned to 0.14.0; action acceptance against an
+The public Swift fixture remains pinned to 0.15.0; action acceptance against an
 unreleased framework is coordination-owned until a released tag is adopted.
 
 ## Semantic presentation boundary

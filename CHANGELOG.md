@@ -11,6 +11,13 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-25
+
+Paints are batched per animation frame, the experimental DOM presenter is
+qualified and bounded, browser accessibility gains semantic control actions,
+and two optional diagnostic seams make input-to-presentation latency
+measurable.
+
 ### Changed
 
 - Batch surface paints with `requestAnimationFrame` (STUI-143). Every frame
@@ -46,6 +53,29 @@ Additional lockstep release notes are available on
   input write settles in the shared stdin ring (or the main-thread executor's
   queue) with its size, `performance.now()`, and outcome. Marks where the
   host's part of input ingress ends (STUI-618).
+- Experimental DOM presenter: measured typography and geometry with packaged
+  fonts (STUI-545), stability across browser platforms (STUI-548), layout and
+  input correlated with captured geometry revisions (STUI-552), presentation
+  fidelity with bounded retained resources (STUI-558), native links and
+  geometric glyphs with selected-node preservation (STUI-144, STUI-366 to
+  STUI-369), and a documented support boundary (STUI-581).
+- Browser accessibility: semantic control actions connected to the runtime
+  (STUI-356), accessibility bounds aligned with rendered controls (STUI-539),
+  assistive navigation preserved across unchanged frames, and native
+  password semantics preserved (STUI-541).
+- Browser engines are qualified with compiled Swift WASM in the e2e lane
+  (STUI-147).
+
+### Fixed
+
+- Host wire decoding and raster allocation are bounded (STUI-303).
+
+## [0.14.0] - 2026-09-20
+
+### Changed
+
+- Publish both browser packages for coordinated release 0.14.0. Browser APIs
+  and behavior are unchanged from 0.13.5.
 
 ## [0.13.5] - 2026-09-16
 
@@ -294,7 +324,9 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.13.5...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.15.0...HEAD
+[0.15.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.15.0
+[0.14.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.14.0
 [0.13.5]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.5
 [0.13.4]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.4
 [0.13.3]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.13.3
