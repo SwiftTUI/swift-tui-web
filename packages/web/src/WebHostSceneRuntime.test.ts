@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { ManualAnimationFrameScheduler } from "./ManualAnimationFrameScheduler.ts";
-import { WebHostSceneRuntime, type WheelMode } from "./WebHostSceneRuntime.ts";
+import {
+  WebHostSceneRuntime,
+  type WebHostSurfacePaintedEvent,
+  type WheelMode,
+} from "./WebHostSceneRuntime.ts";
 import {
   encodePasteInputMessage,
   encodeResyncControlMessage,
@@ -16,7 +20,10 @@ import {
   SharedInputQueueReader,
   sharedInputQueueDefaultCapacity,
 } from "./wasi/SharedInputQueue.ts";
-import { createWasmSceneRuntimeFactory } from "./wasi/WasmSceneRuntime.ts";
+import {
+  createWasmSceneRuntimeFactory,
+  type WasmSceneInputWrittenEvent,
+} from "./wasi/WasmSceneRuntime.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -776,6 +783,72 @@ test("WASI runtime forwards bridge control input into the worker queue", async (
     expect(Array.from(resizeBytes ?? [])).toEqual(
       Array.from(encodeResizeControlMessage(10, 4, 9, 18)),
     );
+
+    runtime.dispose();
+  } finally {
+    globalThis.Worker = previousWorker;
+    dom.restore();
+  }
+});
+
+test("WASI runtime reports each logical input write as it settles", async () => {
+  const dom = installFakeDOM();
+  const previousWorker = globalThis.Worker;
+
+  class FakeWorker {
+    constructor(_url: string | URL, _options?: WorkerOptions) {}
+
+    addEventListener(_type: string, _listener: EventListener): void {}
+
+    postMessage(_message: unknown): void {}
+
+    terminate(): void {}
+  }
+
+  globalThis.Worker = FakeWorker as unknown as typeof Worker;
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const written: WasmSceneInputWrittenEvent[] = [];
+    const mount = new FakeElement("div");
+    const runtime = createWasmSceneRuntimeFactory(
+      new URL("https://example.test/app.wasm"),
+      {
+        workerModuleURL: "fake-worker.js",
+        onInputWritten: (event) => written.push(event),
+      },
+    )({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      bridge,
+      onInput: () => {},
+    });
+
+    await runtime.mount();
+    // Mount-time control writes (capabilities, resize) settle on microtasks.
+    await Promise.resolve();
+    written.length = 0;
+
+    const chunk = encoder.encode("\u001b[A");
+    const before = performance.now();
+    runtime.sendInput(chunk);
+    // The synchronous fast path stores the bytes at once; the report follows
+    // on the write promise's microtask, so it is never delivered re-entrantly.
+    expect(written).toHaveLength(0);
+    await Promise.resolve();
+    expect(written).toEqual([
+      {
+        bytes: chunk.length,
+        writtenAt: expect.any(Number),
+        status: "written",
+        bytesWritten: chunk.length,
+      },
+    ]);
+    expect(written[0]!.writtenAt).toBeGreaterThanOrEqual(before);
 
     runtime.dispose();
   } finally {
@@ -1769,6 +1842,107 @@ test("runtime reports frame diagnostics without rendering them as terminal text"
         (child) => child.className === "webhost-scene__diagnostic",
       ),
     ).toBe(false);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("runtime reports each completed presenter paint with the applied frame", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const painted: WebHostSurfacePaintedEvent[] = [];
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      bridge,
+      onInput: () => {},
+      onSurfacePainted: (event) => painted.push(event),
+    });
+
+    await runtime.mount();
+    const paintsBefore = runtime.paintStatistics.paints;
+    const eventsBefore = painted.length;
+    const before = performance.now();
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 1,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[[0, "A", 1, 0]], []],
+          images: [],
+        }),
+      ),
+    );
+
+    // One event per paint, carrying the decoded frame the presenter applied.
+    expect(runtime.paintStatistics.paints).toBe(paintsBefore + 1);
+    expect(painted).toHaveLength(eventsBefore + 1);
+    const event = painted.at(-1)!;
+    expect(event.frame?.width).toBe(4);
+    expect(event.frame?.rows[0]).toEqual([[0, "A", 1, 0]]);
+    expect(event.coalescedFrameCount).toBe(0);
+    expect(event.paintedAt).toBeGreaterThanOrEqual(before);
+    expect(event.paintedAt).toBeLessThanOrEqual(performance.now());
+  } finally {
+    dom.restore();
+  }
+});
+
+test("coalesced paints report the newest frame and the superseded count", async () => {
+  const dom = installFakeDOM();
+  try {
+    const bridge = new BrowserWASIBridge({
+      sceneId: "main",
+      columns: 4,
+      rows: 2,
+    });
+    const frames = new ManualAnimationFrameScheduler();
+    const painted: WebHostSurfacePaintedEvent[] = [];
+    const mount = new FakeElement("div");
+    const runtime = new WebHostSceneRuntime({
+      mount: mount as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      bridge,
+      onInput: () => {},
+      paintScheduling: frames,
+      onSurfacePainted: (event) => painted.push(event),
+    });
+
+    await runtime.mount();
+    frames.tick();
+    painted.length = 0;
+    for (const glyph of ["A", "B"]) {
+      bridge.stdout.write(
+        encoder.encode(
+          surfaceRecord({
+            version: 1,
+            width: 4,
+            height: 2,
+            styles: [null],
+            rows: [[[0, glyph, 1, 0]], []],
+            images: [],
+          }),
+        ),
+      );
+    }
+
+    // Presented frames stay unpainted until the animation frame; the paint
+    // then reports the newest frame once and counts the frame it superseded.
+    expect(painted).toHaveLength(0);
+    frames.tick();
+    expect(painted).toHaveLength(1);
+    expect(painted[0]!.frame?.rows[0]).toEqual([[0, "B", 1, 0]]);
+    expect(painted[0]!.coalescedFrameCount).toBe(1);
   } finally {
     dom.restore();
   }

@@ -66,6 +66,34 @@ export interface WasmSceneRuntimeHandle {
   sendInput(chunk: Uint8Array): void;
 }
 
+/**
+ * One logical input write settled by the main thread, reported through
+ * {@link WasmSceneRuntimeFactoryOptions.onInputWritten}.
+ *
+ * In worker mode the write lands in the shared stdin ring; `writtenAt` is
+ * taken when the write's promise settles, which for the ordinary synchronous
+ * fast path is the microtask right after the bytes were stored. A write that
+ * had to stream through the ring settles later. In main-thread (JSPI) mode
+ * the bytes go straight to the executor's stdin queue and the event is
+ * reported synchronously. This is a diagnostic seam for input-latency
+ * measurement: it marks where the host's part of ingress ends, not when the
+ * app read the bytes.
+ */
+export interface WasmSceneInputWrittenEvent {
+  /** Bytes in the logical write. */
+  bytes: number;
+  /** `performance.now()` when the write settled. */
+  writtenAt: number;
+  /**
+   * `written`: every byte landed; `partial`: the write ran out of its
+   * deadline and the tail was dropped (also reported as a runtime issue);
+   * `closed`: the queue was closed before the write.
+   */
+  status: "written" | "partial" | "closed";
+  /** Bytes that landed — equal to `bytes` when `written`. */
+  bytesWritten: number;
+}
+
 export type WasmExecutionMode = "worker" | "main-thread";
 export type WasmExecutionModePreference = WasmExecutionMode | "auto";
 
@@ -83,6 +111,11 @@ export interface WasmSceneRuntimeFactoryOptions {
    * present); workers everywhere else.
    */
   executionMode?: WasmExecutionModePreference;
+  /**
+   * Called when each logical input write settles. Diagnostic seam; unset
+   * (the default) costs nothing. See {@link WasmSceneInputWrittenEvent}.
+   */
+  onInputWritten?(event: WasmSceneInputWrittenEvent): void;
 }
 
 export function resolveWasmExecutionMode(
@@ -133,6 +166,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   };
   private readonly sharedQueueError?: unknown;
   private readonly pauseCell?: SharedArrayBuffer;
+  private readonly onInputWritten?: (event: WasmSceneInputWrittenEvent) => void;
 
   private detachBridgeInputListener?: () => void;
   private detachResizeListener?: () => void;
@@ -154,6 +188,8 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       disposed: false,
       pending: false,
     };
+    // Captured before `super()`: the enqueue closure below cannot read `this`.
+    const onInputWritten = factoryOptions.onInputWritten;
 
     try {
       inputQueue = createSharedInputQueue();
@@ -181,6 +217,13 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       chunk: Uint8Array,
     ): void => {
       void writer.writeAsync(chunk).then((outcome) => {
+        onInputWritten?.({
+          bytes: chunk.length,
+          writtenAt: performance.now(),
+          status: outcome.status,
+          bytesWritten:
+            outcome.status === "written" ? chunk.length : outcome.bytesWritten,
+        });
         if (inputCapacityNotifier.disposed || outcome.status === "written") {
           return;
         }
@@ -235,6 +278,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     this.inputCapacityNotifier = inputCapacityNotifier;
     this.sharedQueueError = sharedQueueError;
     this.pauseCell = pauseCell;
+    this.onInputWritten = onInputWritten;
   }
 
   /// Reports a logical input write that ran out of its deadline.
@@ -397,6 +441,12 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     this.executor = executor;
     this.inputRouter.route = (chunk) => {
       executor.sendInput(chunk);
+      this.onInputWritten?.({
+        bytes: chunk.length,
+        writtenAt: performance.now(),
+        status: "written",
+        bytesWritten: chunk.length,
+      });
       return true;
     };
     executor.setSuspended(this.suspended);

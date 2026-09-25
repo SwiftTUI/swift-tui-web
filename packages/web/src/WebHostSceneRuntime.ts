@@ -79,6 +79,35 @@ export interface WebHostSceneBridge {
   dispose(): void;
 }
 
+/**
+ * One completed presenter paint, reported through
+ * {@link WebHostSceneRuntimeOptions.onSurfacePainted}.
+ *
+ * This is an *observable presentation boundary*: the runtime's presenter
+ * (Canvas 2D or DOM) has finished applying `frame` to its surface. It is not a
+ * physical display timestamp. A Canvas paint becomes visible at the browser's
+ * next compositing opportunity and a DOM update at its next style/layout
+ * pass, so a consumer measuring input-to-presentation latency should read
+ * `paintedAt` as "no earlier than this" and, if it needs the display edge,
+ * also record the next animation-frame callback after it.
+ */
+export interface WebHostSurfacePaintedEvent {
+  /**
+   * The frame the presenter painted — the same object the transport decoded
+   * (a delta record is materialized once into a full frame before it reaches
+   * the presenter), or `undefined` for a repaint requested before the first
+   * frame arrived. A harness can tag decoded frames and join them here.
+   */
+  frame: WebHostSurfaceFrame | undefined;
+  /** `performance.now()` immediately after the presenter's paint returned. */
+  paintedAt: number;
+  /**
+   * Frames this paint superseded: presented to the runtime since the previous
+   * paint but never painted themselves (see {@link WebHostPaintStatistics}).
+   */
+  coalescedFrameCount: number;
+}
+
 export interface WebHostSceneRuntimeOptions {
   mount: HTMLElement;
   descriptor: WebHostSceneDescriptor;
@@ -86,6 +115,13 @@ export interface WebHostSceneRuntimeOptions {
   bridge?: WebHostSceneBridge;
   onInput(chunk: Uint8Array): void;
   onFrameDiagnostic?: (diagnostic: WebHostFrameDiagnosticRecord) => void;
+  /**
+   * Called after every completed presenter paint with the frame that was
+   * applied. Diagnostic seam for input-to-presentation measurement; unset
+   * (the default) costs nothing. See {@link WebHostSurfacePaintedEvent} for
+   * what the timestamp does and does not establish.
+   */
+  onSurfacePainted?: (event: WebHostSurfacePaintedEvent) => void;
   synchronizeAccessibilityFocus?: boolean;
   /**
    * How the embedded view treats mouse-wheel input.
@@ -224,6 +260,9 @@ export class WebHostSceneRuntime {
   private readonly onFrameDiagnostic?: (
     diagnostic: WebHostFrameDiagnosticRecord,
   ) => void;
+  private readonly onSurfacePainted?: (
+    event: WebHostSurfacePaintedEvent,
+  ) => void;
   private readonly synchronizeAccessibilityFocus: boolean;
   private readonly wheelMode: WheelMode;
   private readonly rendererKind: WebHostSurfaceRendererKind;
@@ -302,6 +341,7 @@ export class WebHostSceneRuntime {
     this.bridge = options.bridge;
     this.onInput = options.onInput;
     this.onFrameDiagnostic = options.onFrameDiagnostic;
+    this.onSurfacePainted = options.onSurfacePainted;
     this.synchronizeAccessibilityFocus =
       options.synchronizeAccessibilityFocus ?? true;
     this.wheelMode =
@@ -1332,6 +1372,13 @@ export class WebHostSceneRuntime {
       resized ? undefined : request.damage,
       request.recoveredImagePayloadIds,
     );
+    // Reported before the ARIA sidecar sync so the timestamp brackets the
+    // visual paint alone; the sidecar is not part of the presented surface.
+    this.onSurfacePainted?.({
+      frame: request.frame,
+      paintedAt: performance.now(),
+      coalescedFrameCount: request.coalescedFrameCount,
+    });
     this.syncAccessibilityTree(
       request.frame,
       request.accessibilityAnnouncements,

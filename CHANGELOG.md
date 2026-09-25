@@ -36,6 +36,16 @@ Additional lockstep release notes are available on
   frames coalesced, and whether a paint is pending.
 - `ManualAnimationFrameScheduler` in `@swifttui/web/testing`: a hand-ticked
   animation-frame pair for deterministic paint tests.
+- `WebHostSceneRuntimeOptions.onSurfacePainted`: called after every completed
+  presenter paint (Canvas or DOM) with the applied frame, `performance.now()`
+  after the paint returned, and the number of frames the paint superseded.
+  A diagnostic seam for input-to-presentation measurement; it marks an
+  observable presentation boundary, not a physical display timestamp
+  (STUI-618).
+- `WasmSceneRuntimeFactoryOptions.onInputWritten`: called when each logical
+  input write settles in the shared stdin ring (or the main-thread executor's
+  queue) with its size, `performance.now()`, and outcome. Marks where the
+  host's part of input ingress ends (STUI-618).
 
 ## [0.13.5] - 2026-09-16
 
