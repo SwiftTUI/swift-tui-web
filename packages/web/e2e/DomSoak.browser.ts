@@ -117,7 +117,10 @@ test("thirty-minute compiled DOM scroll, update, style and scene soak", async ({
       "SwiftTUI runtime warning [host.geometry.stalePointer] from HostGeometry Pointer input from an obsolete host geometry was rejected.",
   );
   await page.evaluate(() => window.__compiledWasm.dispose());
-  await expect.poll(() => closed, { timeout: 2000 }).toBe(started);
+  const disposalStart = Date.now();
+  while (closed < started && Date.now() - disposalStart < 2000)
+    await page.waitForTimeout(20);
+  const disposalMs = Date.now() - disposalStart;
   const disposed = await page.evaluate(() => window.__compiledWasm.resources());
   await info.attach("dom-soak", {
     contentType: "application/json",
@@ -134,6 +137,7 @@ test("thirty-minute compiled DOM scroll, update, style and scene soak", async ({
         errors,
         diagnostics,
         workers: { started, closed },
+        disposalMs,
       },
       null,
       2,
@@ -153,6 +157,8 @@ test("thirty-minute compiled DOM scroll, update, style and scene soak", async ({
   ).toBeLessThan(10 * 1024 * 1024);
   expect(errors).toEqual([]);
   expect(unexpectedDiagnostics).toEqual([]);
+  expect(closed).toBe(started);
+  expect(disposalMs).toBeLessThanOrEqual(2000);
   expect(disposed.nodes).toBe(0);
   for (const painter of disposed.painters)
     expect(Object.values(painter).every((value) => value === 0)).toBe(true);

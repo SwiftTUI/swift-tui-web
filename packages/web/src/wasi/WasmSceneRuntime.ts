@@ -417,6 +417,10 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   private stopExecution(): void {
     this.inputCapacityNotifier.disposed = true;
     this.inputWriter?.close();
+    // Inactive retained scenes can be parked in Atomics.wait on this cell.
+    // Wake that wait as well as stdin before terminating the worker so its
+    // execution resources settle even when the scene was never resumed.
+    if (this.pauseCell) setWasmPauseCellPaused(this.pauseCell, false);
     this.worker?.terminate();
     this.worker = undefined;
     this.executor?.dispose();

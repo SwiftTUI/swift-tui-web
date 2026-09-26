@@ -1,6 +1,47 @@
 import { expect, test } from "@playwright/test";
 import type {} from "./compiled-wasm.fixture.ts";
 
+test("DOM disposal closes active and paused retained scene workers", async ({
+  page,
+}) => {
+  let started = 0,
+    closed = 0;
+  page.on("worker", (worker) => {
+    started++;
+    worker.on("close", () => closed++);
+  });
+  await page.goto("/compiled-wasm.html");
+  await page.waitForFunction(() => !!window.__compiledWasm);
+  await page.evaluate(() =>
+    window.__compiledWasm.start("worker", "accessibility", undefined, "dom"),
+  );
+  await expect(
+    page.getByRole("button", { name: "Activate", exact: true }),
+  ).toBeAttached();
+  for (const scene of ["scrolling", "images", "accessibility"]) {
+    await page.evaluate(
+      (scene) => window.__compiledWasm.switchScene(scene),
+      scene,
+    );
+    await page.waitForFunction(
+      (scene) => !!window.__compiledWasm.snapshot().frames[scene],
+      scene,
+    );
+  }
+  await expect.poll(() => started).toBe(3);
+  // Confirm both inactive workers have entered their actual pause gates.
+  // This delay allows the last in-flight WASI poll to reach that gate.
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__compiledWasm.dispose());
+  await expect.poll(() => closed, { timeout: 2000 }).toBe(3);
+  const resources = await page.evaluate(() =>
+    window.__compiledWasm.resources(),
+  );
+  expect(resources.nodes).toBe(0);
+  for (const painter of resources.painters)
+    expect(Object.values(painter).every((value) => value === 0)).toBe(true);
+});
+
 for (const mode of ["worker", "main-thread"] as const) {
   test(`DOM disposal while ${mode} WASM loads prevents late presentation and settles execution`, async ({
     page,
