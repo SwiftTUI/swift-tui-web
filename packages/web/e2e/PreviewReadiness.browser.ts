@@ -93,9 +93,11 @@ test("public browser/WASI runtime completes the preview-readiness journey", asyn
   await expect
     .poll(async () => (await snapshot(page)).counters)
     .toEqual([1, 0]);
+  // This fixture emits both a changed live label and an imperative message.
+  // Preserve both; identical messages are not deduplicated by the host.
   await expect(
-    page.locator(".webhost-scene__accessibility-announcer"),
-  ).toContainText("Alpha count 1");
+    page.locator(".webhost-scene__accessibility-announcer").getByRole("img"),
+  ).toHaveAccessibleName("Alpha count 1 Alpha count 1");
 
   const betaTabPoint = await cellPoint(page, 12, 0.5);
   await page.mouse.click(betaTabPoint.x, betaTabPoint.y);

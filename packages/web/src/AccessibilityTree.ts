@@ -91,6 +91,7 @@ export class AccessibilityTreeMounter {
     this.announcerElement = document.createElement("div");
     this.announcerElement.className = "webhost-scene__accessibility-announcer";
     this.announcerElement.setAttribute("aria-atomic", "true");
+    this.announcerElement.setAttribute("aria-live", "polite");
     applyScreenReaderOnlyStyle(this.announcerElement);
   }
 
@@ -222,7 +223,7 @@ export class AccessibilityTreeMounter {
     this.pendingFocus = undefined;
     this.runtimeFocusedElement = undefined;
     this.element.replaceChildren();
-    this.announcerElement.textContent = "";
+    this.announcerElement.replaceChildren();
   }
 
   private clearEditable(element: HTMLElement): void {
@@ -546,7 +547,7 @@ export class AccessibilityTreeMounter {
         ? "assertive"
         : "polite";
     this.announcerElement.setAttribute("aria-live", politeness);
-    this.announcerElement.textContent = ordered
+    const message = ordered
       .map((entry) => {
         if ("message" in entry) {
           return entry.message;
@@ -554,6 +555,18 @@ export class AccessibilityTreeMounter {
         return entry.label ?? "";
       })
       .join("\n");
+    if (!message.trim()) {
+      this.announcerElement.replaceChildren();
+      return;
+    }
+    // A descendant text alternative participates in live-region announcements
+    // without adding a second searchable/copyable Text node beside the surface.
+    // Replace the child so repeated identical imperative messages remain new
+    // additions, while frames with no announcement leave the region untouched.
+    const content = document.createElement("span");
+    content.setAttribute("role", "img");
+    content.setAttribute("aria-label", message);
+    this.announcerElement.replaceChildren(content);
   }
 }
 

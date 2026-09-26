@@ -1,6 +1,7 @@
 import {
   BrowserWASIBridge,
   type WebHostAccessibilityActionResponse,
+  type WebHostAccessibilityAnnouncement,
   type WebHostAccessibilityNode,
   WebHostSceneRuntime,
 } from "../dist/index.js";
@@ -57,6 +58,7 @@ const api = {
   present(
     nodes: WebHostAccessibilityNode[],
     response?: WebHostAccessibilityActionResponse,
+    announcements?: WebHostAccessibilityAnnouncement[],
   ) {
     bridge.stdout.write(
       new TextEncoder().encode(
@@ -70,6 +72,7 @@ const api = {
           sequence: sequence++,
           accessibilityTree: nodes,
           accessibilityActionResponse: response,
+          accessibilityAnnouncements: announcements,
         })}\n`,
       ),
     );

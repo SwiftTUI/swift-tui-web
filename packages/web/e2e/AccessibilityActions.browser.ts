@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import type {
   WebHostAccessibilityActionResponse,
+  WebHostAccessibilityAnnouncement,
   WebHostAccessibilityNode,
 } from "../dist/index.js";
 
@@ -14,6 +15,7 @@ declare global {
       present(
         nodes: WebHostAccessibilityNode[],
         response?: WebHostAccessibilityActionResponse,
+        announcements?: WebHostAccessibilityAnnouncement[],
       ): void;
     };
   }

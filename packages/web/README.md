@@ -53,6 +53,11 @@ with the canvas or DOM surface. The overlay is transparent and lets ordinary
 pointer input reach the painted surface; only the announcement sink uses a
 clipped screen-reader-only box.
 
+The announcement sink uses a live-region text alternative instead of a second
+Text node, so its messages do not add duplicate browser Find or copy results.
+It preserves announcement order and priority, replaces its child for repeated
+imperative messages, and leaves unchanged frames silent.
+
 Requests carry increasing scene-local IDs. Returned acknowledgements let the
 host retain newer edits while older frames arrive, then reconcile to the
 runtime's accepted or rejected state. Runtime focus and value updates do not
@@ -269,7 +274,7 @@ detecting the packaged-font API rather than requiring it.
 | Area | Current boundary |
 | --- | --- |
 | Presentation | Fixed cell allocation, measured inline HTML text, SVG decorations and HTML images. No browser-flow re-layout or paragraph shaping across independent cells. |
-| Native find | Visual text preserves original Unicode once, including sparse spaces and row breaks. Native find crosses inline style/link boundaries. Known defect: Safari can also match the current offscreen live announcement, producing a duplicate result. |
+| Native find | Visual text preserves original Unicode once, including sparse spaces and row breaks. Native find crosses inline style/link boundaries. Live announcements use text alternatives without duplicate searchable Text nodes. |
 | Selection and print | Mounted viewport only. Select text mode supports plain dragging and keyboard selection; Alt/Option-drag remains available. Replaced selected content clears selection. Offscreen content is not exported. |
 | Accessibility | The shared semantic sidecar sends typed actions to Swift; visible text is not a second accessible control tree. The complete DOM control/AT journey and bounded WCAG claim are not qualified. Shared host-native IME/pre-edit presentation is excluded; committed Unicode, paste and final composition values are delivered exactly once. |
 | Browser evidence | Qualification is scoped to macOS desktop. Automated checks use Chromium 149, Firefox 151 and Playwright WebKit 26.5; actual Safari 27 has bounded control, keyboard, selection, find and enlargement observations. VoiceOver output remains unqualified. |

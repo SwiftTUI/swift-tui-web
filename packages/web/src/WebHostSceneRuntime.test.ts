@@ -1228,7 +1228,8 @@ test("runtime mounts accessibility tree and announces live-region changes", asyn
     expect(status.getAttribute("aria-live")).toBe("polite");
     expect(status.style.left).toBe("0px");
     expect(status.style.top).toBe("27px");
-    expect(announcer.textContent).toBe("Ready");
+    expect(announcer.textContent).toBe("");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe("Ready");
 
     bridge.stdout.write(
       encoder.encode(
@@ -1261,7 +1262,9 @@ test("runtime mounts accessibility tree and announces live-region changes", asyn
     );
 
     expect(announcer.getAttribute("aria-live")).toBe("assertive");
-    expect(announcer.textContent).toBe("Failed\nSaved");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe(
+      "Failed\nSaved",
+    );
 
     bridge.stdout.write(
       encoder.encode(
@@ -1280,7 +1283,9 @@ test("runtime mounts accessibility tree and announces live-region changes", asyn
     );
 
     expect(announcer.getAttribute("aria-live")).toBe("assertive");
-    expect(announcer.textContent).toBe("Published\nQueued");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe(
+      "Published\nQueued",
+    );
 
     bridge.stdout.write(
       encoder.encode(
@@ -1304,7 +1309,9 @@ test("runtime mounts accessibility tree and announces live-region changes", asyn
       ),
     );
 
-    expect(announcer.textContent).toBe("Published\nQueued");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe(
+      "Published\nQueued",
+    );
   } finally {
     dom.restore();
   }
@@ -1350,7 +1357,8 @@ test("unknown accessibility tokens preserve rendering and apply consumer default
       "webhost-scene__accessibility-announcer",
     );
     expect(announcer.getAttribute("aria-live")).toBe("polite");
-    expect(announcer.textContent).toBe("Ready");
+    expect(announcer.textContent).toBe("");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe("Ready");
     expect(runtime.focusPresentation?.semantics).toBe("automatic");
     expect(
       runtime.terminalMount.children.some(
@@ -3142,7 +3150,7 @@ test("the ARIA sidecar advances with the paint and loses no coalesced announceme
     expect(
       childWithData(tree, "accessibilityId", "root").getAttribute("aria-label"),
     ).toBe("one");
-    expect(announcer.textContent).toBe("first");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe("first");
 
     present({
       gen: 2,
@@ -3163,7 +3171,7 @@ test("the ARIA sidecar advances with the paint and loses no coalesced announceme
     expect(
       childWithData(tree, "accessibilityId", "root").getAttribute("aria-label"),
     ).toBe("one");
-    expect(announcer.textContent).toBe("first");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe("first");
 
     clock.tick();
     expect(
@@ -3171,11 +3179,15 @@ test("the ARIA sidecar advances with the paint and loses no coalesced announceme
     ).toBe("three");
     // Assertive first, then polite, each group in transport order.
     expect(announcer.getAttribute("aria-live")).toBe("assertive");
-    expect(announcer.textContent).toBe("third\nsecond\nfourth");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe(
+      "third\nsecond\nfourth",
+    );
 
     // A repaint without a new frame re-announces nothing.
     runtime.resize(4, 2);
-    expect(announcer.textContent).toBe("third\nsecond\nfourth");
+    expect(announcer.children[0]?.getAttribute("aria-label")).toBe(
+      "third\nsecond\nfourth",
+    );
   } finally {
     dom.restore();
   }
