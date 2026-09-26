@@ -409,7 +409,11 @@ the outstanding revision.
 
 Pointer events name the visible source geometry and are rejected by Swift if its
 current request or applied interaction map has moved on. Changing geometry
-cancels an active pointer gesture without activating its former target.
+cancels an active pointer gesture without activating its former target. Pointer
+cancellation, lost capture, window blur, scene suspension and disposal also
+release ownership. The host sends an explicit `cancelled` mouse record; current
+Swift receivers clear drag recognizers and scroll-pan anchors without calling
+completion actions. Older receivers may ignore this additive event.
 
 An older producer remains usable with legacy resize/input records, but does not
 provide the correlated-geometry guarantee. Reconnecting resets correlation,
@@ -418,7 +422,10 @@ session. Typography revisions are independent of transport `epoch`/`gen`.
 
 Resizes and restyles paint a complete matching frame as soon as available.
 A document becoming visible again remeasures before painting; disposal cancels
-pending paints, font callbacks and socket work.
+pending paints, font callbacks and socket work. Pending WASM fetches are aborted,
+workers are terminated, and late loading completions cannot mount or repaint a
+disposed host. Worker failures retain a visible diagnostic while releasing their
+execution resources.
 
 `WebHostAppOptions.paintScheduling` (forwarded to every scene runtime as
 `WebHostSceneRuntimeOptions.paintScheduling`) accepts an animation-frame pair

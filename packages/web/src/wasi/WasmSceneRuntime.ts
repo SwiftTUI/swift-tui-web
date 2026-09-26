@@ -173,6 +173,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   private worker?: Worker;
   private executor?: MainThreadWasmExecutor;
   private didMount = false;
+  private runtimeDisposed = false;
   private suspended = false;
 
   constructor(
@@ -312,8 +313,9 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   }
 
   override async mount(): Promise<void> {
+    if (this.runtimeDisposed) return;
     await super.mount();
-    if (this.didMount) {
+    if (this.didMount || this.runtimeDisposed) {
       return;
     }
 
@@ -383,9 +385,11 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       },
     );
     this.worker.addEventListener("error", (event) => {
+      if (this.runtimeDisposed) return;
       this.bridge?.stderr.write(
         `\nSwiftTUI WASI worker failed: ${event.message || "unknown worker error"}\n`,
       );
+      this.stopExecution();
     });
 
     const environment = { ...this.bridge.environment };
@@ -401,13 +405,22 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   }
 
   override dispose(): void {
+    if (this.runtimeDisposed) return;
+    this.runtimeDisposed = true;
     this.inputCapacityNotifier.disposed = true;
     this.detachBridgeInputListener?.();
     this.detachResizeListener?.();
+    this.stopExecution();
+    super.dispose();
+  }
+
+  private stopExecution(): void {
+    this.inputCapacityNotifier.disposed = true;
     this.inputWriter?.close();
     this.worker?.terminate();
+    this.worker = undefined;
     this.executor?.dispose();
-    super.dispose();
+    this.executor = undefined;
   }
 
   private startMainThreadExecutor(): void {
@@ -426,16 +439,20 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
       onStdout: (chunk) => bridge.stdout.write(chunk),
       onStderr: (chunk) => bridge.stderr.write(chunk),
       onExit: (code) => {
+        if (this.runtimeDisposed) return;
         if (code !== 0) {
           bridge.stderr.write(
             `\nSwiftTUI WASI app exited with code ${code}.\n`,
           );
         }
+        this.stopExecution();
       },
       onError: (message) => {
+        if (this.runtimeDisposed) return;
         bridge.stderr.write(
           `\nFailed to start SwiftTUI WASI app: ${message}\n`,
         );
+        this.stopExecution();
       },
     });
     this.executor = executor;
@@ -454,6 +471,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
   }
 
   private handleWorkerMessage(message: WorkerMessage): void {
+    if (this.runtimeDisposed) return;
     switch (message.type) {
       case "stdout":
         this.bridge?.stdout.write(message.chunk);
@@ -467,11 +485,13 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
             `\nSwiftTUI WASI app exited with code ${message.code}.\n`,
           );
         }
+        this.stopExecution();
         break;
       case "error":
         this.bridge?.stderr.write(
           `\nFailed to start SwiftTUI WASI app: ${message.message}\n`,
         );
+        this.stopExecution();
         break;
     }
   }

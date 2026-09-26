@@ -336,7 +336,7 @@ export interface WebHostKeyInput {
 }
 
 export interface WebHostMouseInput {
-  kind: "down" | "up" | "moved" | "dragged" | "scrolled";
+  kind: "down" | "up" | "moved" | "dragged" | "scrolled" | "cancelled";
   x: number;
   y: number;
   button?: "primary" | "middle" | "secondary";

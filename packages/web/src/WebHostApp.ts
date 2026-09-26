@@ -164,6 +164,7 @@ class InternalWebHostAppController implements WebHostAppController {
   private readonly paintScheduling?: WebHostPaintScheduling;
   private readonly visibilityDocument?: WebHostVisibilityDocument;
   private detachVisibilityListener?: () => void;
+  private disposed = false;
 
   constructor(options: {
     mount: HTMLElement;
@@ -237,6 +238,7 @@ class InternalWebHostAppController implements WebHostAppController {
   }
 
   async switchScene(id: string): Promise<void> {
+    if (this.disposed) throw new Error("SwiftTUI host is disposed");
     const descriptor = this.scenes.find((scene) => scene.id === id);
     if (!descriptor) {
       throw new Error(`Unknown scene: ${id}`);
@@ -247,11 +249,13 @@ class InternalWebHostAppController implements WebHostAppController {
     }
 
     const runtime = await this.ensureRuntime(id);
+    if (this.disposed) return;
     runtime.setVisible(true);
     this.selectedSceneId = id;
   }
 
   setStyle(style: WebHostTerminalStyle): void {
+    if (this.disposed) return;
     const merged = mergeWebHostTerminalStyle(this.style, style);
     this.style = merged;
 
@@ -262,6 +266,8 @@ class InternalWebHostAppController implements WebHostAppController {
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
     this.detachVisibilityListener?.();
     this.detachVisibilityListener = undefined;
     for (const runtime of this.runtimes.values()) {
@@ -293,6 +299,7 @@ class InternalWebHostAppController implements WebHostAppController {
   }
 
   private async ensureRuntime(id: string): Promise<WebHostSceneRuntime> {
+    if (this.disposed) throw new Error("SwiftTUI host is disposed");
     const existing = this.runtimes.get(id);
     if (existing) {
       return existing;

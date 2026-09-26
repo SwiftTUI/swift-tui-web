@@ -1,5 +1,5 @@
-import SwiftTUIRuntime
 import SwiftTUIAnimatedImage
+import SwiftTUIRuntime
 import SwiftTUIWASI
 
 struct BrowserApp: App {
@@ -18,6 +18,12 @@ struct BrowserApp: App {
     }
     WindowGroup("Accessibility", id: WindowIdentifier("accessibility")) {
       AccessibilityWorkload()
+    }
+    WindowGroup("Controls", id: WindowIdentifier("controls")) {
+      ControlsWorkload()
+    }
+    WindowGroup("Scrolling", id: WindowIdentifier("scrolling")) {
+      ScrollingWorkload()
     }
     WindowGroup("Beta", id: WindowIdentifier("beta")) {
       CounterScene(name: "Beta")
@@ -94,8 +100,19 @@ struct AccessibilityWorkload: View {
   @State private var gain = 2.0
   @State private var name = ""
   @State private var secret = ""
+  @State private var nameEdits = 0
+  @State private var secretEdits = 0
   @State private var showControl = true
   @FocusState private var nameFocused: Bool
+
+  private func counted(_ value: Binding<String>, _ count: Binding<Int>) -> Binding<String> {
+    Binding(
+      get: { value.wrappedValue },
+      set: {
+        value.wrappedValue = $0
+        count.wrappedValue += 1
+      })
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -104,8 +121,10 @@ struct AccessibilityWorkload: View {
       Button("Activate") { count += 1 }
       Toggle("Enabled", isOn: $enabled)
       Slider("Gain", value: $gain, in: 0...10, step: 1)
-      TextField("Name", text: $name).focused($nameFocused)
-      SecureField("Password", text: $secret)
+      TextField("Name", text: counted($name, $nameEdits))
+        .focused($nameFocused)
+      SecureField("Password", text: counted($secret, $secretEdits))
+      Text("Name edits \(nameEdits) Password edits \(secretEdits)")
       Button("Unavailable") { count += 100 }.disabled(true)
       Button("Toggle control") { showControl.toggle() }
       if showControl { Button("Removable") { count += 10 } }
@@ -115,6 +134,82 @@ struct AccessibilityWorkload: View {
         Text("Decorative dot")
       }
       .accessibilityHidden()
+    }
+  }
+}
+
+struct ControlsWorkload: View {
+  @State private var quantity = 1
+  @State private var choice = 0
+  @State private var expanded = false
+  @State private var showSheet = false
+  @State private var sheetCount = 0
+  @State private var processStatus = "Process not requested"
+  @State private var dragEnds = 0
+  @State private var notes = "Café 漢字 🙂"
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text("Quantity \(quantity) Choice \(choice) Sheets \(sheetCount) Drags \(dragEnds)")
+      Stepper("Quantity", value: $quantity, in: 0...9)
+      Picker("Choice", selection: $choice) {
+        Text("First").tag(0)
+        Text("Second").tag(1)
+      }.pickerStyle(.segmented)
+      DisclosureGroup("Details", isExpanded: $expanded) {
+        Text("Expanded Café 漢字 🙂")
+      }
+      TextEditor(text: $notes).accessibilityLabel("Notes").frame(width: 32, height: 4)
+      HStack(spacing: 1) {
+        Rectangle().fill(.red).frame(width: 4, height: 2)
+        Circle().fill(.blue).frame(width: 4, height: 2)
+        Text("▁▂▃▄▅▆▇█")
+      }.accessibilityLabel("Shapes and chart marks")
+      Text("Drag target").frame(width: 20, height: 2)
+        .gesture(DragGesture(minimumDistance: 0).onEnded { _ in dragEnds += 1 })
+      Button("Show sheet") { showSheet = true }
+      Button("Launch process") {
+        #if os(WASI)
+          processStatus = "Unavailable: WASI has no PTY process service"
+        #else
+          processStatus = "Native manifest capture only"
+        #endif
+      }
+      Text(processStatus)
+    }
+    .sheet("Fixture sheet", isPresented: $showSheet) {
+      VStack {
+        Text("Sheet body")
+        Button("Complete sheet") {
+          sheetCount += 1
+          showSheet = false
+        }
+      }
+    }
+  }
+}
+
+struct ScrollingWorkload: View {
+  @State private var selected = -1
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text("Selected row \(selected)")
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          Text("Outer scroll start")
+          ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+              ForEach(0..<20, id: \.self) { row in
+                Text("Nested row \(row) Café 漢字 🙂")
+              }
+            }
+          }.frame(width: 32, height: 4)
+          ForEach(0..<40, id: \.self) { row in
+            Button("Choose row \(row)") { selected = row }
+          }
+        }
+      }.frame(width: 48, height: 14)
     }
   }
 }

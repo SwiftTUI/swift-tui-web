@@ -43,7 +43,8 @@ integer from 1 through 65535.
 ## Compiled Swift WASM
 
 `CompiledWasm.browser.ts` executes the two counter scenes in `Fixtures/BrowserApp`,
-which also contains two performance probes and an accessibility control scene. The app is pinned to the public HTTPS
+which also contains animation/deep-tree probes, images, an accessibility action
+scene, richer controls and nested scrolling. The app is pinned to the public HTTPS
 `swift-tui` tag **0.15.0**, with transitive
 versions recorded in `Package.resolved`. `build-wasm-fixture.ts` calls the public
 `@swifttui/build` entry point to capture the native scene manifest and compile,
@@ -121,7 +122,7 @@ unreleased framework is coordination-owned until a released tag is adopted.
 | Focus visibility | Runtime-origin only | Focused editor node and `focusPresentation` |
 | Live announcements | Presented | Polite counter announcement |
 | Hidden content | Presented | Inactive panel is absent from the ARIA tree |
-| Text cursor anchoring | Wire-only | `cursorAnchor` is transported but has no browser DOM projection |
+| Text cursor anchoring | DOM projected | `DomFocus.browser.ts` checks the painted caret against shared presented geometry |
 | Assistive activation, adjustment, editing, value/state, and assistive-origin focus | Supported when runtime action metadata is available | Separate adapter checks below; this presentation journey does not prove compiled-runtime or AT acceptance |
 
 ## Animation-frame paint batching
@@ -233,3 +234,29 @@ and automation overhead and is not a WASM instruction counter. On macOS, WebKit
 XPC processes can escape the descendant tree, so WebKit CPU is incomplete and
 cannot qualify a faster default. Performance
 bounds decide policy in a dated report, not a flaky pass/fail CI threshold.
+
+## Compiled DOM controls and lifecycle
+
+`CompiledDomControls.browser.ts` runs identical WASM with Canvas and DOM. It
+checks actual Swift state for buttons, toggles, adjustment, text/secure input,
+paste, committed composition, a picker, disclosure, modal presentation, retained
+scenes and nested scrolling. The WASI process-launch control explicitly reports
+its unavailable native PTY capability. Secure input suites disable traces, video
+and screenshots; the fixture redacts observed editable input records.
+
+`DomLifecycle.browser.ts` covers disposal while worker/JSPI WASM loads, worker
+failure and ordinary deployment without isolation. `DomHostInteraction.browser.ts`
+checks pointer cancellation and loss of capture; compiled framework cancellation
+acceptance additionally requires a producer that understands `cancelled`.
+
+Run the optional reference soak after building, with other benchmarks stopped:
+
+```bash
+SWIFTTUI_DOM_SOAK=1 bun run test:browser:built DomSoak --project=chromium
+```
+
+It spends thirty minutes after warmup scrolling, updating Swift state, changing
+text size and retaining scenes. Equivalent-state samples include live nodes, font
+faces, bounded painter caches and payload ownership, workers, and post-GC page
+heap. Page heap does not measure worker WASM memory. Disposal must settle within
+two seconds. The JSON attachment preserves the complete sample series.

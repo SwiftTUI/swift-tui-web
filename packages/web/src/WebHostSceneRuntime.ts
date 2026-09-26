@@ -287,6 +287,8 @@ export class WebHostSceneRuntime {
   private geometryMeasurable = false;
   private capturedPointerId?: number;
   private canceledPointerId?: number;
+  private capturedPointerLocation?: { x: number; y: number };
+  private capturedPointerRevision?: number;
   private disposed = false;
   private stagedFontChange = false;
   private reprojecting = false;
@@ -413,6 +415,7 @@ export class WebHostSceneRuntime {
   }
 
   async mount(): Promise<void> {
+    if (this.disposed) return;
     if (this.surfaceElement) {
       return;
     }
@@ -486,6 +489,8 @@ export class WebHostSceneRuntime {
   }
 
   setVisible(visible: boolean): void {
+    if (this.disposed) return;
+    if (!visible) this.cancelGeometryPointer();
     this.isVisible = visible;
     this.applyVisibility();
     if (visible) {
@@ -504,6 +509,8 @@ export class WebHostSceneRuntime {
    * `suspendWhenHidden` is `false`.
    */
   setDocumentVisible(visible: boolean): void {
+    if (this.disposed) return;
+    if (!visible) this.cancelGeometryPointer();
     const becameVisible = visible && !this.documentVisible;
     this.documentVisible = visible;
     this.updateRuntimeSuspension();
@@ -559,6 +566,7 @@ export class WebHostSceneRuntime {
   protected onRuntimeSuspensionChange(_suspended: boolean): void {}
 
   setStyle(style: WebHostTerminalStyle): void {
+    if (this.disposed) return;
     const next = normalizeWebHostTerminalStyle(
       this.domGeometry && !style.fontFamily
         ? { ...style, fontFamily: DOM_FONT_FAMILY }
@@ -583,6 +591,7 @@ export class WebHostSceneRuntime {
   }
 
   writeOutput(text: string): void {
+    if (this.disposed) return;
     if (!this.diagnosticText) {
       const diagnosticText = document.createElement("pre");
       diagnosticText.className = "webhost-scene__diagnostic";
@@ -611,6 +620,7 @@ export class WebHostSceneRuntime {
   }
 
   notifyRuntimeIssue(issue: WebHostRuntimeIssue): void {
+    if (this.disposed) return;
     if (issue.severity === "error") {
       console.error(issue.description);
     } else {
@@ -647,6 +657,7 @@ export class WebHostSceneRuntime {
   }
 
   dispose(): void {
+    this.cancelGeometryPointer();
     // Before the painter: a paint scheduled for the next animation frame must
     // never run against a disposed painter or a removed mount.
     this.disposed = true;
@@ -1002,6 +1013,8 @@ export class WebHostSceneRuntime {
       this.activePointerButton = button;
       this.hasCapturedPointer = true;
       this.capturedPointerId = event.pointerId;
+      this.capturedPointerLocation = location;
+      this.capturedPointerRevision = this.geometrySession.pointerRevision;
       this.pointerDownLinkTarget =
         button === "primary" ? this.linkTarget(location) : undefined;
       this.terminalMount.focus?.({ preventScroll: true });
@@ -1034,9 +1047,11 @@ export class WebHostSceneRuntime {
       const location = this.hasCapturedPointer
         ? this.rawCellLocation(event)
         : this.cellLocation(event);
-      this.terminalMount.releasePointerCapture?.(event.pointerId);
       this.hasCapturedPointer = false;
       this.capturedPointerId = undefined;
+      this.capturedPointerLocation = undefined;
+      this.capturedPointerRevision = undefined;
+      this.terminalMount.releasePointerCapture?.(event.pointerId);
       const downLinkTarget = this.pointerDownLinkTarget;
       this.pointerDownLinkTarget = undefined;
       if (!location) {
@@ -1140,11 +1155,19 @@ export class WebHostSceneRuntime {
       event.preventDefault();
     };
 
+    const cancelPointer = (event: PointerEvent) => {
+      if (event.pointerId === this.capturedPointerId)
+        this.cancelGeometryPointer();
+    };
+    const blurPointer = () => this.cancelGeometryPointer();
     const endNativeDrag = () => {
       this.nativePointerGesture = false;
     };
     document.addEventListener?.("pointerup", endNativeDrag);
     document.addEventListener?.("pointercancel", endNativeDrag);
+    globalThis.window?.addEventListener?.("blur", blurPointer);
+    this.terminalMount.addEventListener("pointercancel", cancelPointer);
+    this.terminalMount.addEventListener("lostpointercapture", cancelPointer);
     this.terminalMount.addEventListener("keydown", handleKeyDown);
     this.terminalMount.addEventListener("paste", handlePaste);
     this.terminalMount.addEventListener("pointerdown", handlePointerDown);
@@ -1157,6 +1180,12 @@ export class WebHostSceneRuntime {
     this.detachInputHandlers = () => {
       document.removeEventListener?.("pointerup", endNativeDrag);
       document.removeEventListener?.("pointercancel", endNativeDrag);
+      globalThis.window?.removeEventListener?.("blur", blurPointer);
+      this.terminalMount.removeEventListener("pointercancel", cancelPointer);
+      this.terminalMount.removeEventListener(
+        "lostpointercapture",
+        cancelPointer,
+      );
       this.terminalMount.removeEventListener("keydown", handleKeyDown);
       this.terminalMount.removeEventListener("paste", handlePaste);
       this.terminalMount.removeEventListener("pointerdown", handlePointerDown);
@@ -1287,15 +1316,21 @@ export class WebHostSceneRuntime {
   }
 
   private cancelGeometryPointer(): void {
-    if (this.capturedPointerId !== undefined) {
-      this.canceledPointerId = this.capturedPointerId;
-      if (this.terminalMount.hasPointerCapture?.(this.capturedPointerId)) {
-        this.terminalMount.releasePointerCapture?.(this.capturedPointerId);
-      }
-    }
+    const id = this.capturedPointerId;
+    const location = this.capturedPointerLocation;
+    const revision = this.capturedPointerRevision;
     this.capturedPointerId = undefined;
+    this.capturedPointerLocation = undefined;
+    this.capturedPointerRevision = undefined;
     this.hasCapturedPointer = false;
     this.pointerDownLinkTarget = undefined;
+    if (id !== undefined) {
+      this.canceledPointerId = id;
+      if (location)
+        this.onInput(this.inputEncoder.encodePointerCancel(location, revision));
+      if (this.terminalMount.hasPointerCapture?.(id))
+        this.terminalMount.releasePointerCapture?.(id);
+    }
   }
 
   private finishGeometryWait(): void {

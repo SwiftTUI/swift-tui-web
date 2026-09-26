@@ -178,3 +178,50 @@ for (const button of ["left", "middle"] as const) {
     await target.close();
   });
 }
+
+for (const ending of ["pointercancel", "lostpointercapture", "blur"] as const) {
+  test(`captured pointer ${ending} cancels once and suppresses the stale release`, async ({
+    page,
+  }) => {
+    const result = await page.evaluate((ending) => {
+      const terminal = document.querySelector<HTMLElement>(
+        ".webhost-scene__terminal",
+      )!;
+      const root = document.querySelector<HTMLElement>(
+        ".webhost-scene__surface--dom",
+      )!;
+      const rect = root.getBoundingClientRect();
+      const send = (type: string) =>
+        terminal.dispatchEvent(
+          new PointerEvent(type, {
+            pointerId: 77,
+            pointerType: "mouse",
+            button: 0,
+            buttons: type === "pointerup" ? 0 : 1,
+            clientX: rect.left + 3,
+            clientY: rect.top + 3,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      // Synthetic events cannot acquire native capture; exercise the same host
+      // handler with a deterministic capture seam. Real dragging is covered above.
+      terminal.setPointerCapture = () => {};
+      terminal.releasePointerCapture = () => {};
+      const before = window.domJourney.state().inputs.length;
+      send("pointerdown");
+      if (ending === "blur") window.dispatchEvent(new Event("blur"));
+      else send(ending);
+      send(ending === "blur" ? "lostpointercapture" : ending);
+      send("pointerup");
+      send("pointerdown");
+      send("pointerup");
+      return window.domJourney
+        .state()
+        .inputs.slice(before)
+        .filter((s) => s.includes("mouse:"))
+        .map((s) => s.split(":")[1]);
+    }, ending);
+    expect(result).toEqual(["down", "cancelled", "down", "up"]);
+  });
+}

@@ -40,13 +40,15 @@ export class MainThreadWasmExecutor {
   private readonly pauseClock = new PausableMonotonicClock();
   private readonly pauseGate = new MainThreadWasmPauseGate(this.pauseClock);
   private didStart = false;
+  private disposed = false;
+  private readonly loading = new AbortController();
 
   constructor(options: MainThreadWasmExecutorOptions) {
     this.options = options;
   }
 
   start(): void {
-    if (this.didStart) {
+    if (this.didStart || this.disposed) {
       return;
     }
     this.didStart = true;
@@ -67,6 +69,8 @@ export class MainThreadWasmExecutor {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.loading.abort();
     this.stdin.close();
     // Release a suspended run loop so it can observe the stdin hangup and
     // exit cooperatively instead of staying parked forever.
@@ -122,13 +126,16 @@ export class MainThreadWasmExecutor {
         this.pauseClock,
       );
 
-      const response = await fetch(this.options.wasmURL);
+      const response = await fetch(this.options.wasmURL, {
+        signal: this.loading.signal,
+      });
       if (!response.ok) {
         throw new Error(
           `failed to load ${String(this.options.wasmURL)}: ${response.status} ${response.statusText}`,
         );
       }
       const module = await WebAssembly.compile(await response.arrayBuffer());
+      if (this.disposed) return;
       const instance = await WebAssembly.instantiate(module, {
         wasi_snapshot_preview1: {
           ...shim.wasiImport,
@@ -143,6 +150,7 @@ export class MainThreadWasmExecutor {
           ),
         },
       });
+      if (this.disposed) return;
       (shim as unknown as { inst: WebAssembly.Instance }).inst =
         instance as WebAssembly.Instance;
 
@@ -160,6 +168,7 @@ export class MainThreadWasmExecutor {
         throw error;
       }
     } catch (error) {
+      if (this.disposed) return;
       this.options.onError?.(
         error instanceof Error ? error.message : String(error),
       );

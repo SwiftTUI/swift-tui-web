@@ -209,7 +209,11 @@ const api = {
             const send = observed.onInput.bind(runtime);
             observed.onInput = (chunk) => {
               const text = new TextDecoder().decode(chunk);
-              sentInputs.push(text);
+              // Input observations are diagnostics, not an editable-value log.
+              sentInputs.push(
+                text.replace(/(:setValue:text:)[^\n]*/g, "$1<redacted>"),
+              );
+              if (sentInputs.length > 256) sentInputs.shift();
               const revision = /^geometry:(\d+):/.exec(text.slice(1))?.[1];
               if (revision)
                 geometryTimings.push({
@@ -217,6 +221,7 @@ const api = {
                   sent: performance.now(),
                   animationFrame,
                 });
+              if (geometryTimings.length > 256) geometryTimings.shift();
               send(chunk);
             };
           },
@@ -227,6 +232,25 @@ const api = {
   },
   setFontSize(fontSize: number) {
     for (const runtime of runtimes) runtime.setStyle({ fontSize });
+  },
+  async switchScene(scene: string) {
+    await controller?.switchScene(scene);
+  },
+  resources() {
+    return {
+      nodes: document.querySelectorAll("#wasm-mount *").length,
+      fonts: document.fonts.size,
+      painters: runtimes.map(
+        (runtime) =>
+          (
+            runtime as unknown as {
+              painter: { statistics: Record<string, number> };
+            }
+          ).painter.statistics,
+      ),
+      paints: runtimes.map((runtime) => runtime.paintStatistics),
+      scenes: runtimes.map((runtime) => runtime.descriptor.id),
+    };
   },
   resizeMount(width: number, height: number) {
     const mount = requiredElement("wasm-mount");
@@ -285,6 +309,13 @@ function requiredElement(id: string): HTMLElement {
 
 requiredElement("start-accessibility").onclick = () => {
   void api
-    .start("worker", "accessibility")
+    .start(
+      "worker",
+      "accessibility",
+      undefined,
+      new URLSearchParams(location.search).get("renderer") === "dom"
+        ? "dom"
+        : "canvas",
+    )
     .catch((error: unknown) => errors.push(String(error)));
 };

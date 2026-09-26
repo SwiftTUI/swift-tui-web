@@ -84,6 +84,16 @@ export class InputEventEncoder {
     );
   }
 
+  encodePointerCancel(
+    location: CellLocation,
+    geometryRevision?: number,
+  ): Uint8Array {
+    return encodeMouseInputMessage(
+      { kind: "cancelled", x: location.x, y: location.y },
+      geometryRevision,
+    );
+  }
+
   encodePointerMove(
     location: CellLocation,
     button: PointerButton,
