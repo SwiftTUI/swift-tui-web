@@ -25,6 +25,9 @@ struct BrowserApp: App {
     WindowGroup("Scrolling", id: WindowIdentifier("scrolling")) {
       ScrollingWorkload()
     }
+    WindowGroup("Reading", id: WindowIdentifier("reading")) {
+      ReadingWorkload()
+    }
     WindowGroup("Beta", id: WindowIdentifier("beta")) {
       CounterScene(name: "Beta")
     }
@@ -210,6 +213,28 @@ struct ScrollingWorkload: View {
           }
         }
       }.frame(width: 48, height: 14)
+    }
+  }
+}
+
+// Ordinary prose is deliberately separate from the spatial shapes/scrolling
+// fixtures. A terminal grid does not make prose a two-dimensional exception.
+struct ReadingWorkload: View {
+  @State private var continued = 0
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 1) {
+        Text("Reading introduction")
+        Text(
+          "A small browser host should preserve ordinary prose when its container becomes narrow. Each sentence remains readable, and the following control remains available after text enlargement."
+        )
+        Text(
+          "The second paragraph contains Café and Ångström. Its final words are reading complete.")
+        Button("Continue reading") { continued += 1 }
+        Text("Continued \(continued)")
+      }
+      .padding(1)
     }
   }
 }

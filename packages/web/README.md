@@ -201,7 +201,12 @@ DOM host keyboard routing leaves all Command shortcuts to the browser, plus
 Ctrl+F, +, =, -, 0, L, R, T, W, N, Tab, PageUp and PageDown. Ctrl+C passes through
 when browser text is selected; Alt+Left/Right retain browser navigation.
 Ctrl/Command+wheel is left for browser zoom. Other recognized characters,
-Enter, Space, Tab, arrows, Backspace, Escape, Home and End enter Swift input.
+Enter, Space, arrows, Backspace, Escape, Home and End enter Swift input.
+Within the semantic control list, Tab and Shift+Tab move browser focus immediately
+and send the shared typed focus action. Disabled controls are skipped; the first
+and last controls retain native browser exits. This also covers Safari's default
+policy of excluding non-text controls from its ordinary tab sequence. Without
+interactive semantic controls, Tab enters Swift input.
 Native semantic editing proxies own editing and clipboard events and send
 typed value changes. Composition sends the final committed value once; this
 does not add shared Swift pre-edit/IME support. Secure proxy values are cleared
@@ -422,7 +427,11 @@ session. Typography revisions are independent of transport `epoch`/`gen`.
 
 Resizes and restyles paint a complete matching frame as soon as available.
 A document becoming visible again remeasures before painting; disposal cancels
-pending paints, font callbacks and socket work. Pending WASM fetches are aborted,
+pending paints, font callbacks and socket work. WASI pipe consumers release delivered byte chunks instead of retaining an unread
+copy of the stream. Diagnostic subscribers remain observers; `StdIOPipe.consume`
+is the explicit exclusive delivery path.
+
+Pending WASM fetches are aborted,
 workers are terminated, and late loading completions cannot mount or repaint a
 disposed host. Worker failures retain a visible diagnostic while releasing their
 execution resources.
@@ -533,3 +542,8 @@ Conflicting markers and shared `@` stack frames without `sourceURL`/`fileName`
 classify as unknown. Modern sourceURL-free WebKit therefore may report unknown.
 This diagnostic label never substitutes for the independent JSPI capability
 check. Main-thread non-lean qualification is separate from engine classification.
+
+Native semantic controls participate in browser Tab/Shift-Tab order. Focus moves
+immediately in the browser and the existing typed focus request informs Swift;
+a rapid key after Tab therefore reaches the newly focused control without
+waiting for a producer frame. Disabled controls are excluded from tab order.

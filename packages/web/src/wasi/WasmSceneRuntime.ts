@@ -320,7 +320,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     }
 
     this.didMount = true;
-    this.detachBridgeInputListener = this.bridge?.stdin.subscribe((chunk) => {
+    this.detachBridgeInputListener = this.bridge?.stdin.consume((chunk) => {
       return this.inputRouter.route(chunk);
     });
     this.detachResizeListener = this.bridge?.subscribeResize(

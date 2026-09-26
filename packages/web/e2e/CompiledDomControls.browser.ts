@@ -253,3 +253,83 @@ for (const renderer of ["canvas", "dom"] as const) {
     await page.evaluate(() => window.__compiledWasm.dispose());
   });
 }
+
+test("current producer cancels a real DOM drag without completion and accepts the next drag", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.SWIFTTUI_DOM_CURRENT_PRODUCER !== "1",
+    "Requires a coordination-owned current producer with explicit pointer cancellation",
+  );
+  await start(page, "dom", "controls");
+  await expect(
+    page.getByRole("spinbutton", { name: "Quantity", exact: true }),
+  ).toBeAttached();
+  const point = await page.evaluate(() => {
+    const frame = window.__compiledWasm.snapshot().frames.controls!;
+    const row = frame.rows.findIndex((row) =>
+      row
+        .map((cell) => cell[1])
+        .join("")
+        .includes("Drag target"),
+    );
+    const col = frame.rows[row]!.map((cell) => cell[1])
+      .join("")
+      .indexOf("Drag target");
+    const box = document
+      .querySelector(".webhost-scene__surface--dom")!
+      .getBoundingClientRect();
+    return {
+      x: box.x + ((col + 3) * box.width) / frame.width,
+      y: box.y + ((row + 0.5) * box.height) / frame.height,
+    };
+  });
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(point.x + 30, point.y);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.mouse.up();
+  await expect.poll(() => text(page, "controls")).toContain("Drags 0");
+  expect(
+    await page.evaluate(() =>
+      window.__compiledWasm
+        .snapshot()
+        .sentInputs.some((line) => line.includes(":cancelled:")),
+    ),
+  ).toBe(true);
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(point.x + 30, point.y);
+  await page.mouse.up();
+  await expect.poll(() => text(page, "controls")).toContain("Drags 1");
+  await page.evaluate(() => window.__compiledWasm.dispose());
+});
+
+test("DOM native sequential text input survives asynchronous Swift acknowledgements", async ({
+  page,
+}) => {
+  await start(page, "dom", "accessibility");
+  const field = page.getByRole("textbox", { name: "Name", exact: true });
+  await expect(field).toBeAttached();
+  const value = "Café Ångström abcdefghijklmnopqrstuvwxyz";
+  await field.pressSequentially(value);
+  await expect(field).toHaveValue(value);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          window.__compiledWasm
+            .snapshot()
+            .frames.accessibility?.accessibilityTree?.find(
+              (node) => node.label === "Name",
+            )?.value,
+      ),
+    )
+    .toEqual({ type: "text", value });
+  await field.press("Shift+Tab");
+  await page.keyboard.press("ArrowRight");
+  await expect(
+    page.getByRole("slider", { name: "Gain", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "3");
+  await page.evaluate(() => window.__compiledWasm.dispose());
+});

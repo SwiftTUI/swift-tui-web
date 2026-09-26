@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import type {} from "./compiled-wasm.fixture.ts";
 
+// Per-action trace snapshots retain observation data during the run and would
+// contaminate the retained-memory comparison. Keep only minute samples.
+test.use({ trace: "off", screenshot: "off", video: "off" });
+
 test.skip(
   process.env.SWIFTTUI_DOM_SOAK !== "1",
   "Set SWIFTTUI_DOM_SOAK=1 for the thirty-minute compiled DOM soak",
@@ -109,6 +113,9 @@ test("thirty-minute compiled DOM scroll, update, style and scene soak", async ({
   expect(final.heap.usedSize - baseline.heap.usedSize).toBeLessThan(
     10 * 1024 * 1024,
   );
+  expect(
+    final.heap.backingStorageSize - baseline.heap.backingStorageSize,
+  ).toBeLessThan(10 * 1024 * 1024);
   expect(errors).toEqual([]);
   expect(
     await page.evaluate(() => window.__compiledWasm.snapshot().errors),

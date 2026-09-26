@@ -27,6 +27,27 @@ const bridges: ObservedBridge[] = [];
 const runtimes: import("../dist/index.js").WebHostSceneRuntime[] = [];
 const inputSent = new Map<number, number>();
 const inputLatencies: number[] = [];
+const controlSamples: {
+  input: number;
+  written?: number;
+  decoded?: number;
+  painted?: number;
+  composite?: number;
+}[] = [];
+let controlSampling = false;
+const decodedAt = new WeakMap<WebHostSurfaceFrame, number>();
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (
+      controlSampling &&
+      event.key === "Enter" &&
+      (event.target as HTMLElement)?.getAttribute("aria-label") === "Activate"
+    )
+      controlSamples.push({ input: performance.now() });
+  },
+  true,
+);
 let measuring = false;
 const heartbeats: number[] = [];
 let lastHeartbeat = performance.now();
@@ -89,6 +110,7 @@ class ObservedBridge extends BrowserWASIBridge {
         );
         if (timing && timing.received === undefined)
           timing.received = performance.now();
+        decodedAt.set(frame, performance.now());
         frames[sceneId] = frame;
         frameCounts[sceneId] = (frameCounts[sceneId] ?? 0) + 1;
         const text = frame.rows
@@ -161,6 +183,7 @@ const api = {
       jspiSettled,
       environments: bridges.map((b) => b.environment),
       inputLatencies,
+      controlSamples,
       heartbeats,
       paints: runtimes.map((r) => r.paintStatistics),
       geometry: runtimes.map((r) => r.geometrySnapshot),
@@ -193,10 +216,14 @@ const api = {
         bridges.push(bridge);
         return bridge;
       },
-      sceneRuntimeFactory: createWasmSceneRuntimeFactory(
-        new URL("/app.wasm", location.href),
-        {
+      sceneRuntimeFactory: (options) =>
+        createWasmSceneRuntimeFactory(new URL("/app.wasm", location.href), {
           executionMode: mode,
+          onInputWritten: (event) => {
+            const sample = controlSamples.at(-1);
+            if (controlSampling && sample && sample.decoded === undefined)
+              sample.written = event.writtenAt;
+          },
           onRuntimeCreated: (runtime) => {
             runtimes.push(
               runtime as import("../dist/index.js").WebHostSceneRuntime,
@@ -226,9 +253,33 @@ const api = {
             };
           },
           workerModuleURL: new URL("/compiled-wasm-worker.js", location.href),
-        },
-      ),
+        })({
+          ...options,
+          onSurfacePainted: (event) => {
+            const sample = controlSamples.at(-1);
+            if (
+              !controlSampling ||
+              !sample ||
+              sample.painted !== undefined ||
+              !event.frame
+            )
+              return;
+            const count = event.frame.accessibilityTree?.find((node) =>
+              /^Activated \d+$/.test(node.label ?? ""),
+            )?.label;
+            if (count !== `Activated ${controlSamples.length}`) return;
+            sample.decoded = decodedAt.get(event.frame);
+            sample.painted = event.paintedAt;
+            requestAnimationFrame(() => {
+              sample.composite = performance.now();
+            });
+          },
+        }),
     });
+  },
+  beginControlSample() {
+    controlSamples.length = 0;
+    controlSampling = true;
   },
   setFontSize(fontSize: number) {
     for (const runtime of runtimes) runtime.setStyle({ fontSize });
@@ -308,10 +359,11 @@ function requiredElement(id: string): HTMLElement {
 }
 
 requiredElement("start-accessibility").onclick = () => {
+  api.resizeMount(960, 700);
   void api
     .start(
       "worker",
-      "accessibility",
+      new URLSearchParams(location.search).get("scene") ?? "accessibility",
       undefined,
       new URLSearchParams(location.search).get("renderer") === "dom"
         ? "dom"

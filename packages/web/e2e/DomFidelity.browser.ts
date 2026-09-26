@@ -189,7 +189,7 @@ test("forced colors replace authored colors for text, geometric ink and independ
 }) => {
   test.skip(
     browserName === "webkit",
-    "WebKit does not implement forced-colors emulation; real Windows lane is required",
+    "WebKit does not implement forced-colors emulation",
   );
   await page.emulateMedia({
     forcedColors: "active",

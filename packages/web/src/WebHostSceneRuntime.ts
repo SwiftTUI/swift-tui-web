@@ -964,6 +964,18 @@ export class WebHostSceneRuntime {
         return;
       }
       if (
+        event.key === "Tab" &&
+        this.accessibilityTree?.hasInteractiveControls
+      ) {
+        // Safari can exclude non-text controls from its default tab order.
+        // Move immediately so the next key cannot race a Swift focus frame.
+        if (this.accessibilityTree.advanceFocus(event.shiftKey)) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+      if (
         this.rendererKind === "dom" &&
         event.altKey &&
         ["ArrowLeft", "ArrowRight"].includes(event.key)

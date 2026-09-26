@@ -105,7 +105,7 @@ export class BrowserWASIBridge {
     this.detachStdout?.();
     this.detachStderr?.();
     this.decoder = new WebHostOutputDecoder();
-    this.detachStdout = this.stdout.subscribe((chunk) => {
+    this.detachStdout = this.stdout.consume((chunk) => {
       for (const record of this.decoder.feed(chunk)) {
         switch (record.type) {
           case "surface":
@@ -132,7 +132,7 @@ export class BrowserWASIBridge {
       }
       this.sendPendingResyncRequests();
     });
-    this.detachStderr = this.stderr.subscribe((chunk) => {
+    this.detachStderr = this.stderr.consume((chunk) => {
       sink.writeError?.(new TextDecoder().decode(chunk));
     });
   }

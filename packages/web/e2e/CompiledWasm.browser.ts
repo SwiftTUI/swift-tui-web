@@ -81,6 +81,7 @@ for (const renderer of ["canvas", "dom"] as const) {
         "accessibility",
         "controls",
         "scrolling",
+        "reading",
         "beta",
       ]);
       // Real browser key events -> WASI stdin -> Swift Button -> rendered frame.

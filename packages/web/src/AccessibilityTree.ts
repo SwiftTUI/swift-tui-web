@@ -46,6 +46,32 @@ export class AccessibilityTreeMounter {
   private runtimeFocusedElement?: HTMLElement;
   private readonly compositionCommits = new WeakMap<HTMLElement, string>();
 
+  get hasInteractiveControls(): boolean {
+    return [...this.modelsById.values()].some((node) => this.isTabStop(node));
+  }
+
+  /** Advance synchronously through supported controls, retaining browser exits. */
+  advanceFocus(backward: boolean): boolean {
+    const controls = [
+      ...this.element.querySelectorAll<HTMLElement>("[tabindex='0']"),
+    ];
+    const current = controls.indexOf(document.activeElement as HTMLElement);
+    if (current < 0) return false;
+    const next = controls[current + (backward ? -1 : 1)];
+    if (!next) return false;
+    next.focus();
+    return true;
+  }
+
+  private isTabStop(node: WebHostAccessibilityNode): boolean {
+    return (
+      !!this.sendAction &&
+      !!node.actionTarget &&
+      node.isEnabled !== false &&
+      !!node.actions?.includes("focus")
+    );
+  }
+
   constructor(
     private readonly sendAction?: (
       target: string,
@@ -341,7 +367,9 @@ export class AccessibilityTreeMounter {
   ): void {
     element.id = `swifttui-a11y-${this.domIdentity}-${stableDOMId(node.id)}`;
     element.dataset.accessibilityId = node.id;
-    element.tabIndex = node.isFocused ? 0 : -1;
+    // Native traversal moves focus before the next key arrives. Waiting for a
+    // Swift focus frame leaves rapid Tab+edit input aimed at the old control.
+    element.tabIndex = this.isTabStop(node) ? 0 : -1;
 
     const role = roleMapping(node.role);
     // A password input must retain its native secure-field semantics.
