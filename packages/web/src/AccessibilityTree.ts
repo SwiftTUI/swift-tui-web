@@ -27,6 +27,11 @@ interface RoleMapping {
 export class AccessibilityTreeMounter {
   readonly element: HTMLElement;
   readonly announcerElement: HTMLElement;
+  // Also unique when independent bundles each include a copy of the runtime.
+  private readonly domIdentity = Array.from(
+    crypto.getRandomValues(new Uint32Array(4)),
+    (part) => part.toString(16),
+  ).join("-");
 
   private nodesById = new Map<string, HTMLElement>();
   private previousLabelsById = new Map<string, string>();
@@ -39,6 +44,7 @@ export class AccessibilityTreeMounter {
   private pendingValues = new Map<string, bigint>();
   private pendingFocus?: { id: string; requestID: bigint };
   private runtimeFocusedElement?: HTMLElement;
+  private readonly compositionCommits = new WeakMap<HTMLElement, string>();
 
   constructor(
     private readonly sendAction?: (
@@ -101,6 +107,7 @@ export class AccessibilityTreeMounter {
         previousModel?.actionTarget === node.actionTarget;
       const element = reusable ? existing : this.createElement(node, tag);
       if (!reusable) {
+        if (existing) this.clearEditable(existing);
         existing?.remove();
         this.pendingValues.delete(node.id);
         if (this.pendingFocus?.id === node.id) this.pendingFocus = undefined;
@@ -116,7 +123,11 @@ export class AccessibilityTreeMounter {
 
     for (const id of previousById.keys()) {
       if (!nextById.has(id)) {
-        previousById.get(id)?.remove();
+        const removed = previousById.get(id);
+        if (removed) {
+          this.clearEditable(removed);
+          removed.remove();
+        }
         this.pendingValues.delete(id);
         if (this.pendingFocus?.id === id) this.pendingFocus = undefined;
       }
@@ -172,6 +183,26 @@ export class AccessibilityTreeMounter {
         element.focus?.({ preventScroll: true });
     }
     this.presenting = false;
+  }
+
+  dispose(): void {
+    for (const element of this.nodesById.values()) {
+      this.clearEditable(element);
+    }
+    this.nodesById.clear();
+    this.modelsById.clear();
+    this.previousLabelsById.clear();
+    this.pendingValues.clear();
+    this.pendingFocus = undefined;
+    this.runtimeFocusedElement = undefined;
+    this.element.replaceChildren();
+    this.announcerElement.textContent = "";
+  }
+
+  private clearEditable(element: HTMLElement): void {
+    if (element.tagName === "INPUT" || element.tagName === "TEXTAREA")
+      (element as HTMLInputElement).value = "";
+    this.compositionCommits.delete(element);
   }
 
   private elementTag(node: WebHostAccessibilityNode): string {
@@ -251,12 +282,15 @@ export class AccessibilityTreeMounter {
       }
     });
     if (tag !== "div") {
+      let composing = false;
       element.addEventListener("blur", () => {
+        composing = false;
+        this.compositionCommits.delete(element);
         if (current()?.role === "secureField")
           (element as HTMLInputElement).value = "";
       });
       element.addEventListener("paste", (event) => event.stopPropagation());
-      element.addEventListener("input", () => {
+      const commit = () => {
         const model = current();
         if (!model) return;
         const value = (element as HTMLInputElement).value;
@@ -270,6 +304,30 @@ export class AccessibilityTreeMounter {
         } else {
           send({ action: "setValue", value: { type: "text", value } });
         }
+      };
+      element.addEventListener("compositionstart", () => {
+        composing = true;
+        this.compositionCommits.delete(element);
+      });
+      element.addEventListener("compositionend", () => {
+        composing = false;
+        if (!current()) return;
+        commit();
+        this.compositionCommits.set(
+          element,
+          (element as HTMLInputElement).value,
+        );
+      });
+      element.addEventListener("input", (event) => {
+        if (composing || (event as InputEvent).isComposing) return;
+        const previous = this.compositionCommits.get(element);
+        this.compositionCommits.delete(element);
+        if (
+          previous !== undefined &&
+          previous === (element as HTMLInputElement).value
+        )
+          return;
+        commit();
       });
     }
     return element;
@@ -281,7 +339,7 @@ export class AccessibilityTreeMounter {
     metrics: AccessibilityTreeMetrics,
     parent?: WebHostAccessibilityNode,
   ): void {
-    element.id = `swifttui-a11y-${stableDOMId(node.id)}`;
+    element.id = `swifttui-a11y-${this.domIdentity}-${stableDOMId(node.id)}`;
     element.dataset.accessibilityId = node.id;
     element.tabIndex = node.isFocused ? 0 : -1;
 
@@ -374,8 +432,10 @@ export class AccessibilityTreeMounter {
       const pending = this.pendingValues.get(node.id);
       if (pending === undefined || pending <= this.acknowledgedRequestID) {
         this.pendingValues.delete(node.id);
-        if (node.role !== "secureField" && input.value !== value)
+        if (node.role !== "secureField" && input.value !== value) {
+          this.compositionCommits.delete(element);
           input.value = value;
+        }
       }
     }
 

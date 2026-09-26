@@ -38,9 +38,19 @@ const runtime = new WebHostSceneRuntime({
 });
 await runtime.mount();
 runtime.setVisible(true);
+await runtime.fontReady;
+await new Promise<void>((resolve) =>
+  requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+);
 let sequence = 0;
 const api = {
   records,
+  get geometry() {
+    return runtime.geometrySnapshot;
+  },
+  dispose() {
+    runtime.dispose();
+  },
   get metrics() {
     return metrics;
   },

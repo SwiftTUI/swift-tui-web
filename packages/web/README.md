@@ -116,8 +116,8 @@ stdin works.
 
 ## Renderers
 
-**The DOM renderer is experimental.** It is opt-in, has known native-find and
-performance limitations, and is not a production-qualified or WCAG-conformant
+**The DOM renderer is experimental.** It is opt-in, has documented typography and
+performance limits, and is not a production-qualified or WCAG-conformant
 host profile. Canvas remains the default. The APIs and behavior described here
 are the state of this repository's HEAD; released 0.15.1 has the earlier DOM
 presenter with system fonts, without the packaged font and correlated-geometry
@@ -150,17 +150,23 @@ await createWebHostApp({
   fallback metrics fit the grid when that distinction matters.
 - **`"dom"` (experimental)** renders fixed-width lead cells in absolutely positioned rows. It uses
   browser font shaping and fallback for emoji and CJK. Text stays sharp at each
-  page zoom, and the element tree is inspectable. Hold Alt/Option and drag to
-  select and copy app text. A drag without Alt/Option remains pointer input for
-  the app. Box, block and Braille characters use cached SVG backgrounds from
+  page zoom, and the element tree is inspectable. Choose **Select text** to
+  select with plain dragging or Shift+Arrow keys. Ctrl/Command+A selects the
+  mounted viewport; Ctrl/Command+C copies; Escape exits. The native toggle is
+  keyboard-accessible (Safari uses Option+Tab with its default navigation
+  setting), exposes its pressed state and announces mode changes. Application
+  activation and editing are suppressed while selecting. Alt/Option-drag also
+  works without entering the mode. Ordinary drags otherwise remain app input.
+  Box, block and Braille characters use cached SVG backgrounds from
   shared renderer-neutral geometry, with one original text node for selection/copy.
   Underline and strikethrough have independent color and geometry in the same
   SVG background: solid, dot, dash, dash-dot, dash-dot-dot, double and curly.
   SVG edge antialiasing can differ from Canvas. DOM metrics are measured in
   the styled mount and refreshed on font loading, style changes, resize,
   viewport zoom and DPR changes. Each wire lead keeps its original Unicode
-  text and declared span in an integral CSS cell box; no advance correction,
-  grapheme splitting or Canvas measurement is used in DOM mode.
+  text and declared span. Measured inline advances place subsequent runs at
+  their cell origins, with contiguous equal-style ASCII coalesced for measured
+  monospaced faces. DOM mode uses no grapheme splitting or Canvas measurement.
 
   Unchanged cell text nodes survive row damage, full paints, theme changes and
   resize. Changing/removing selected text, shrinking away its row, or changing
@@ -171,25 +177,37 @@ await createWebHostApp({
   columns add no second grapheme. WebKit may normalize decomposed text when
   reading the native clipboard back into a page; the copied clipboard text
   preserves it. Ctrl/Cmd-C copies the selection; Ctrl/Cmd-F remains browser find.
-  Chromium currently cannot match a search across separate wire cells
-  (its find engine treats inline-blocks as boundaries). Firefox and WebKit
-  can. This is an explicit native-find limitation, not a production conformance
-  claim. Find and print cover the mounted viewport only, never an offscreen virtual
+  Native find crosses inline style and link boundaries in Chromium, Firefox
+  and Playwright WebKit. Find and print cover the mounted viewport only, never an offscreen virtual
   collection. The companion `style.css` print rules preserve the committed
   grid and hide semantic helpers and diagnostic output. Reflow/scrolling that
   replaces selected cells clears the Range; repeated text is not an identity.
 
   Protocol links use native anchors with safe HTTP(S) navigation, a new tab
   and `noopener noreferrer`. The optional `onOpenHyperlink` hook handles
-  activation (including custom schemes) once; those custom schemes never
+  ordinary activation (including custom schemes) once; those custom schemes never
   become navigable `href`s. Anchors retain browser context menus and modified
   clicks, bypass app pointer capture, and stay out of the tab order because
-  the unchanged ARIA sidecar owns keyboard accessibility. Alt/Option dragging
+  the semantic sidecar owns keyboard accessibility. Modified HTTP(S) clicks
+  and middle clicks navigate natively even when a hook is installed. Text
+  selection mode suppresses link activation until exit. Alt/Option dragging
   a link selects its text. Resolved styles and SVG backgrounds are cached per
   painter, bounded to 512 entries each, and invalidated by metric/theme changes.
 
 The option is also available for each scene runtime through
 `WebHostSceneRuntimeOptions.renderer`. The package exports `DomSurfacePainter` for custom DOM runtimes.
+
+DOM host keyboard routing leaves all Command shortcuts to the browser, plus
+Ctrl+F, +, =, -, 0, L, R, T, W, N, Tab, PageUp and PageDown. Ctrl+C passes through
+when browser text is selected; Alt+Left/Right retain browser navigation.
+Ctrl/Command+wheel is left for browser zoom. Other recognized characters,
+Enter, Space, Tab, arrows, Backspace, Escape, Home and End enter Swift input.
+Native semantic editing proxies own editing and clipboard events and send
+typed value changes. Composition sends the final committed value once; this
+does not add shared Swift pre-edit/IME support. Secure proxy values are cleared
+on blur, replacement, removal and disposal and never copied into attributes.
+The paint-only DOM focus ring and caret use the same presented geometry as
+the semantic bounds and do not move browser focus on resize or repaint.
 
 ### Experimental DOM quickstart
 
@@ -247,7 +265,7 @@ detecting the packaged-font API rather than requiring it.
 | --- | --- |
 | Presentation | Fixed cell allocation, measured inline HTML text, SVG decorations and HTML images. No browser-flow re-layout or paragraph shaping across independent cells. |
 | Native find | Original Unicode appears once, including explicit sparse spaces and row breaks. Native find crosses inline style/link boundaries in the tested macOS browser matrix. |
-| Selection and print | Mounted viewport only. Alt/Option-drag selects; normal pointer gestures go to Swift. Replaced selected content clears selection. Offscreen content is not exported. |
+| Selection and print | Mounted viewport only. Select text mode supports plain dragging and keyboard selection; Alt/Option-drag remains available. Replaced selected content clears selection. Offscreen content is not exported. |
 | Accessibility | The shared semantic sidecar sends typed actions to Swift; visible text is not a second accessible control tree. The complete DOM control/AT journey and bounded WCAG claim are not qualified. IME/composition is outside the current input contract. |
 | Browser evidence | Local automated checks cover Chromium 149, Firefox 151 and Playwright WebKit 26.5. They do not establish current stable Safari, Windows High Contrast/AT or physical iOS/Android acceptance. |
 | Performance | The integrated inline painter measured 1.03/1.14ms p95 for partial/full 120×40 updates and 93.50ms for dense 240×80 replacement on the macOS reference machine. The dense workload exceeds its 50ms target and is accepted for experimental use. Full host/soak qualification is separate. |

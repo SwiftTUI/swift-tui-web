@@ -8,6 +8,8 @@ declare global {
   interface Window {
     accessibilityActions: {
       records: string[];
+      geometry: import("../dist/index.js").WebHostSceneRuntime["geometrySnapshot"];
+      dispose(): void;
       metrics: { cellWidth: number; cellHeight: number };
       present(
         nodes: WebHostAccessibilityNode[],

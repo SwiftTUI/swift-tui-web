@@ -3,6 +3,7 @@ import {
   type CanvasSurfaceMetrics,
   CanvasSurfacePainter,
 } from "./CanvasSurfacePainter.ts";
+import { DomFocusPresentation } from "./DomFocusPresentation.ts";
 import {
   DOM_FONT_FAMILY,
   type DomFontOptions,
@@ -14,6 +15,7 @@ import {
   type DomGeometrySnapshot,
 } from "./DomGeometry.ts";
 import { DomSurfacePainter } from "./DomSurfacePainter.ts";
+import { DomTextSelection } from "./DomTextSelection.ts";
 import { encodeGeometryControlMessage } from "./HostGeometryProtocol.ts";
 import { HostGeometrySession } from "./HostGeometrySession.ts";
 import {
@@ -274,6 +276,8 @@ export class WebHostSceneRuntime {
   private canvas?: HTMLCanvasElement;
   private canvasScale = 1;
   private domSurfaceRoot?: HTMLElement;
+  private textSelection?: DomTextSelection;
+  private domFocus?: DomFocusPresentation;
   private lastDomSurfaceSize?: { width: number; height: number };
   private domGeometry?: DomGeometryController;
   private readonly geometrySession = new HostGeometrySession();
@@ -388,6 +392,22 @@ export class WebHostSceneRuntime {
     this.terminalMount.tabIndex = 0;
 
     this.element.append(header, this.terminalMount);
+    if (this.rendererKind === "dom") {
+      header.style.gridRow = "1";
+      header.style.gridColumn = "1";
+      this.textSelection = new DomTextSelection(
+        this.terminalMount,
+        () =>
+          this.domSurfaceRoot?.querySelector<HTMLElement>(
+            ".webhost-scene__surface-rows",
+          ) ?? undefined,
+        () => {
+          this.cancelGeometryPointer();
+          this.domFocus?.refresh();
+        },
+      );
+      this.element.insertBefore(this.textSelection.element, this.terminalMount);
+    }
     options.mount.appendChild(this.element);
     this.applyVisibility();
   }
@@ -425,6 +445,11 @@ export class WebHostSceneRuntime {
       this.accessibilityTree.element,
       this.accessibilityTree.announcerElement,
     );
+    if (this.domSurfaceRoot)
+      this.domFocus = new DomFocusPresentation(
+        this.terminalMount,
+        () => this.textSelection?.active ?? false,
+      );
     if (this.domSurfaceRoot) {
       this.domGeometry = new DomGeometryController(this.terminalMount);
       this.paintScheduler.setHeld(true);
@@ -634,6 +659,10 @@ export class WebHostSceneRuntime {
     this.domGeometry?.dispose();
     this.paintScheduler.dispose();
     this.painter.dispose();
+    this.textSelection?.dispose();
+    this.domFocus?.dispose();
+    this.accessibilityTree?.dispose();
+    this.accessibilityTree = undefined;
     this.detachInputHandlers?.();
     this.detachPointerParadigmObserver?.();
     this.resizeObserver?.disconnect();
@@ -772,13 +801,15 @@ export class WebHostSceneRuntime {
     this.element.style.boxShadow = "0 20px 50px rgba(0, 0, 0, 0.28)";
     this.element.style.overflow = "hidden";
     this.element.style.gap = "0.5rem";
-    this.element.style.gridTemplateRows = "auto minmax(0, 1fr)";
+    this.element.style.gridTemplateRows = this.textSelection
+      ? "auto auto minmax(0, 1fr)"
+      : "auto minmax(0, 1fr)";
 
     this.terminalMount.style.position = "relative";
     // Keep the terminal in the flexible track when page chrome hides the
     // header. Auto-placement into the first, intrinsic track can collapse an
     // initially empty DOM surface before its first geometry request.
-    this.terminalMount.style.gridRow = "2";
+    this.terminalMount.style.gridRow = this.textSelection ? "3" : "2";
     this.terminalMount.style.boxSizing = "border-box";
     this.terminalMount.style.width = "100%";
     if (this.sceneFrame === "resizable") {
@@ -896,16 +927,37 @@ export class WebHostSceneRuntime {
   private installInputHandlers(): void {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
+        this.textSelection?.active ||
         event.metaKey ||
         event.isComposing ||
         (this.rendererKind === "dom" &&
           event.ctrlKey &&
-          (event.key.toLowerCase() === "f" ||
+          ([
+            "f",
+            "+",
+            "=",
+            "-",
+            "0",
+            "l",
+            "r",
+            "t",
+            "w",
+            "n",
+            "tab",
+            "pageup",
+            "pagedown",
+          ].includes(event.key.toLowerCase()) ||
             (event.key.toLowerCase() === "c" &&
               document.getSelection?.()?.isCollapsed === false)))
       ) {
         return;
       }
+      if (
+        this.rendererKind === "dom" &&
+        event.altKey &&
+        ["ArrowLeft", "ArrowRight"].includes(event.key)
+      )
+        return;
       const message = this.inputEncoder.encodeKey(event);
       if (!message) {
         return;
@@ -916,6 +968,7 @@ export class WebHostSceneRuntime {
     };
 
     const handlePaste = (event: ClipboardEvent) => {
+      if (this.textSelection?.active) return;
       const text = event.clipboardData?.getData("text/plain") ?? "";
       if (!text) {
         return;
@@ -1046,7 +1099,11 @@ export class WebHostSceneRuntime {
     };
 
     const handleWheel = (event: WheelEvent) => {
-      if (this.wheelMode === "passive") {
+      if (
+        this.wheelMode === "passive" ||
+        this.textSelection?.active ||
+        (this.rendererKind === "dom" && (event.ctrlKey || event.metaKey))
+      ) {
         return;
       }
 
@@ -1395,6 +1452,12 @@ export class WebHostSceneRuntime {
       request.frame,
       request.accessibilityAnnouncements,
     );
+    this.domFocus?.present(
+      request.frame,
+      this.surfaceMetrics(),
+      this.domGeometry?.presented?.content.offsetX,
+      this.domGeometry?.presented?.content.offsetY,
+    );
     if (this.domGeometry && !this.fontPending && !this.reprojecting) {
       this.stagedFontChange = false;
       this.finishGeometryWait();
@@ -1422,7 +1485,8 @@ export class WebHostSceneRuntime {
       },
       [...announcements],
       {
-        synchronizeFocus: this.synchronizeAccessibilityFocus,
+        synchronizeFocus:
+          this.synchronizeAccessibilityFocus && !this.textSelection?.active,
         actionResponse: frame.accessibilityActionResponse,
       },
     );
@@ -1538,7 +1602,10 @@ export class WebHostSceneRuntime {
   }
 
   private allowsNativeTextSelection(event: MouseEvent): boolean {
-    return this.rendererKind === "dom" && event.altKey;
+    return (
+      this.rendererKind === "dom" &&
+      (event.altKey || this.textSelection?.active === true)
+    );
   }
 
   private cellLocation(event: MouseEvent): CellLocation | undefined {

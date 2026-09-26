@@ -34,6 +34,9 @@ canvas.webhost-scene__surface {
 /* Print only the committed visible viewport. These rules preserve its grid;
    virtual/offscreen application content is not an export document. */
 @media print {
+  .webhost-scene__selection-controls {
+    visibility: hidden !important;
+  }
   .webhost-scene__surface--dom {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;

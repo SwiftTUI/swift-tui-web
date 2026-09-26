@@ -571,6 +571,16 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         const activate = (event: MouseEvent) => {
           if (event.altKey || document.getSelection()?.isCollapsed === false) {
             event.preventDefault();
+          } else if (
+            /^https?:/i.test(target) &&
+            (event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.button === 1)
+          ) {
+            // Modified web navigation belongs to the browser, including when
+            // an embedder overrides ordinary activation through a callback.
+            return;
           } else if (this.onOpenHyperlink) {
             event.preventDefault();
             this.onOpenHyperlink(target);
