@@ -48,7 +48,7 @@ test("font changes retain the visible frame and semantic map until their correla
     page.getByRole("button", { name: "A", exact: true }),
   ).toHaveCount(1);
   const point = await page.evaluate(
-    (id) => window.domGeometryJourney.clientPoint(id, 1.25, 2.5),
+    (id) => window.domGeometryJourney.clientPoint(id, 1.25, 0.5),
     id,
   );
   await page.mouse.click(point.x, point.y);
@@ -100,7 +100,7 @@ test("a press cannot finish against replacement geometry", async ({ page }) => {
   }, id);
   await page.evaluate(() => window.domGeometryJourney.settle());
   const point = await page.evaluate(
-    (id) => window.domGeometryJourney.clientPoint(id, 1.25, 2.5),
+    (id) => window.domGeometryJourney.clientPoint(id, 1.25, 0.5),
     id,
   );
   await page.mouse.move(point.x, point.y);

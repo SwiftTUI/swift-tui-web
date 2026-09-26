@@ -112,7 +112,7 @@ const api = {
     const width = geometry?.columns ?? 201,
       height = Math.min(8, geometry?.rows ?? 8);
     bridge.stdout.write(
-      `\u001esurface:${JSON.stringify({ version: 2, width, height, styles: [null], rows: Array.from({ length: height }, () => Array.from({ length: width }, (_, x) => [x, "W", 1, 0])) })}\n`,
+      `\u001esurface:${JSON.stringify({ version: 2, width, height, styles: [null], rows: Array.from({ length: height }, () => Array.from({ length: width }, (_, x) => [x, "W", 1, 0])), accessibilityTree: [{ id: "/hit-target", role: "button", label: "Geometry target", rect: [1, 2, 1, 1] }] })}\n`,
     );
   },
   state(id: number) {
