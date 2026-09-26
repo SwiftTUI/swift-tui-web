@@ -597,7 +597,13 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         element.setAttribute("data-span", String(span));
       next.set(x, element);
       if (rowElement.children[position] !== element) {
-        rowElement.insertBefore(element, rowElement.children[position] ?? null);
+        // `children` excludes the trailing newline Text node. Appending after
+        // it would push reinserted runs onto a clipped second line and corrupt
+        // copy order, even though their text and graphics remain in the DOM.
+        rowElement.insertBefore(
+          element,
+          rowElement.children[position] ?? this.rowBreaks[y] ?? null,
+        );
       }
       position += 1;
     }
