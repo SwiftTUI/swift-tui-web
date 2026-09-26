@@ -4308,7 +4308,7 @@ test("runtime forwards observable DOM image misses through the optional bridge s
   }
 });
 
-test("dom renderer leaves Alt-drag pointer input to native text selection", async () => {
+test("dom renderer selects plain text while Alt-drag on controls stays app input", async () => {
   const dom = installFakeDOM();
   try {
     const inputs: Uint8Array[] = [];
@@ -4331,7 +4331,10 @@ test("dom renderer leaves Alt-drag pointer input to native text selection", asyn
           width: 4,
           height: 2,
           styles: [null],
-          rows: [[], []],
+          rows: [[[0, "Text", 4, 0]], []],
+          accessibilityTree: [
+            { id: "button", role: "button", rect: [1, 0, 1, 1] },
+          ],
         }),
       ),
     );
@@ -4342,9 +4345,8 @@ test("dom renderer leaves Alt-drag pointer input to native text selection", asyn
       pointerEvent({
         button: 0,
         buttons: 1,
-        clientX: 25,
+        clientX: 62.5,
         clientY: 10,
-        altKey: true,
         preventDefault: () => {
           prevented += 1;
         },
@@ -4356,7 +4358,6 @@ test("dom renderer leaves Alt-drag pointer input to native text selection", asyn
         buttons: 1,
         clientX: 40,
         clientY: 10,
-        altKey: true,
       }),
     );
     runtime.terminalMount.dispatch(
@@ -4365,19 +4366,19 @@ test("dom renderer leaves Alt-drag pointer input to native text selection", asyn
         button: 0,
         clientX: 40,
         clientY: 10,
-        altKey: true,
       }),
     );
     expect(inputs).toHaveLength(0);
     expect(prevented).toBe(0);
 
-    // Without Alt, pointer input is forwarded to the app as usual.
+    // Alt no longer makes a control label selectable.
     runtime.terminalMount.dispatch(
       "pointerdown",
       pointerEvent({
         button: 0,
         buttons: 1,
-        clientX: 25,
+        clientX: 37.5,
+        altKey: true,
         clientY: 10,
       }),
     );

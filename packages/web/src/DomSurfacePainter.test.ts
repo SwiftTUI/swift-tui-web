@@ -148,7 +148,7 @@ test("root style pins row line height and shaping settings", () => {
 
     expect(root.style.lineHeight).toBe("18px");
     expect(root.style.fontVariantLigatures).toBe("none");
-    expect(root.style.userSelect).toBe("text");
+    expect(root.style.userSelect).toBe("none");
     expect(root.style.letterSpacing).toBe("0px");
     expect(root.style.fontKerning).toBe("none");
     expect(root.style.direction).toBe("ltr");

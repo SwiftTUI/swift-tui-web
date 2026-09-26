@@ -8,69 +8,13 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => !!window.domJourney);
 });
 
-test("keyboard selection and scoped select-all copy the viewport without application input", async ({
+test("plain text dragging copies without a mode and leaves controls available", async ({
   page,
   browserName,
 }) => {
-  const baseline = await page.evaluate(
-    () => window.domJourney.state().inputs.length,
+  await expect(page.locator(".webhost-scene__selection-controls")).toHaveCount(
+    0,
   );
-  // Safari's default keyboard navigation reaches all controls with Option+Tab.
-  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
-  const toggle = page.getByRole("button", { name: "Select text", exact: true });
-  await expect(toggle).toBeFocused();
-  await page.keyboard.press("Space");
-  await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  for (let i = 0; i < 6; i++) await page.keyboard.press("Shift+ArrowRight");
-  expect(await page.evaluate(() => window.domJourney.state().selected)).toBe(
-    "Select",
-  );
-  await page.keyboard.press(`${modifier}+a`);
-  const expected = await page
-    .locator(".webhost-scene__surface-rows")
-    .textContent();
-  const selected = await page.evaluate(
-    () => document.getSelection()!.getRangeAt(0).cloneContents().textContent,
-  );
-  expect(selected).toBe(expected);
-  await page.keyboard.press(`${modifier}+c`);
-  expect(
-    await page.evaluate(() => window.domJourney.state().copyShortcutPrevented),
-  ).toBe(false);
-  if (browserName === "webkit" && process.platform === "linux") {
-    // Linux WebKit does not dispatch copy for a non-editable Range shortcut,
-    // including plain pages. Use its native command, as in DomSurface, while
-    // retaining shortcut pass-through and an actual clipboard round trip.
-    expect(await page.evaluate(() => document.execCommand("copy"))).toBe(true);
-  }
-  await expect
-    .poll(() => page.evaluate(() => window.domJourney.state().copied))
-    .toBe(expected);
-  await page.keyboard.press("Escape");
-  await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await expect(toggle).toBeFocused();
-  expect(
-    await page.evaluate(() => window.domJourney.state().inputs.length),
-  ).toBe(baseline);
-  await page.evaluate(() => {
-    const target = document.createElement("textarea");
-    target.id = "selection-paste";
-    document.body.append(target);
-    target.focus();
-  });
-  await page.keyboard.press(`${modifier}+v`);
-  await expect(page.locator("#selection-paste")).toHaveValue(expected!);
-  await page.locator(".webhost-scene__terminal").focus();
-  await page.keyboard.press("ArrowRight");
-  expect(
-    await page.evaluate(() => window.domJourney.state().inputs.length),
-  ).toBe(baseline + 1);
-});
-
-test("selection mode yields plain drags and suppresses link activation until exit", async ({
-  page,
-}) => {
-  await page.getByRole("button", { name: "Select text", exact: true }).click();
   const baseline = await page.evaluate(
     () => window.domJourney.state().inputs.length,
   );
@@ -91,23 +35,151 @@ test("selection mode yields plain drags and suppresses link activation until exi
     steps: 6,
   });
   await page.mouse.up();
-  expect(
-    await page.evaluate(() => window.domJourney.state().selected),
-  ).toBeTruthy();
-  await page.locator("a[data-surface-link]").click();
-  expect(await page.evaluate(() => window.domJourney.state().opened)).toEqual(
-    [],
+  expect(await page.evaluate(() => window.domJourney.state().selected)).toBe(
+    "Select me",
   );
+  await page.keyboard.press(`${modifier}+c`);
+  if (browserName === "webkit" && process.platform === "linux")
+    await page.evaluate(() => document.execCommand("copy"));
+  expect(
+    await page.evaluate(() => window.domJourney.state().copyShortcutPrevented),
+  ).toBe(false);
+  await expect
+    .poll(() => page.evaluate(() => window.domJourney.state().copied))
+    .toBe("Select me");
   expect(
     await page.evaluate(() => window.domJourney.state().inputs.length),
   ).toBe(baseline);
-  await page.keyboard.press("Escape");
-  await page.evaluate(() => document.getSelection()?.removeAllRanges());
+  // No mode to exit before activating a link or returning to app input.
   await page.locator("a[data-surface-link]").click();
   expect(await page.evaluate(() => window.domJourney.state().opened)).toEqual([
     "https://example.com/swifttui",
   ]);
+  await page.locator(".webhost-scene__terminal").focus();
+  await page.keyboard.press("ArrowRight");
+  expect(
+    await page.evaluate(() => window.domJourney.state().inputs.length),
+  ).toBe(baseline + 1);
 });
+
+for (const alt of [false, true]) {
+  test(`control drags remain app input with Alt=${alt}`, async ({ page }) => {
+    await page.evaluate(() => window.domJourney.selectionControls());
+    const control = page
+      .locator(".webhost-scene__surface-row")
+      .first()
+      .locator('[data-text-selectable="false"]');
+    await expect(control).toHaveText("Button");
+    const box = await control.boundingBox();
+    // display:contents spans use a Range for their hit rectangle.
+    const rect =
+      box ??
+      (await control.evaluate((e) => {
+        const range = document.createRange();
+        range.selectNodeContents(e);
+        const r = range.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      }));
+    if (alt) await page.keyboard.down("Alt");
+    await page.mouse.move(rect.x + 1, rect.y + rect.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rect.x + rect.width - 1, rect.y + rect.height / 2, {
+      steps: 5,
+    });
+    await page.mouse.up();
+    if (alt) await page.keyboard.up("Alt");
+    expect(await page.evaluate(() => window.domJourney.state().selected)).toBe(
+      "",
+    );
+    const inputs = await page.evaluate(() =>
+      window.domJourney.state().inputs.filter((s) => s.includes("mouse:")),
+    );
+    expect(inputs.some((s) => s.includes("mouse:down"))).toBe(true);
+    expect(inputs.some((s) => s.includes("mouse:up"))).toBe(true);
+  });
+}
+
+test("semantic boundaries split coalesced text and exclude controls from cross-boundary copy", async ({
+  page,
+}) => {
+  await page.evaluate(() => window.domJourney.selectionControls());
+  const row = page.locator(".webhost-scene__surface-row").first();
+  await expect(row.locator('[data-text-selectable="true"]')).toHaveText([
+    "Alpha",
+    "Omega",
+    " ".repeat(44),
+  ]);
+  const copied = await page.evaluate(() => {
+    const row = document.querySelector(".webhost-scene__surface-row")!;
+    const first = row.children[0]!.firstChild!;
+    const last = row.children[2]!.firstChild!;
+    document.getSelection()!.setBaseAndExtent(first, 0, last, 5);
+    const event = new ClipboardEvent("copy", {
+      clipboardData: new DataTransfer(),
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(event);
+    return event.clipboardData?.getData("text/plain");
+  });
+  expect(copied).toBe("AlphaOmega");
+  for (const y of [1, 2])
+    await expect(
+      page
+        .locator(".webhost-scene__surface-row")
+        .nth(y)
+        .locator("span")
+        .first(),
+    ).toHaveAttribute("data-text-selectable", "true");
+  for (const y of [3, 4, 5, 6])
+    await expect(
+      page
+        .locator(".webhost-scene__surface-row")
+        .nth(y)
+        .locator("span")
+        .first(),
+    ).toHaveAttribute("data-text-selectable", "false");
+  await page.evaluate(() => window.domJourney.selectionControls(false));
+  await expect(row.locator('[data-text-selectable="false"]')).toHaveCount(0);
+});
+
+for (const y of [1, 2]) {
+  test(`editable painted text in row ${y} yields drags but forwards collapsed field clicks`, async ({
+    page,
+  }) => {
+    await page.evaluate(() => window.domJourney.selectionControls());
+    const rect = await page
+      .locator(".webhost-scene__surface-row")
+      .nth(y)
+      .locator("span")
+      .first()
+      .evaluate((e) => {
+        const range = document.createRange();
+        range.selectNodeContents(e);
+        const r = range.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      });
+    await page.mouse.move(rect.x + 1, rect.y + rect.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rect.x + rect.width - 1, rect.y + rect.height / 2, {
+      steps: 5,
+    });
+    await page.mouse.up();
+    expect(await page.evaluate(() => window.domJourney.state().selected)).toBe(
+      y === 1 ? "Field text" : "Editor text",
+    );
+    expect(
+      await page.evaluate(() =>
+        window.domJourney.state().inputs.filter((s) => s.includes("mouse:")),
+      ),
+    ).toEqual([]);
+    await page.mouse.click(rect.x + 2, rect.y + rect.height / 2);
+    const inputs = await page.evaluate(() =>
+      window.domJourney.state().inputs.filter((s) => s.includes("mouse:")),
+    );
+    expect(inputs.map((s) => s.split(":")[1])).toEqual(["down", "up"]);
+  });
+}
 
 test("browser shortcuts and pinch-wheel events retain defaults without entering Swift input", async ({
   page,
@@ -211,7 +283,7 @@ for (const ending of ["pointercancel", "lostpointercapture", "blur"] as const) {
             button: 0,
             buttons: type === "pointerup" ? 0 : 1,
             clientX: rect.left + 3,
-            clientY: rect.top + 3,
+            clientY: rect.top + rect.height - 3,
             bubbles: true,
             cancelable: true,
           }),

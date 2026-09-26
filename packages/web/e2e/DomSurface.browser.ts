@@ -146,7 +146,7 @@ for (const kind of ["selected", "removed", "shrink"]) {
   });
 }
 
-test("an Alt drag survives arriving frames without application pointer capture", async ({
+test("a plain drag survives arriving frames without application pointer capture", async ({
   page,
 }) => {
   const cell = page
@@ -160,7 +160,6 @@ test("an Alt drag survives arriving frames without application pointer capture",
     const r = range.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height };
   });
-  await page.keyboard.down("Alt");
   await page.mouse.move(box.x + 1, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, {
@@ -172,7 +171,6 @@ test("an Alt drag survives arriving frames without application pointer capture",
   expect(selected).toBeTruthy();
   await page.evaluate(() => window.domJourney.update("same-row"));
   await page.evaluate(() => window.domJourney.update("cosmetic"));
-  await page.keyboard.up("Alt");
   await page.mouse.up();
   expect(await page.evaluate(() => window.domJourney.state().selected)).toBe(
     selected,
@@ -336,14 +334,16 @@ test("global element rules cannot change cell, link or image box allocation", as
     });
 });
 
-test("pointer coordinates use the zoomed DOM grid", async ({ page }) => {
+test("control pointer coordinates use the zoomed DOM grid", async ({
+  page,
+}) => {
+  await page.evaluate(() => window.domJourney.selectionControls());
   for (const zoom of [1, 1.25, 2]) {
     await page.evaluate((zoom) => window.domJourney.resize(zoom), zoom);
     const geometry = await page.evaluate(() => window.domJourney.geometry());
-    const cell = geometry.cells[1]!;
     await page.mouse.click(
-      cell.x + geometry.cellWidth,
-      geometry.content.top + 2.5 * geometry.cellHeight,
+      geometry.content.left + 6 * geometry.cellWidth,
+      geometry.content.top + 0.5 * geometry.cellHeight,
     );
     const messages = await page.evaluate(
       () => window.domJourney.state().inputs,
@@ -353,8 +353,8 @@ test("pointer coordinates use the zoomed DOM grid", async ({ page }) => {
       .at(-1);
     expect(down).toBeDefined();
     const fields = down!.trim().split(":");
-    expect(Number(fields[2])).toBeCloseTo(3, 1);
-    expect(Number(fields[3])).toBeCloseTo(2.5, 1);
+    expect(Number(fields[2])).toBeCloseTo(6, 1);
+    expect(Number(fields[3])).toBeCloseTo(0.5, 1);
   }
 });
 

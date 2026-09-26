@@ -1,190 +1,108 @@
-/** Accessible host chrome for selecting the committed viewport without app input. */
+import type {
+  WebHostAccessibilityNode,
+  WebHostSurfaceCell,
+  WebHostSurfaceFrame,
+} from "./WebHostSurfaceTransport.ts";
+
+const textInputs = new Set(["textField", "textEditor"]);
+const controls = new Set([
+  "button",
+  "checkbox",
+  "disclosureGroup",
+  "image",
+  "link",
+  "menuItem",
+  "picker",
+  "progressBar",
+  "secureField",
+  "separator",
+  "slider",
+  "stepper",
+  "tab",
+  "toggle",
+]);
+
+/** Selection follows painted text, excluding semantic controls and link runs.
+ * Plain Text has no distinct wire role; structural groups must not mask it.
+ */
 export class DomTextSelection {
-  readonly element = document.createElement("div");
-  private readonly toggle = document.createElement("button");
-  private readonly all = document.createElement("button");
-  private readonly status = document.createElement("span");
-  private enabled = false;
+  private readonly blocked = new Map<number, [number, number][]>();
+  private readonly fields: WebHostAccessibilityNode[] = [];
+  readonly key: string;
 
-  get active(): boolean {
-    return this.enabled;
-  }
-
-  constructor(
-    private readonly terminal: HTMLElement,
-    private readonly textRoot: () => HTMLElement | undefined,
-    private readonly changed: () => void,
-  ) {
-    this.element.className = "webhost-scene__selection-controls";
-    this.element.setAttribute("role", "group");
-    this.element.setAttribute("aria-label", "Text selection");
-    Object.assign(this.element.style, {
-      gridRow: "2",
-      gridColumn: "1",
-      justifySelf: "end",
-      display: "flex",
-      alignItems: "center",
-      flexWrap: "wrap",
-      gap: "6px",
-      maxWidth: "100%",
-      font: "12px/1.4 system-ui, sans-serif",
-    });
-    for (const button of [this.toggle, this.all]) {
-      button.type = "button";
-      Object.assign(button.style, {
-        font: "inherit",
-        color: "ButtonText",
-        background: "ButtonFace",
-        border: "1px solid ButtonBorder",
-        borderRadius: "4px",
-        padding: "3px 8px",
-      });
-    }
-    this.toggle.textContent = "Select text";
-    this.toggle.setAttribute("aria-pressed", "false");
-    this.toggle.onclick = () => this.setActive(!this.enabled);
-    this.all.textContent = "Select all text";
-    this.all.hidden = true;
-    this.all.onclick = () => {
-      this.selectAll();
-      this.terminal.focus({ preventScroll: true });
+  constructor(frame?: WebHostSurfaceFrame) {
+    const add = (y: number, start: number, end: number) => {
+      start = Math.max(0, start);
+      end = Math.min(frame?.width ?? 0, end);
+      if (end <= start) return;
+      const row = this.blocked.get(y) ?? [];
+      row.push([start, end]);
+      this.blocked.set(y, row);
     };
-    this.status.setAttribute("role", "status");
-    this.status.setAttribute("aria-live", "polite");
-    this.element.append(this.status, this.toggle, this.all);
-    terminal.addEventListener("keydown", this.keyDown, true);
-    terminal.addEventListener("click", this.suppressActivation, true);
-    terminal.addEventListener("auxclick", this.suppressActivation, true);
-    terminal.addEventListener("paste", this.suppressActivation, true);
-    terminal.addEventListener("beforeinput", this.suppressActivation, true);
-  }
-
-  private boundaries(): { first: Text; last: Text } | undefined {
-    const root = this.textRoot();
-    if (!root) return undefined;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let first: Text | undefined, last: Text | undefined;
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (!node.textContent?.length) continue;
-      first ??= node as Text;
-      last = node as Text;
-    }
-    return first && last ? { first, last } : undefined;
-  }
-
-  setActive(active: boolean): void {
-    if (active === this.enabled) return;
-    this.enabled = active;
-    this.toggle.setAttribute("aria-pressed", String(active));
-    this.all.hidden = !active;
-    this.status.textContent = active
-      ? "Drag or use Shift+Arrow keys. Escape returns to the app."
-      : "Text selection off.";
-    this.terminal.setAttribute("data-text-selection", String(active));
-    this.terminal.style.cursor = active ? "text" : "";
-    this.changed();
-    if (active) {
-      this.terminal.focus({ preventScroll: true });
-      const selection = document.getSelection();
-      if (!this.textRoot()?.contains(selection?.anchorNode ?? null)) {
-        const bounds = this.boundaries();
-        if (bounds)
-          selection?.setBaseAndExtent(bounds.first, 0, bounds.first, 0);
+    for (const node of frame?.accessibilityTree ?? []) {
+      if (node.hidden) continue;
+      if (textInputs.has(node.role)) {
+        this.fields.push(node);
+        continue;
       }
-    } else this.toggle.focus({ preventScroll: true });
-  }
-
-  private selectAll(): void {
-    const bounds = this.boundaries();
-    if (bounds)
-      document
-        .getSelection()
-        ?.setBaseAndExtent(bounds.first, 0, bounds.last, bounds.last.length);
-  }
-
-  private readonly suppressActivation = (event: Event) => {
-    if (!this.enabled) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  };
-
-  private readonly keyDown = (event: KeyboardEvent) => {
-    if (!this.enabled) return;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      this.setActive(false);
-      return;
+      if (
+        !controls.has(node.role) &&
+        !node.actions?.some((action) =>
+          ["activate", "increment", "decrement", "setValue"].includes(action),
+        )
+      )
+        continue;
+      const [x, y, width, height] = node.rect;
+      for (
+        let row = Math.max(0, y);
+        row < Math.min(frame!.height, y + height);
+        row++
+      )
+        add(row, x, x + width);
     }
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      this.selectAll();
-      return;
-    }
-    // Tab and browser shortcuts retain their defaults. The runtime also yields
-    // while this mode is active, so no bubbling key can activate the app.
-    if (event.key === "Tab" || event.metaKey || event.ctrlKey) return;
-    const direction = ["ArrowLeft", "ArrowUp", "Home"].includes(event.key)
-      ? "backward"
-      : "forward";
-    const granularity =
-      event.key === "Home" || event.key === "End"
-        ? "lineboundary"
-        : event.key === "ArrowUp" || event.key === "ArrowDown"
-          ? "line"
-          : event.altKey
-            ? "word"
-            : "character";
-    if (
-      [
-        "ArrowLeft",
-        "ArrowRight",
-        "ArrowUp",
-        "ArrowDown",
-        "Home",
-        "End",
-      ].includes(event.key)
-    ) {
-      const selection = document.getSelection();
-      const bounds = this.boundaries();
-      if (selection && bounds) {
-        if (!this.textRoot()?.contains(selection.anchorNode))
-          selection.setBaseAndExtent(bounds.first, 0, bounds.first, 0);
-        selection.modify(
-          event.shiftKey ? "extend" : "move",
-          direction,
-          granularity,
-        );
-        if (!this.textRoot()?.contains(selection.focusNode)) {
-          const end = direction === "backward" ? bounds.first : bounds.last;
-          const offset = direction === "backward" ? 0 : end.length;
-          if (event.shiftKey) selection.extend(end, offset);
-          else selection.setBaseAndExtent(end, offset, end, offset);
-        }
+    for (const [y, runs] of frame?.links ?? [])
+      for (const [x, width] of runs) add(y, x, x + width);
+    for (const [y, ranges] of this.blocked) {
+      ranges.sort((a, b) => a[0] - b[0]);
+      const merged: [number, number][] = [];
+      for (const range of ranges) {
+        const last = merged.at(-1);
+        if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+        else merged.push([...range]);
       }
+      this.blocked.set(y, merged);
     }
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  };
+    this.key = JSON.stringify([...this.blocked].sort((a, b) => a[0] - b[0]));
+  }
 
-  dispose(): void {
-    this.enabled = false;
-    this.toggle.onclick = null;
-    this.all.onclick = null;
-    this.terminal.removeEventListener("keydown", this.keyDown, true);
-    this.terminal.removeEventListener("click", this.suppressActivation, true);
-    this.terminal.removeEventListener(
-      "auxclick",
-      this.suppressActivation,
-      true,
+  allows(y: number, x: number, span = 1): boolean {
+    return !this.blocked
+      .get(y)
+      ?.some(([start, end]) => x < end && x + span > start);
+  }
+
+  isTextInput(y: number, x: number): boolean {
+    return this.fields.some(
+      ({ rect: [left, top, width, height], isEnabled }) =>
+        isEnabled !== false &&
+        x >= left &&
+        x < left + width &&
+        y >= top &&
+        y < top + height,
     );
-    this.terminal.removeEventListener("paste", this.suppressActivation, true);
-    this.terminal.removeEventListener(
-      "beforeinput",
-      this.suppressActivation,
-      true,
-    );
-    this.element.remove();
+  }
+
+  /** Split ASCII runs before shaping/coalescing; never split a Unicode cluster. */
+  split(y: number, cell: WebHostSurfaceCell): WebHostSurfaceCell[] {
+    const [x, text, span, style] = cell;
+    if (text.length !== span || !/^[\x20-\x7e]+$/.test(text)) return [cell];
+    const cuts = new Set([x, x + span]);
+    for (const range of this.blocked.get(y) ?? [])
+      for (const edge of range) if (edge > x && edge < x + span) cuts.add(edge);
+    const edges = [...cuts].sort((a, b) => a - b);
+    return edges.slice(1).map((end, i) => {
+      const start = edges[i]!;
+      return [start, text.slice(start - x, end - x), end - start, style];
+    });
   }
 }

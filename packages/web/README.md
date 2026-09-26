@@ -155,15 +155,19 @@ await createWebHostApp({
   fallback metrics fit the grid when that distinction matters.
 - **`"dom"` (experimental)** renders fixed-width lead cells in absolutely positioned rows. It uses
   browser font shaping and fallback for emoji and CJK. Text stays sharp at each
-  page zoom, and the element tree is inspectable. Choose **Select text** to
-  select with plain dragging or Shift+Arrow keys. Ctrl/Command+A selects the
-  mounted viewport; Ctrl/Command+C copies; Escape exits. The native toggle is
-  keyboard-accessible (Safari uses Option+Tab with its default navigation
-  setting), exposes its pressed state and announces mode changes. Application
-  activation and editing are suppressed while selecting. Alt/Option-drag also
-  works without entering the mode. Ordinary drags otherwise remain app input.
+  page zoom, and the element tree is inspectable. Drag read-only text or nonsecure
+  TextField/TextEditor content directly to select and copy it. Buttons, links,
+  disabled controls, secure fields and other control labels are not selectable;
+  their pointer input remains application-owned. There is no selection mode or
+  modifier-key override. Selection is based on the committed frame's semantic
+  control bounds and link runs; ordinary Text needs no special annotation.
+  Custom interactive views must publish a control role or action metadata to
+  exclude their labels. Empty grid space and geometric chrome do not start a
+  selection. Plain clicks in fields still focus/place the app caret; dragging
+  copies the painted text, without changing the app's editing selection. Native
+  semantic inputs retain keyboard editing and selection.
   Box, block and Braille characters use cached SVG backgrounds from
-  shared renderer-neutral geometry, with one original text node for selection/copy.
+  shared renderer-neutral geometry, with one original text node for browser find.
   Underline and strikethrough have independent color and geometry in the same
   SVG background: solid, dot, dash, dash-dot, dash-dot-dot, double and curly.
   SVG edge antialiasing can differ from Canvas. DOM metrics are measured in
@@ -194,10 +198,9 @@ await createWebHostApp({
   become navigable `href`s. Anchors retain browser context menus and modified
   clicks, bypass app pointer capture, and stay out of the tab order because
   the semantic sidecar owns keyboard accessibility. Modified HTTP(S) clicks
-  and middle clicks navigate natively even when a hook is installed. Text
-  selection mode suppresses link activation until exit. Alt/Option dragging
-  a link selects its text. Resolved styles and SVG backgrounds are cached per
-  painter, bounded to 512 entries each, and invalidated by metric/theme changes.
+  and middle clicks navigate natively even when a hook is installed. Link labels
+  remain nonselectable even with Alt/Option held. Resolved styles and SVG
+  backgrounds are cached per painter, bounded to 512 entries each, and invalidated by metric/theme changes.
 
 The option is also available for each scene runtime through
 `WebHostSceneRuntimeOptions.renderer`. The package exports `DomSurfacePainter` for custom DOM runtimes.
@@ -275,7 +278,7 @@ detecting the packaged-font API rather than requiring it.
 | --- | --- |
 | Presentation | Fixed cell allocation, measured inline HTML text, SVG decorations and HTML images. No browser-flow re-layout or paragraph shaping across independent cells. |
 | Native find | Visual text preserves original Unicode once, including sparse spaces and row breaks. Native find crosses inline style/link boundaries. Live announcements use text alternatives without duplicate searchable Text nodes. |
-| Selection and print | Mounted viewport only. Select text mode supports plain dragging and keyboard selection; Alt/Option-drag remains available. Replaced selected content clears selection. Offscreen content is not exported. |
+| Selection and print | Mounted viewport only. Plain dragging selects text outside semantic controls; clipboard serialization excludes control labels. Native fields support keyboard selection. Replaced selected content clears selection. Offscreen content is not exported. |
 | Accessibility | The shared semantic sidecar sends typed actions to Swift; visible text is not a second accessible control tree. The complete DOM control/AT journey and bounded WCAG claim are not qualified. Shared host-native IME/pre-edit presentation is excluded; committed Unicode, paste and final composition values are delivered exactly once. |
 | Browser evidence | Qualification is scoped to macOS desktop. Automated checks use Chromium 149, Firefox 151 and Playwright WebKit 26.5; actual Safari 27 has bounded control, keyboard, selection, find and enlargement observations. VoiceOver output remains unqualified. |
 | User text spacing | Ordinary prose reflows at 320 CSS px and remains operable with doubled text size in the compiled WASI fixture. CSS letter/word spacing overrides still clip text; authored paragraph boundaries are absent from the raster presentation. This is a conformance failure, not a grid exception. |

@@ -15,7 +15,6 @@ import {
   type DomGeometrySnapshot,
 } from "./DomGeometry.ts";
 import { DomSurfacePainter } from "./DomSurfacePainter.ts";
-import { DomTextSelection } from "./DomTextSelection.ts";
 import { encodeGeometryControlMessage } from "./HostGeometryProtocol.ts";
 import { HostGeometrySession } from "./HostGeometrySession.ts";
 import {
@@ -166,8 +165,8 @@ export interface WebHostSceneRuntimeOptions {
    * Which surface presenter draws the scene's frames. `"canvas"` (default)
    * paints onto a 2D `<canvas>`; experimental `"dom"` renders cells as absolutely
    * positioned text elements — native font rendering and, uniquely, real
-   * text selection: hold Alt/Option and drag to select instead of sending
-   * pointer input to the app. See {@link WebHostSurfaceRendererKind}.
+   * text selection: drag rendered text to select; buttons and other controls
+   * retain application pointer input. See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
   /** Font asset location and bounded readiness wait for the experimental DOM presenter. */
@@ -276,7 +275,12 @@ export class WebHostSceneRuntime {
   private canvas?: HTMLCanvasElement;
   private canvasScale = 1;
   private domSurfaceRoot?: HTMLElement;
-  private textSelection?: DomTextSelection;
+  private textInputPress?: {
+    location: CellLocation;
+    event: PointerEvent;
+    moved: boolean;
+    revision?: number;
+  };
   private domFocus?: DomFocusPresentation;
   private lastDomSurfaceSize?: { width: number; height: number };
   private domGeometry?: DomGeometryController;
@@ -394,22 +398,6 @@ export class WebHostSceneRuntime {
     this.terminalMount.tabIndex = 0;
 
     this.element.append(header, this.terminalMount);
-    if (this.rendererKind === "dom") {
-      header.style.gridRow = "1";
-      header.style.gridColumn = "1";
-      this.textSelection = new DomTextSelection(
-        this.terminalMount,
-        () =>
-          this.domSurfaceRoot?.querySelector<HTMLElement>(
-            ".webhost-scene__surface-rows",
-          ) ?? undefined,
-        () => {
-          this.cancelGeometryPointer();
-          this.domFocus?.refresh();
-        },
-      );
-      this.element.insertBefore(this.textSelection.element, this.terminalMount);
-    }
     options.mount.appendChild(this.element);
     this.applyVisibility();
   }
@@ -451,7 +439,7 @@ export class WebHostSceneRuntime {
     if (this.domSurfaceRoot)
       this.domFocus = new DomFocusPresentation(
         this.terminalMount,
-        () => this.textSelection?.active ?? false,
+        () => this.nativePointerGesture || this.hasSurfaceSelection(),
       );
     if (this.domSurfaceRoot) {
       this.domGeometry = new DomGeometryController(this.terminalMount);
@@ -670,7 +658,6 @@ export class WebHostSceneRuntime {
     this.domGeometry?.dispose();
     this.paintScheduler.dispose();
     this.painter.dispose();
-    this.textSelection?.dispose();
     this.domFocus?.dispose();
     this.accessibilityTree?.dispose();
     this.accessibilityTree = undefined;
@@ -812,15 +799,13 @@ export class WebHostSceneRuntime {
     this.element.style.boxShadow = "0 20px 50px rgba(0, 0, 0, 0.28)";
     this.element.style.overflow = "hidden";
     this.element.style.gap = "0.5rem";
-    this.element.style.gridTemplateRows = this.textSelection
-      ? "auto auto minmax(0, 1fr)"
-      : "auto minmax(0, 1fr)";
+    this.element.style.gridTemplateRows = "auto minmax(0, 1fr)";
 
     this.terminalMount.style.position = "relative";
     // Keep the terminal in the flexible track when page chrome hides the
     // header. Auto-placement into the first, intrinsic track can collapse an
     // initially empty DOM surface before its first geometry request.
-    this.terminalMount.style.gridRow = this.textSelection ? "3" : "2";
+    this.terminalMount.style.gridRow = "2";
     this.terminalMount.style.boxSizing = "border-box";
     this.terminalMount.style.width = "100%";
     if (this.sceneFrame === "resizable") {
@@ -938,7 +923,6 @@ export class WebHostSceneRuntime {
   private installInputHandlers(): void {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        this.textSelection?.active ||
         event.metaKey ||
         event.isComposing ||
         (this.rendererKind === "dom" &&
@@ -991,7 +975,6 @@ export class WebHostSceneRuntime {
     };
 
     const handlePaste = (event: ClipboardEvent) => {
-      if (this.textSelection?.active) return;
       const text = event.clipboardData?.getData("text/plain") ?? "";
       if (!text) {
         return;
@@ -1010,8 +993,23 @@ export class WebHostSceneRuntime {
       }
       if (this.allowsNativeTextSelection(event) || this.isNativeLink(event)) {
         this.nativePointerGesture = true;
-        // DOM renderer + Alt/Option: leave the event to the browser so the
-        // drag becomes a native text selection instead of app pointer input.
+        // Preserve the browser's native selection gesture. A collapsed click
+        // in an editable field still needs the app's normal focus/caret route.
+        const location = this.cellLocation(event);
+        this.textInputPress =
+          location &&
+          this.painter instanceof DomSurfacePainter &&
+          this.painter.isTextInput(location.x, location.y)
+            ? {
+                location,
+                event,
+                moved: false,
+                revision: this.geometrySession.pointerRevision,
+              }
+            : undefined;
+        if (this.allowsNativeTextSelection(event))
+          this.terminalMount.focus?.({ preventScroll: true });
+        this.domFocus?.refresh();
         return;
       }
       const location = this.cellLocation(event);
@@ -1020,6 +1018,9 @@ export class WebHostSceneRuntime {
       }
 
       this.nativePointerGesture = false;
+      this.textInputPress = undefined;
+      if (this.hasSurfaceSelection())
+        document.getSelection()?.removeAllRanges();
       this.canceledPointerId = undefined;
       const button = this.inputEncoder.pointerButton(event.button);
       this.activePointerButton = button;
@@ -1053,7 +1054,34 @@ export class WebHostSceneRuntime {
           this.allowsNativeTextSelection(event) ||
           this.isNativeLink(event))
       ) {
+        const press = this.textInputPress;
+        this.textInputPress = undefined;
         this.nativePointerGesture = false;
+        if (
+          press &&
+          !press.moved &&
+          press.revision === this.geometrySession.pointerRevision
+        ) {
+          if (this.hasSurfaceSelection())
+            document.getSelection()?.removeAllRanges();
+          this.onInput(
+            this.inputEncoder.encodePointerDown(
+              press.location,
+              "primary",
+              press.event,
+              this.geometrySession.pointerRevision,
+            ),
+          );
+          this.onInput(
+            this.inputEncoder.encodePointerUp(
+              press.location,
+              "primary",
+              event,
+              this.geometrySession.pointerRevision,
+            ),
+          );
+        }
+        this.domFocus?.refresh();
         return;
       }
       const location = this.hasCapturedPointer
@@ -1095,6 +1123,15 @@ export class WebHostSceneRuntime {
 
     const handlePointerMove = (event: PointerEvent) => {
       if (event.pointerId === this.canceledPointerId) return;
+      const press = this.textInputPress;
+      if (
+        press &&
+        Math.hypot(
+          event.clientX - press.event.clientX,
+          event.clientY - press.event.clientY,
+        ) > 3
+      )
+        press.moved = true;
       if (
         !this.hasCapturedPointer &&
         (this.nativePointerGesture ||
@@ -1128,7 +1165,6 @@ export class WebHostSceneRuntime {
     const handleWheel = (event: WheelEvent) => {
       if (
         this.wheelMode === "passive" ||
-        this.textSelection?.active ||
         (this.rendererKind === "dom" && (event.ctrlKey || event.metaKey))
       ) {
         return;
@@ -1171,10 +1207,17 @@ export class WebHostSceneRuntime {
       if (event.pointerId === this.capturedPointerId)
         this.cancelGeometryPointer();
     };
-    const blurPointer = () => this.cancelGeometryPointer();
+    const blurPointer = () => {
+      this.cancelGeometryPointer();
+      endNativeDrag();
+    };
     const endNativeDrag = () => {
       this.nativePointerGesture = false;
+      this.textInputPress = undefined;
+      this.domFocus?.refresh();
     };
+    const selectionChanged = () => this.domFocus?.refresh();
+    document.addEventListener?.("selectionchange", selectionChanged);
     document.addEventListener?.("pointerup", endNativeDrag);
     document.addEventListener?.("pointercancel", endNativeDrag);
     globalThis.window?.addEventListener?.("blur", blurPointer);
@@ -1190,6 +1233,7 @@ export class WebHostSceneRuntime {
     });
 
     this.detachInputHandlers = () => {
+      document.removeEventListener?.("selectionchange", selectionChanged);
       document.removeEventListener?.("pointerup", endNativeDrag);
       document.removeEventListener?.("pointercancel", endNativeDrag);
       globalThis.window?.removeEventListener?.("blur", blurPointer);
@@ -1328,6 +1372,7 @@ export class WebHostSceneRuntime {
   }
 
   private cancelGeometryPointer(): void {
+    this.textInputPress = undefined;
     const id = this.capturedPointerId;
     const location = this.capturedPointerLocation;
     const revision = this.capturedPointerRevision;
@@ -1533,7 +1578,9 @@ export class WebHostSceneRuntime {
       [...announcements],
       {
         synchronizeFocus:
-          this.synchronizeAccessibilityFocus && !this.textSelection?.active,
+          this.synchronizeAccessibilityFocus &&
+          !this.nativePointerGesture &&
+          !this.hasSurfaceSelection(),
         actionResponse: frame.accessibilityActionResponse,
       },
     );
@@ -1635,12 +1682,6 @@ export class WebHostSceneRuntime {
       });
   }
 
-  /**
-   * Whether this pointer event should be left to the browser for native text
-   * selection instead of being forwarded to the app. Only the DOM renderer
-   * has real text nodes to select, and only while Alt/Option is held — plain
-   * pointer input still belongs to the app.
-   */
   private isNativeLink(event: MouseEvent): boolean {
     return (
       this.rendererKind === "dom" &&
@@ -1648,10 +1689,21 @@ export class WebHostSceneRuntime {
     );
   }
 
-  private allowsNativeTextSelection(event: MouseEvent): boolean {
+  private hasSurfaceSelection(): boolean {
+    const selection = document.getSelection?.();
     return (
-      this.rendererKind === "dom" &&
-      (event.altKey || this.textSelection?.active === true)
+      selection?.isCollapsed === false &&
+      !!this.domSurfaceRoot?.contains(selection.anchorNode) &&
+      !!this.domSurfaceRoot?.contains(selection.focusNode)
+    );
+  }
+
+  private allowsNativeTextSelection(event: MouseEvent): boolean {
+    if (!(this.painter instanceof DomSurfacePainter) || event.button > 0)
+      return false;
+    const location = this.cellLocation(event);
+    return (
+      !!location && this.painter.allowsTextSelection(location.x, location.y)
     );
   }
 

@@ -81,6 +81,45 @@ document.addEventListener("copy", () => {
   copied = document.getSelection()?.toString() ?? "";
 });
 const api = {
+  async selectionControls(blockButton = true) {
+    frame.rows = [
+      [[0, "AlphaButtonOmega", 16, 0]],
+      [[0, "Field text", 10, 0]],
+      [[0, "Editor text", 11, 0]],
+      [[0, "Disabled", 8, 0]],
+      [[0, "****", 4, 0]],
+      [[0, "Toggle", 6, 0]],
+      [[0, "Slider", 6, 0]],
+    ];
+    frame.links = undefined;
+    frame.linkTargets = undefined;
+    frame.accessibilityTree = [
+      { id: "group", role: "group", rect: [0, 0, 60, 10] },
+      ...(blockButton
+        ? [
+            {
+              id: "button",
+              role: "button",
+              rect: [5, 0, 6, 1] as [number, number, number, number],
+            },
+          ]
+        : []),
+      { id: "field", role: "textField", rect: [0, 1, 10, 1] },
+      { id: "editor", role: "textEditor", rect: [0, 2, 11, 1] },
+      { id: "disabled", role: "button", rect: [0, 3, 8, 1], isEnabled: false },
+      { id: "secure", role: "secureField", rect: [0, 4, 4, 1] },
+      { id: "toggle", role: "toggle", rect: [0, 5, 6, 1] },
+      { id: "slider", role: "slider", rect: [0, 6, 6, 1] },
+    ];
+    frame.damage = blockButton
+      ? undefined
+      : {
+          textRows: [],
+          requiresFullTextRepaint: false,
+          requiresFullGraphicsReplay: false,
+        };
+    await present();
+  },
   copyCorpus() {
     const host = document.createElement("div");
     host.id = "copy-corpus";

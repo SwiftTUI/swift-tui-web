@@ -114,9 +114,7 @@ test("separate embeds own unique semantic IDs, actions, focus and disposal", asy
       remaining,
       focused,
       late: second.records.length,
-      layers: document.querySelectorAll(
-        ".webhost-scene__focus-layer,.webhost-scene__selection-controls",
-      ).length,
+      layers: document.querySelectorAll(".webhost-scene__focus-layer").length,
     };
   });
   expect(new Set(state.ids).size).toBe(2);

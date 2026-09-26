@@ -1,3 +1,4 @@
+import type { DomTextSelection } from "./DomTextSelection.ts";
 import type { SurfaceMetrics } from "./SurfaceRenderer.ts";
 import { fontForStyle } from "./SurfaceTypography.ts";
 import type {
@@ -146,6 +147,7 @@ export class DomTextLayout {
     frame: WebHostSurfaceFrame,
     metrics: SurfaceMetrics,
     linkedRows: Set<number>,
+    selection: DomTextSelection,
   ): WebHostSurfaceCell[][] {
     // A local ruler accounts for ancestor transforms, CSS zoom and browser zoom.
     // Read before patches; font/configuration changes are the only two-stage measurement.
@@ -188,13 +190,15 @@ export class DomTextLayout {
           -1,
         ]);
       const result: WebHostSurfaceCell[] = [];
-      for (const cell of spaced) {
+      for (const cell of spaced.flatMap((cell) => selection.split(y, cell))) {
         const last = result.at(-1);
         if (
           !linkedRows.has(y) &&
           this.monospace[(frame.styles[cell[3]]?.em ?? 0) & 3] &&
           last &&
           last[3] === cell[3] &&
+          selection.allows(y, last[0], last[2]) ===
+            selection.allows(y, cell[0], cell[2]) &&
           last[0] + last[2] === cell[0] &&
           naturalText(last[1], last[2]) &&
           naturalText(cell[1], cell[2])

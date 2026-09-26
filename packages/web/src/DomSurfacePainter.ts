@@ -1,6 +1,7 @@
 import { canRenderBoxDrawing } from "./BoxDrawingRenderer.ts";
 import { DomGlyphBackground } from "./DomGlyphBackground.ts";
 import { DomTextLayout, naturalText } from "./DomTextLayout.ts";
+import { DomTextSelection } from "./DomTextSelection.ts";
 import { imagePayloadMetrics } from "./ImageAllocationBudget.ts";
 import {
   isSupportedImageFormat,
@@ -106,6 +107,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   private appliedMetricsKey?: string;
   private renderedGridKey?: string;
   private renderedLinksKey?: string;
+  private selection = new DomTextSelection();
   private readonly linkCells = new Map<number, string>();
   private hasRenderedFrame = false;
   private reportedMissingImageIds = new Set<string>();
@@ -121,7 +123,10 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       !this.root ||
       !selection ||
       selection.isCollapsed ||
-      !event.clipboardData
+      !event.clipboardData ||
+      document.activeElement?.matches?.(
+        "input, textarea, [contenteditable='true']",
+      )
     )
       return;
     const ranges = Array.from({ length: selection.rangeCount }, (_, index) =>
@@ -138,7 +143,24 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     // newlines. Preserve precisely the selected text offsets, including spaces.
     event.clipboardData.setData(
       "text/plain",
-      ranges.map((range) => range.cloneContents().textContent ?? "").join("\n"),
+      ranges
+        .map((range) => {
+          const content = range.cloneContents();
+          // Range cloning includes user-select:none content in some engines.
+          for (const control of content.querySelectorAll(
+            '[data-text-selectable="false"]',
+          ))
+            control.remove();
+          // A range wholly inside an excluded run has no enclosing span in its clone.
+          const parent =
+            range.commonAncestorContainer.nodeType === 1
+              ? (range.commonAncestorContainer as Element)
+              : range.commonAncestorContainer.parentElement;
+          return parent?.closest('[data-text-selectable="false"]')
+            ? ""
+            : (content.textContent ?? "");
+        })
+        .join("\n"),
     );
     event.preventDefault();
   };
@@ -308,10 +330,14 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       this.reconcileImages([], metrics, false);
       this.renderedGridKey = undefined;
       this.renderedLinksKey = undefined;
+      this.selection = new DomTextSelection();
       this.hasRenderedFrame = false;
       return;
     }
 
+    const selection = new DomTextSelection(frame);
+    const selectionChanged = selection.key !== this.selection.key;
+    this.selection = selection;
     const gridKey = `${frame.width}x${frame.height}x${frame.rows.length}`;
     const linksKey = JSON.stringify([
       frame.width,
@@ -338,6 +364,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       }
     }
     const fullRepaint =
+      selectionChanged ||
       linksChanged ||
       metricsChanged ||
       !this.hasRenderedFrame ||
@@ -355,6 +382,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
           .filter(([, links]) => links.length > 0)
           .map(([y]) => y),
       ),
+      this.selection,
     );
     if (fullRepaint) {
       for (let y = this.rowElements.length; y > frame.rows.length; y -= 1) {
@@ -394,6 +422,24 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     this.hasRenderedFrame = true;
   }
 
+  allowsTextSelection(x: number, y: number): boolean {
+    const row = this.cells[Math.floor(y)];
+    if (!row) return false;
+    for (const [start, element] of row) {
+      const span = Number(element.getAttribute("data-span"));
+      if (x >= start && x < start + span)
+        return (
+          element.getAttribute("data-text-selectable") === "true" &&
+          !!element.textContent?.trim()
+        );
+    }
+    return false;
+  }
+
+  isTextInput(x: number, y: number): boolean {
+    return this.selection.isTextInput(y, x);
+  }
+
   invalidateFontMetrics(): void {
     this.appliedMetricsKey = undefined;
     this.textLayout?.invalidate();
@@ -412,6 +458,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     this.root?.replaceChildren();
     this.root = undefined;
     this.rowsLayer = undefined;
+    this.selection = new DomTextSelection();
     this.imagesLayer = undefined;
     this.rowElements = [];
     this.cells = [];
@@ -475,6 +522,14 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         this.styleCache.set(key, resolved);
       }
       const geometricText = canRenderBoxDrawing(text) ? text : "";
+      const selectable = !geometricText && this.selection.allows(y, x, span);
+      if (element.getAttribute("data-text-selectable") !== String(selectable)) {
+        if (!selectable) clearSelection(element);
+        element.setAttribute("data-text-selectable", String(selectable));
+        element.style.userSelect = selectable ? "text" : "none";
+        element.style.webkitUserSelect = selectable ? "text" : "none";
+        element.style.cursor = selectable ? "text" : "";
+      }
       const left = x * metrics.cellWidth - inlineOrigin;
       inlineOrigin += this.textLayout!.advance(text, span, cellStyle?.em ?? 0);
       const spacing = this.textLayout!.spacing(
@@ -487,6 +542,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         key,
         x,
         span,
+        selectable,
         geometricText,
         left,
         spacing,
@@ -497,6 +553,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
           left: `${left}px`,
           position: Math.abs(left) < 0.01 ? "static" : "relative",
           display:
+            selectable &&
             Math.abs(left) < 0.01 &&
             (this.forcedColors || (cellStyle?.opacity ?? 1) === 1)
               ? "contents"
@@ -569,7 +626,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         // Custom schemes only reach the hook, never browser navigation.
         element.setAttribute("href", /^https?:/i.test(target) ? target : "#");
         const activate = (event: MouseEvent) => {
-          if (event.altKey || document.getSelection()?.isCollapsed === false) {
+          if (event.altKey) {
             event.preventDefault();
           } else if (
             /^https?:/i.test(target) &&
@@ -635,6 +692,10 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         whiteSpace: "pre",
         contain: "strict",
       });
+      // Firefox ignores user-select overrides on display:contents children.
+      // Let text rows select by default and give excluded runs real inline boxes.
+      rowElement.style.userSelect = "text";
+      rowElement.style.webkitUserSelect = "text";
       rowElement.style.position = "absolute";
       rowElement.style.left = "0";
       this.rowElements[y] = rowElement;
@@ -675,7 +736,8 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     // Ligature-capable monospace fonts would merge runs like "->" into one
     // glyph and break the column grid.
     style.fontVariantLigatures = "none";
-    style.userSelect = "text";
+    style.userSelect = "none";
+    style.webkitUserSelect = "none";
   }
 
   private reconcileImages(

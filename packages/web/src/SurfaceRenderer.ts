@@ -12,8 +12,8 @@ import type { ResolvedWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
  *   box-drawing seams and decoration patterns, one DOM node total.
  * - `"dom"` (experimental): renders cells as positioned inline text elements — native
  *   font rendering (fallback glyphs, subpixel AA, crisp zoom), an
- *   inspectable element tree, and real selectable text (hold Alt/Option and
- *   drag). Box/block/Braille glyphs and independent underline/strike patterns share
+ *   inspectable element tree, and plain-drag text selection outside control labels.
+ *   Box/block/Braille glyphs and independent underline/strike patterns share
  *   renderer-neutral geometry via SVG backgrounds.
  *   This opt-in presenter has incomplete browser/AT/performance qualification;
  *   Chromium native find cannot join text across separate wire cells.

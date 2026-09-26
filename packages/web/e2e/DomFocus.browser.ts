@@ -77,9 +77,11 @@ test("caret and visible focus share semantic geometry across zoom without moving
   expect(
     await page.evaluate(() => window.accessibilityActions.records.length),
   ).toBe(before);
-  await page.getByRole("button", { name: "Select text", exact: true }).click();
+  await page.locator(".webhost-scene__header").evaluate((e) => {
+    (e as HTMLElement).tabIndex = 0;
+    (e as HTMLElement).focus();
+  });
   await expect(page.locator(".webhost-scene__focus-layer")).toBeHidden();
-  await page.keyboard.press("Escape");
   await editor.focus();
   await expect(page.locator(".webhost-scene__focus-layer")).toBeVisible();
   await page.emulateMedia({ forcedColors: "active" });
@@ -104,4 +106,59 @@ test("caret and visible focus share semantic geometry across zoom without moving
           .evaluate((e) => getComputedStyle(e).forcedColorAdjust),
       ).toBe("none");
   }
+});
+
+test("native fields retain keyboard selection and replacement without a selection mode", async ({
+  page,
+}) => {
+  await page.goto("/health?renderer=dom");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  await page.evaluate(() =>
+    window.accessibilityActions.present([
+      {
+        id: "field",
+        actionTarget: "field:1",
+        role: "textField",
+        label: "Field",
+        rect: [0, 0, 10, 1],
+        actions: ["focus", "setValue"],
+        value: { type: "text", value: "hello" },
+      },
+      {
+        id: "editor",
+        actionTarget: "editor:1",
+        role: "textEditor",
+        label: "Editor",
+        rect: [0, 2, 10, 2],
+        actions: ["focus", "setValue"],
+        value: { type: "text", value: "two\nlines" },
+      },
+    ]),
+  );
+  for (const name of ["Field", "Editor"]) {
+    const field = page.getByRole("textbox", { name, exact: true });
+    await field.focus();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+a" : "Control+a",
+    );
+    expect(
+      await field.evaluate((e) => {
+        const input = e as HTMLInputElement | HTMLTextAreaElement;
+        return input.value.slice(
+          input.selectionStart ?? 0,
+          input.selectionEnd ?? 0,
+        );
+      }),
+    ).toBe(name === "Field" ? "hello" : "two\nlines");
+    await page.keyboard.type("replacement");
+    await expect(field).toHaveValue("replacement");
+  }
+  expect(
+    await page.evaluate(() =>
+      window.accessibilityActions.records.some((s) =>
+        s.includes("replacement"),
+      ),
+    ),
+  ).toBe(true);
 });
