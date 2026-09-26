@@ -34,6 +34,18 @@ test("keyboard selection and scoped select-all copy the viewport without applica
   );
   expect(selected).toBe(expected);
   await page.keyboard.press(`${modifier}+c`);
+  expect(
+    await page.evaluate(() => window.domJourney.state().copyShortcutPrevented),
+  ).toBe(false);
+  if (browserName === "webkit" && process.platform === "linux") {
+    // Linux WebKit does not dispatch copy for a non-editable Range shortcut,
+    // including plain pages. Use its native command, as in DomSurface, while
+    // retaining shortcut pass-through and an actual clipboard round trip.
+    expect(await page.evaluate(() => document.execCommand("copy"))).toBe(true);
+  }
+  await expect
+    .poll(() => page.evaluate(() => window.domJourney.state().copied))
+    .toBe(expected);
   await page.keyboard.press("Escape");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(toggle).toBeFocused();
