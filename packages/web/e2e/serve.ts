@@ -1,7 +1,10 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { browserJourneyPort } from "./journey-environment.ts";
+import {
+  browserFixtureCSP,
+  browserJourneyPort,
+} from "./journey-environment.ts";
 
 const e2eDirectory = import.meta.dir;
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -91,7 +94,11 @@ const server = Bun.serve({
   fetch(request): Response {
     const url = new URL(request.url);
     const path = url.pathname;
-    const headers = url.searchParams.has("no-isolation") ? {} : responseHeaders;
+    const headers: Record<string, string> = url.searchParams.has("no-isolation")
+      ? {}
+      : { ...responseHeaders };
+    if (url.searchParams.has("csp"))
+      headers["Content-Security-Policy"] = browserFixtureCSP;
     if (path === "/health") {
       return new Response("ok", { headers });
     }

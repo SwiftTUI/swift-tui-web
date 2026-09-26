@@ -14,3 +14,7 @@ if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65_535) {
 
 export const browserJourneyPort = parsedPort;
 export const browserJourneyOrigin = `http://127.0.0.1:${browserJourneyPort}`;
+
+// Qualification policy: same-origin assets, WASM compilation and runtime styles.
+export const browserFixtureCSP =
+  "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'";
