@@ -269,10 +269,11 @@ detecting the packaged-font API rather than requiring it.
 | Area | Current boundary |
 | --- | --- |
 | Presentation | Fixed cell allocation, measured inline HTML text, SVG decorations and HTML images. No browser-flow re-layout or paragraph shaping across independent cells. |
-| Native find | Original Unicode appears once, including explicit sparse spaces and row breaks. Native find crosses inline style/link boundaries in the tested macOS browser matrix. |
+| Native find | Visual text preserves original Unicode once, including sparse spaces and row breaks. Native find crosses inline style/link boundaries. Known defect: Safari can also match the current offscreen live announcement, producing a duplicate result. |
 | Selection and print | Mounted viewport only. Select text mode supports plain dragging and keyboard selection; Alt/Option-drag remains available. Replaced selected content clears selection. Offscreen content is not exported. |
-| Accessibility | The shared semantic sidecar sends typed actions to Swift; visible text is not a second accessible control tree. The complete DOM control/AT journey and bounded WCAG claim are not qualified. IME/composition is outside the current input contract. |
-| Browser evidence | Local automated checks cover Chromium 149, Firefox 151 and Playwright WebKit 26.5. They do not establish current stable Safari, Windows High Contrast/AT or physical iOS/Android acceptance. |
+| Accessibility | The shared semantic sidecar sends typed actions to Swift; visible text is not a second accessible control tree. The complete DOM control/AT journey and bounded WCAG claim are not qualified. Shared host-native IME/pre-edit presentation is excluded; committed Unicode, paste and final composition values are delivered exactly once. |
+| Browser evidence | Qualification is scoped to macOS desktop. Automated checks use Chromium 149, Firefox 151 and Playwright WebKit 26.5; actual Safari 27 has bounded control, keyboard, selection, find and enlargement observations. VoiceOver output remains unqualified. |
+| User text spacing | Ordinary prose reflows at 320 CSS px and remains operable with doubled text size in the compiled WASI fixture. CSS letter/word spacing overrides still clip text; authored paragraph boundaries are absent from the raster presentation. This is a conformance failure, not a grid exception. |
 | Performance | The integrated inline painter measured 1.03/1.14ms p95 for partial/full 120×40 updates and 93.50ms for dense 240×80 replacement on the macOS reference machine. The dense workload exceeds its 50ms target and is accepted for experimental use. Full host/soak qualification is separate. |
 | Mobile and preferences | Media-query emulation exists. Real Windows High Contrast and physical mobile interaction/AT are unqualified; emulation is not that evidence. |
 
