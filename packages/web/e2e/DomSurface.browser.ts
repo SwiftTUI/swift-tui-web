@@ -154,7 +154,12 @@ test("an Alt drag survives arriving frames without application pointer capture",
     .first()
     .locator("span")
     .first();
-  const box = (await cell.boundingBox())!;
+  const box = await cell.evaluate((e) => {
+    const range = document.createRange();
+    range.selectNodeContents(e);
+    const r = range.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
   await page.keyboard.down("Alt");
   await page.mouse.move(box.x + 1, box.y + box.height / 2);
   await page.mouse.down();
@@ -205,11 +210,11 @@ test("native anchors activate once and measured grid stays aligned through CSS z
     // span, rather than stretched font advances, determines the cell box.
     expect(g.textWidth).toBeLessThanOrEqual(g.runWidth + 1);
     expect(g.image.naturalWidth).toBe(1);
-    expect(g.image.width).toBeCloseTo(g.cells[0]!.width * 2, 1);
-    expect(g.image.clipWidth).toBeCloseTo(g.cells[0]!.width * 1.5, 1);
+    expect(g.image.width).toBeCloseTo(g.cellWidth * 4, 1);
+    expect(g.image.clipWidth).toBeCloseTo(g.cellWidth * 3, 1);
     expect(g.image.opacity).toBe("0.5");
-    expect(g.cells[1]!.x - g.cells[0]!.x).toBeCloseTo(g.cells[0]!.width, 1);
-    expect(g.cells[2]!.x - g.cells[1]!.x).toBeCloseTo(g.cells[1]!.width, 1);
+    expect(g.cells[1]!.x - g.cells[0]!.x).toBeCloseTo(g.cellWidth * 2, 1);
+    expect(g.cells[2]!.x - g.cells[1]!.x).toBeCloseTo(g.cellWidth * 2, 1);
   }
 });
 
@@ -317,11 +322,6 @@ test("global element rules cannot change cell, link or image box allocation", as
             style.marginBottom,
             style.marginLeft,
           ],
-          expectedEndMargin: element.parentElement?.classList.contains(
-            "webhost-scene__surface-row",
-          )
-            ? `${-Number.parseFloat(style.width)}px`
-            : "0px",
           border: style.borderWidth,
           sizing: style.boxSizing,
         };
@@ -330,8 +330,7 @@ test("global element rules cannot change cell, link or image box allocation", as
   for (const style of styles)
     expect(style).toEqual({
       padding: "0px",
-      margin: ["0px", style.expectedEndMargin, "0px", "0px"],
-      expectedEndMargin: style.expectedEndMargin,
+      margin: ["0px", "0px", "0px", "0px"],
       border: "0px",
       sizing: "border-box",
     });
@@ -342,7 +341,10 @@ test("pointer coordinates use the zoomed DOM grid", async ({ page }) => {
     await page.evaluate((zoom) => window.domJourney.resize(zoom), zoom);
     const geometry = await page.evaluate(() => window.domJourney.geometry());
     const cell = geometry.cells[1]!;
-    await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2);
+    await page.mouse.click(
+      cell.x + geometry.cellWidth,
+      geometry.content.top + 2.5 * geometry.cellHeight,
+    );
     const messages = await page.evaluate(
       () => window.domJourney.state().inputs,
     );

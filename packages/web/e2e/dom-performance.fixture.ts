@@ -92,19 +92,21 @@ const api = {
       cells: mount.querySelectorAll(".webhost-scene__surface-row > span")
         .length,
       rows: mount.querySelectorAll(".webhost-scene__surface-row").length,
-      decorations: mount.querySelectorAll("svg").length,
+      decorations: painter.statistics.decorationNodes,
       images: mount.querySelectorAll("img").length,
       semanticControls: mount.querySelectorAll("[role]").length,
       elements: mount.querySelectorAll("*").length,
     };
     const retainedIdentity =
       retained === mount.querySelector(".webhost-scene__surface-row span");
+    const expectedRow = Array.from({ length: width }, (_, x) =>
+      partial && x % 10 !== 0 ? "a" : "b",
+    ).join("");
     const exact = [
       ...mount.querySelectorAll(".webhost-scene__surface-row"),
-    ].every((row) =>
-      [...row.children].every(
-        (cell, x) => cell.textContent === (partial && x % 10 !== 0 ? "a" : "b"),
-      ),
+    ].every(
+      (row, y) =>
+        row.textContent === expectedRow + (y < height - 1 ? "\n" : ""),
     );
     painter.dispose();
     return {

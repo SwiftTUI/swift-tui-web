@@ -1,0 +1,100 @@
+{
+  "id": "SwiftTUICoreCandidate3",
+  "version": "0.3.0",
+  "description": "STUI-639 explicit Latin-1 core, with broader font coverage retained as best effort.",
+  "source": {
+    "version": "Iosevka 34.8.1",
+    "url": "https://github.com/be5invis/Iosevka/archive/refs/tags/v34.8.1.zip",
+    "archive": "Iosevka-v34.8.1-source.zip",
+    "sha256": "e0dfea6df319e06fd0acab14f8ab5a4871f8a592824221bf4fbbe6544d8fc70f"
+  },
+  "ranges": [
+    [
+      32,
+      126
+    ],
+    [
+      160,
+      255
+    ]
+  ],
+  "excludeCategories": [
+    "Cn",
+    "Cc",
+    "Cf",
+    "Mn",
+    "Mc",
+    "Me"
+  ],
+  "symbols": "",
+  "canonicalDecompositions": true,
+  "geometryRanges": [
+    [
+      9472,
+      9631
+    ],
+    [
+      10240,
+      10495
+    ]
+  ],
+  "styles": [
+    "Regular",
+    "Bold",
+    "Italic",
+    "BoldItalic"
+  ],
+  "sizes": [
+    12,
+    14,
+    16,
+    20,
+    24,
+    32
+  ],
+  "lineHeightEm": 1.5,
+  "scope": "Qualified core is printable Basic Latin and Latin-1 Supplement, including canonical decompositions, in all four styles at six sizes. Broader source glyphs stay available but are explicitly best effort, including Latin Extended, Greek, Cyrillic and mathematical symbols. The entire broad Candidate 1/2 audits remain failed evidence. This script-based boundary avoids selecting individual passing samples and keeps original Unicode and all wire allocations. Density remains 600 units by 1.5em.",
+  "excludeCodepoints": [
+    994,
+    995,
+    996,
+    997,
+    998,
+    999,
+    1000,
+    1001,
+    1002,
+    1003,
+    1004,
+    1005,
+    1006,
+    1007
+  ],
+  "buildRanges": [
+    [
+      32,
+      126
+    ],
+    [
+      160,
+      255
+    ],
+    [
+      256,
+      383
+    ],
+    [
+      7680,
+      7935
+    ],
+    [
+      880,
+      1023
+    ],
+    [
+      1024,
+      1279
+    ]
+  ],
+  "buildSymbols": "‐‑‒–—‘’‚‛“”„‟•…€£¥¢←↑→↓↔↕−±×÷≠≤≥∞√∑∏∫∂∆∇≈≡°′″⏻"
+}

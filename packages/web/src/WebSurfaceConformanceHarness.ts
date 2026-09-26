@@ -490,6 +490,15 @@ class FakeElement {
     this.tagName = tagName.toUpperCase();
   }
 
+  getBoundingClientRect() {
+    return {
+      width:
+        Number.parseFloat(this.style.width) ||
+        this.textContent.length *
+          (8 + (Number.parseFloat(this.style.letterSpacing) || 0)),
+    };
+  }
+
   appendChild(child: FakeElement): FakeElement {
     child.parent = this;
     this.children.push(child);

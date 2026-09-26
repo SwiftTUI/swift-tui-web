@@ -235,7 +235,9 @@ const api = {
   },
   geometry() {
     const cells = Array.from(row(2).children).map((e) => {
-      const r = e.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(e);
+      const r = range.getBoundingClientRect();
       return { x: r.x, y: r.y, width: r.width, height: r.height };
     });
     const run = row(3).firstElementChild!;
@@ -255,7 +257,17 @@ const api = {
         };
       })(),
       textWidth: range.getBoundingClientRect().width,
-      runWidth: run.getBoundingClientRect().width,
+      runWidth:
+        Number(run.getAttribute("data-span")) *
+        runtime.geometrySnapshot!.cellWidth *
+        runtime.geometrySnapshot!.content.scaleX,
+      content: runtime.geometrySnapshot!.content,
+      cellHeight:
+        runtime.geometrySnapshot!.cellHeight *
+        runtime.geometrySnapshot!.content.scaleY,
+      cellWidth:
+        runtime.geometrySnapshot!.cellWidth *
+        runtime.geometrySnapshot!.content.scaleX,
     };
   },
   async glyphs(width: number, height: number) {
@@ -304,7 +316,7 @@ const api = {
     context.fillRect(0, 0, actual.width, actual.height);
     context.scale(devicePixelRatio, devicePixelRatio);
     const elements = Array.from(
-      dom.querySelectorAll<HTMLElement>(".webhost-scene__surface-row > *"),
+      dom.querySelectorAll<HTMLElement>(".webhost-scene__surface-graphics > *"),
     );
     for (const [x, element] of elements.entries()) {
       const img = new Image();

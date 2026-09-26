@@ -245,12 +245,12 @@ detecting the packaged-font API rather than requiring it.
 
 | Area | Current boundary |
 | --- | --- |
-| Presentation | Fixed cell allocation, clipped HTML text, SVG decorations and HTML images. No browser-flow re-layout or paragraph shaping across independent cells. |
-| Native find | Chromium cannot find words spanning separate wire cells. Firefox and WebKit pass that case in the tested browser matrix. Single-cell find is insufficient evidence for general text. |
+| Presentation | Fixed cell allocation, measured inline HTML text, SVG decorations and HTML images. No browser-flow re-layout or paragraph shaping across independent cells. |
+| Native find | Original Unicode appears once, including explicit sparse spaces and row breaks. Native find crosses inline style/link boundaries in the tested macOS browser matrix. |
 | Selection and print | Mounted viewport only. Alt/Option-drag selects; normal pointer gestures go to Swift. Replaced selected content clears selection. Offscreen content is not exported. |
 | Accessibility | The shared semantic sidecar sends typed actions to Swift; visible text is not a second accessible control tree. The complete DOM control/AT journey and bounded WCAG claim are not qualified. IME/composition is outside the current input contract. |
 | Browser evidence | Local automated checks cover Chromium 149, Firefox 151 and Playwright WebKit 26.5. They do not establish current stable Safari, Windows High Contrast/AT or physical iOS/Android acceptance. |
-| Performance | Measured layout/paint-inclusive p95 misses the 8ms partial-update and 50ms large mixed-frame targets. A final thirty-minute soak and complete control-latency qualification are absent. |
+| Performance | The integrated inline painter measured 1.03/1.14ms p95 for partial/full 120×40 updates and 93.50ms for dense 240×80 replacement on the macOS reference machine. The dense workload exceeds its 50ms target and is accepted for experimental use. Full host/soak qualification is separate. |
 | Mobile and preferences | Media-query emulation exists. Real Windows High Contrast and physical mobile interaction/AT are unqualified; emulation is not that evidence. |
 
 Use the experimental renderer for evaluation and test it with your own content
@@ -278,7 +278,9 @@ semantic nodes, style/geometry caches, image bytes, pending/failed images,
 font-face leases and paint-queue ownership. A painter retains at most one
 row per admitted row, at most one cell per grid column (including sparse runs),
 one separator between rows, and two elements per admitted image placement.
-SVG decoration backgrounds add no DOM nodes. Rows/cells disappear with their
+At most one independent background/decoration element is retained per text run.
+Shaping measurements own at most the distinct text/style keys in the current
+frame, with temporary hidden probes removed before presentation. Rows/cells disappear with their
 viewport content; semantic nodes correspond only to the current wire tree.
 
 Each DOM painter admits at most 256 placements, 64 MiB decoded image bytes and
@@ -298,12 +300,16 @@ grid bounds, rather than changing them.
 
 ### DOM typography and embedding
 
-DOM mode defaults to the four bundled Source Code Pro faces (regular, bold,
+DOM mode defaults to the four bundled SwiftTUI Core Candidate 3 faces (regular, bold,
 italic and bold italic), with synthesis and discretionary ligatures disabled.
-The unmodified WOFF2 files total 273,700 bytes. Their exact upstream release,
+The Iosevka-derived WOFF2 files total 167,584 bytes. Their pinned upstream source,
 SHA-256 hashes and SIL Open Font License are included under `fonts/` in this
-package. `@swifttui/build` copies them into
-`assets/swifttui-fonts/2184c1f2bac4/` beside an app's output. Custom build systems
+package, together with the source build recipe. The strict font core is printable
+Basic Latin and Latin-1 Supplement, including canonical decompositions, in four
+styles at 12, 14, 16, 20, 24 and 32 CSS px. Other glyphs remain best effort; the
+painter preserves their original Unicode and corrects the next run origin without
+scaling glyph artwork. `@swifttui/build` copies them into
+`assets/swifttui-fonts/6ec060766aae/` beside an app's output. Custom build systems
 can call its `copyDomFontAssets(outputDirectory)` API. Serve these assets from
 your origin; no external font service is required. The runtime resolves the
 directory against `document.baseURI`. For a different deployment layout, set
@@ -338,7 +344,8 @@ The typography corpus covers 12, 14, 16, 20, 24 and 32 CSS px. CJK falls back
 through PingFang SC, Hiragino Sans and Noto Sans CJK SC; emoji falls back through
 Apple Color Emoji, Segoe UI Emoji and Noto Color Emoji. Availability and artwork
 depend on the OS. No CJK font is bundled. The line box includes measured
-fallbacks, and ink is clipped to its declared span. The host preserves combining
+fallbacks. Text run origins follow declared cell allocations; ink is clipped at
+the row boundary, without scaling fallback artwork. The host preserves combining
 clusters, emoji sequences and wire cell order. Paragraph bidi reordering and
 contextual shaping across independent cells are outside this cell-wire profile;
 Arabic/Indic paragraph fidelity requires a richer shared text contract.

@@ -99,7 +99,7 @@ const server = Bun.serve({
       return new Response(null, { status: 204, headers });
     }
     if (
-      /^\/fonts\/(SourceCodePro-(Regular|Bold|It|BoldIt)\.ttf\.woff2|manifest\.json)$/.test(
+      /^\/fonts\/(SwiftTUICoreCandidate3-(Regular|Bold|Italic|BoldItalic)\.woff2|manifest\.json)$/.test(
         path,
       )
     ) {

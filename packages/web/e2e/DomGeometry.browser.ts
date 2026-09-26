@@ -201,11 +201,11 @@ test("standalone resizable chrome with hidden header boots an empty DOM surface"
   expect(result.inputs.some((x) => x.startsWith("resize:"))).toBe(true);
 });
 
-for (const face of ["Regular", "Bold", "It", "BoldIt"]) {
+for (const face of ["Regular", "Bold", "Italic", "BoldItalic"]) {
   test(`failure of the ${face} face selects a complete measured fallback`, async ({
     page,
   }) => {
-    await page.route(`**/fonts/SourceCodePro-${face}.ttf.woff2`, (route) =>
+    await page.route(`**/fonts/SwiftTUICoreCandidate3-${face}.woff2`, (route) =>
       route.abort("failed"),
     );
     const id = await page.evaluate(() => window.domGeometryJourney.create());
@@ -233,7 +233,7 @@ test("offline embeds reuse settled faces and unrelated late fonts cannot change 
   await page.evaluate(async () => {
     const unrelated = new FontFace(
       "Unrelated document font",
-      "url(/fonts/SourceCodePro-Regular.ttf.woff2)",
+      "url(/fonts/SwiftTUICoreCandidate3-Regular.woff2)",
     );
     document.fonts.add(unrelated);
     await unrelated.load();
@@ -378,17 +378,29 @@ for (const dpr of [1, 1.25, 1.5, 2, 3]) {
         const rows = page.locator(".webhost-scene__surface-row");
         for (const y of [0, 7]) {
           for (const x of [1, 200]) {
-            const rect = (await rows
-              .nth(y)
-              .locator("span")
-              .nth(x)
-              .boundingBox())!;
+            const rect = await rows.nth(y).evaluate((row, x) => {
+              const cell = [...row.children].find((e) => {
+                const start = Number(e.getAttribute("data-column"));
+                return (
+                  x >= start && x < start + Number(e.getAttribute("data-span"))
+                );
+              })!;
+              const offset = x - Number(cell.getAttribute("data-column"));
+              const range = document.createRange();
+              range.setStart(cell.firstChild!, offset);
+              range.setEnd(cell.firstChild!, offset + 1);
+              const r = range.getBoundingClientRect();
+              return { x: r.x, y: row.getBoundingClientRect().y };
+            }, x);
             expect(
               Math.abs(
                 (rect.x - g.content.left) / g.content.scaleX - x * g.cellWidth,
               ),
               JSON.stringify({ x, y, zoom, rect, geometry: g }),
-            ).toBeLessThanOrEqual(0.5);
+              // WebKit rounds a partial Text Range outward in pre-transform
+              // pixels. A whole run origin stays subpixel; interior selection
+              // rectangles may precede the glyph by one unscaled pixel.
+            ).toBeLessThanOrEqual(1 / zoom + 1 / 32);
             expect(
               Math.abs(
                 (rect.y - g.content.top) / g.content.scaleY - y * g.cellHeight,

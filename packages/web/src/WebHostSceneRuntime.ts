@@ -844,8 +844,15 @@ export class WebHostSceneRuntime {
         this.resizeObserver.observe(this.domGeometry.probe.element);
     }
     const fonts = document.fonts;
-    fonts?.addEventListener?.("loadingdone", refresh);
-    fonts?.addEventListener?.("loadingerror", refresh);
+    const refreshFonts = () => {
+      // A custom/fallback face can change fractional shaping advances while
+      // the rounded grid pitch stays identical. Reprobe inline runs as well.
+      if (this.painter instanceof DomSurfacePainter)
+        this.painter.invalidateFontMetrics();
+      refresh();
+    };
+    fonts?.addEventListener?.("loadingdone", refreshFonts);
+    fonts?.addEventListener?.("loadingerror", refreshFonts);
     globalThis.window?.addEventListener?.("resize", refresh);
     globalThis.window?.visualViewport?.addEventListener("resize", refresh);
     let dpr: MediaQueryList | undefined;
@@ -878,8 +885,8 @@ export class WebHostSceneRuntime {
     this.detachMetricObservers = () => {
       for (const query of preferences)
         query.removeEventListener?.("change", preferenceChanged);
-      fonts?.removeEventListener?.("loadingdone", refresh);
-      fonts?.removeEventListener?.("loadingerror", refresh);
+      fonts?.removeEventListener?.("loadingdone", refreshFonts);
+      fonts?.removeEventListener?.("loadingerror", refreshFonts);
       globalThis.window?.removeEventListener?.("resize", refresh);
       globalThis.window?.visualViewport?.removeEventListener("resize", refresh);
       dpr?.removeEventListener?.("change", changedDpr);

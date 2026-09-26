@@ -1,5 +1,6 @@
 import { canRenderBoxDrawing } from "./BoxDrawingRenderer.ts";
 import { DomGlyphBackground } from "./DomGlyphBackground.ts";
+import { DomTextLayout, naturalText } from "./DomTextLayout.ts";
 import { imagePayloadMetrics } from "./ImageAllocationBudget.ts";
 import {
   isSupportedImageFormat,
@@ -47,6 +48,7 @@ export interface DomSurfaceStatistics {
   imageNodes: number;
   styleCacheEntries: number;
   geometryCacheEntries: number;
+  textAdvanceCacheEntries: number;
   decodedImageBytes: number;
   retainedPayloadBytes: number;
   pendingImages: number;
@@ -71,8 +73,7 @@ export interface DomSurfacePainterOptions {
  * Experimental presenter; see the package README for its support boundary.
  *
  * Draws SwiftTUI surface frames as a DOM element tree instead of canvas
- * pixels: one absolutely positioned row container per grid row, one `<span>`
- * per wire lead cell, explicit sparse-space runs, and `<img>` elements for surface images.
+ * pixels: one absolutely positioned row container per grid row, retained inline text runs, explicit sparse-space runs, and `<img>` elements for surface images.
  *
  * Rendering cells as real text buys what canvas cannot offer — the browser's
  * own font shaping and fallback (emoji, CJK), crisp text at any page zoom, an
@@ -82,7 +83,8 @@ export interface DomSurfacePainterOptions {
  * Damage handling mirrors the canvas painter at row granularity: a frame
  * carrying scoped damage patches only the touched rows; geometry or style
  * changes restyle all rows while retaining unchanged text nodes. Each lead cell
- * keeps its supplied Unicode text and span, without advance correction. Resolved styles
+ * keeps its supplied Unicode text and allocation; batched DOM measurements
+ * correct subsequent run origins without changing or scaling glyph artwork. Resolved styles
  * and geometric backgrounds each have a 512-entry, per-painter cache.
  */
 export class DomSurfacePainter implements WebHostSurfacePainter {
@@ -93,6 +95,9 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   private readonly onImagePayloadMiss: WebHostImagePayloadRequestHandler;
   private root?: HTMLElement;
   private rowsLayer?: HTMLElement;
+  private graphicsLayer?: HTMLElement;
+  private graphics: Map<number, HTMLElement>[] = [];
+  private textLayout?: DomTextLayout;
   private imagesLayer?: HTMLElement;
   private rowElements: HTMLElement[] = [];
   private cells: Map<number, HTMLElement>[] = [];
@@ -169,10 +174,11 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       rows: this.rowElements.length,
       cells: this.cells.reduce((sum, cells) => sum + cells.size, 0),
       rowSeparators: this.rowBreaks.length,
-      decorationNodes: 0, // Bounded SVG backgrounds, no extra live DOM nodes.
+      decorationNodes: this.graphics.reduce((sum, row) => sum + row.size, 0),
       imageNodes: images.length * 2,
       styleCacheEntries: this.styleCache.size,
       geometryCacheEntries: this.glyphs.size,
+      textAdvanceCacheEntries: this.textLayout?.cacheEntries ?? 0,
       decodedImageBytes: images.reduce(
         (sum, image) => sum + image.decodedBytes,
         0,
@@ -202,6 +208,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
    * container's size; the painter owns everything inside it.
    */
   attach(root: HTMLElement): void {
+    if (this.root) this.dispose();
     this.root = root;
     document.addEventListener?.("copy", this.copySelection);
 
@@ -216,7 +223,20 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
 
     this.rowsLayer = rowsLayer;
     this.imagesLayer = imagesLayer;
-    root.replaceChildren(rowsLayer, imagesLayer);
+    const graphicsLayer = createElement("div");
+    graphicsLayer.className = "webhost-scene__surface-graphics";
+    fillContainer(graphicsLayer.style);
+    graphicsLayer.setAttribute("aria-hidden", "true");
+    graphicsLayer.style.pointerEvents = "none";
+    graphicsLayer.style.userSelect = "none";
+    graphicsLayer.style.zIndex = "0";
+    rowsLayer.style.zIndex = "1";
+    imagesLayer.style.zIndex = "2";
+    this.graphicsLayer = graphicsLayer;
+    this.graphics = [];
+    this.textLayout?.dispose();
+    root.replaceChildren(rowsLayer, imagesLayer, graphicsLayer);
+    this.textLayout = new DomTextLayout(root);
     this.rowElements = [];
     this.cells = [];
     this.rowBreaks = [];
@@ -263,6 +283,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       (currentForcedForeground !== undefined &&
         currentForcedForeground !== this.forcedForeground);
     if (metricsChanged) {
+      this.textLayout?.invalidate();
       this.styleCache.clear();
       this.appliedCellStyles = new WeakMap();
       this.glyphs.clear();
@@ -274,12 +295,15 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     }
 
     if (!frame) {
+      this.textLayout?.clear();
       clearSelection(rowsLayer);
       this.rowElements = [];
       this.cells = [];
       this.rowBreaks = [];
       this.linkCells.clear();
       rowsLayer.replaceChildren();
+      this.graphicsLayer?.replaceChildren();
+      this.graphics = [];
       this.lastImageRecoveryFrame = undefined;
       this.reconcileImages([], metrics, false);
       this.renderedGridKey = undefined;
@@ -323,11 +347,22 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       damage.requiresFullGraphicsReplay;
     this.renderedGridKey = gridKey;
 
+    const preparedRows = this.textLayout!.prepare(
+      frame,
+      metrics,
+      new Set(
+        (frame.links ?? [])
+          .filter(([, links]) => links.length > 0)
+          .map(([y]) => y),
+      ),
+    );
     if (fullRepaint) {
       for (let y = this.rowElements.length; y > frame.rows.length; y -= 1) {
         const row = this.rowElements[y - 1];
         if (row) clearSelection(row);
         row?.remove();
+        for (const graphic of this.graphics.pop()?.values() ?? [])
+          graphic.remove();
         this.cells.pop();
         this.rowBreaks.pop();
       }
@@ -336,14 +371,20 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         frame.rows.length,
       );
       for (let y = 0; y < frame.rows.length; y += 1) {
-        this.rebuildRow(y, frame, metrics, clearSelection);
+        this.rebuildRow(y, frame, metrics, preparedRows[y]!, clearSelection);
       }
     } else {
       for (const [row] of damage.textRows) {
         if (row < 0 || row >= frame.rows.length) {
           continue;
         }
-        this.rebuildRow(row, frame, metrics, clearSelection);
+        this.rebuildRow(
+          row,
+          frame,
+          metrics,
+          preparedRows[row]!,
+          clearSelection,
+        );
       }
     }
 
@@ -355,6 +396,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
 
   invalidateFontMetrics(): void {
     this.appliedMetricsKey = undefined;
+    this.textLayout?.invalidate();
   }
 
   dispose(): void {
@@ -363,6 +405,10 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     this.appliedCellStyles = new WeakMap();
     this.glyphs.clear();
     this.linkCells.clear();
+    this.textLayout?.dispose();
+    this.textLayout = undefined;
+    this.graphics = [];
+    this.graphicsLayer = undefined;
     this.root?.replaceChildren();
     this.root = undefined;
     this.rowsLayer = undefined;
@@ -380,12 +426,14 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     y: number,
     frame: WebHostSurfaceFrame,
     metrics: SurfaceMetrics,
-    clearSelection: (element: HTMLElement) => void,
+    rowCells: WebHostSurfaceCell[],
+    clearSelection: SelectionEditor,
   ): void {
     const rowElement = this.ensureRowElement(y, metrics);
     const previous = this.cells[y] ?? new Map<number, HTMLElement>();
     const next = new Map<number, HTMLElement>();
-    const rowCells = copyableRow(frame.rows[y] ?? [], frame.width);
+    const graphics = this.graphics[y] ?? new Map<number, HTMLElement>();
+    this.graphics[y] = graphics;
     const retainedColumns = new Set(rowCells.map((cell) => cell[0]));
     // Remove absent predecessors before reconciling positions. Moving a
     // retained selected node to fill their old slot would collapse its Range.
@@ -393,8 +441,11 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       if (!retainedColumns.has(x)) {
         clearSelection(element);
         element.remove();
+        graphics.get(x)?.remove();
+        graphics.delete(x);
       }
     }
+    let inlineOrigin = 0;
     let position = 0;
     for (const [x, text, span, styleIndex] of rowCells) {
       const cellStyle = frame.styles[styleIndex] ?? undefined;
@@ -410,15 +461,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         element = undefined;
       }
       if (!element) element = createElement(tag.toLowerCase());
-      if (element.textContent !== text) {
-        clearSelection(element);
-        // Keep the existing text/layout object when its contents change.
-        // textContent's replace-all operation needlessly destroys and rebuilds
-        // every text node in a full-frame update.
-        const node = element.firstChild;
-        if (node?.nodeType === 3) node.nodeValue = text;
-        else element.textContent = text;
-      }
+      clearSelection.replaceText(element, text);
       const key = JSON.stringify(cellStyle ?? null);
       let resolved = this.styleCache.get(key);
       if (!resolved) {
@@ -432,15 +475,35 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         this.styleCache.set(key, resolved);
       }
       const geometricText = canRenderBoxDrawing(text) ? text : "";
-      const presentationKey = JSON.stringify([key, x, span, geometricText]);
+      const left = x * metrics.cellWidth - inlineOrigin;
+      inlineOrigin += this.textLayout!.advance(text, span, cellStyle?.em ?? 0);
+      const spacing = this.textLayout!.spacing(
+        text,
+        span,
+        cellStyle?.em ?? 0,
+        metrics.cellWidth,
+      );
+      const presentationKey = JSON.stringify([
+        key,
+        x,
+        span,
+        geometricText,
+        left,
+        spacing,
+        naturalText(text, span),
+      ]);
       if (this.appliedCellStyles.get(element) !== presentationKey) {
         Object.assign(element.style, resolved, {
-          left: `${x * metrics.cellWidth}px`,
-          width: `${Math.max(1, span) * metrics.cellWidth}px`,
-          // Cancel flow advance so each relative offset starts at the row
-          // origin. This prevents WebKit zoom rounding from accumulating,
-          // while retaining inline text search in Firefox and WebKit.
-          marginRight: `${-Math.max(1, span) * metrics.cellWidth}px`,
+          left: `${left}px`,
+          position: Math.abs(left) < 0.01 ? "static" : "relative",
+          display:
+            Math.abs(left) < 0.01 &&
+            (this.forcedColors || (cellStyle?.opacity ?? 1) === 1)
+              ? "contents"
+              : "inline",
+          letterSpacing: `${spacing}px`,
+          unicodeBidi: naturalText(text, span) ? "normal" : "isolate",
+          backgroundColor: "transparent",
         });
         const glyph = this.glyphs.image(
           geometricText,
@@ -460,9 +523,34 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
             : cellStyle,
           x * metrics.cellWidth,
         );
-        element.style.backgroundImage = glyph ?? "none";
-        element.style.backgroundSize = "100% 100%";
-        element.style.backgroundRepeat = "no-repeat";
+        const background = resolved.backgroundColor ?? "transparent";
+        if (glyph || background !== "transparent") {
+          let graphic = graphics.get(x);
+          if (!graphic) {
+            graphic = createElement("div");
+            Object.assign(graphic.style, scopedBoxStyle);
+            graphic.setAttribute("data-row", String(y));
+            graphic.setAttribute("data-column", String(x));
+            this.graphicsLayer?.appendChild(graphic);
+            graphics.set(x, graphic);
+          }
+          Object.assign(graphic.style, {
+            position: "absolute",
+            left: `${x * metrics.cellWidth}px`,
+            top: `${y * metrics.cellHeight}px`,
+            width: `${Math.max(1, span) * metrics.cellWidth}px`,
+            height: `${metrics.cellHeight}px`,
+            backgroundColor: background,
+            backgroundImage: glyph ?? "none",
+            backgroundSize: "100% 100%",
+            backgroundRepeat: "no-repeat",
+            opacity: resolved.opacity,
+            forcedColorAdjust: this.forcedColors ? "none" : "auto",
+          });
+        } else {
+          graphics.get(x)?.remove();
+          graphics.delete(x);
+        }
         // Keep exactly one real text node for native selection/copy/find.
         element.style.color = geometricText
           ? "transparent"
@@ -493,6 +581,10 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         element.onclick = activate;
         element.onauxclick = activate;
       }
+      if (element.getAttribute("data-column") !== String(x))
+        element.setAttribute("data-column", String(x));
+      if (element.getAttribute("data-span") !== String(span))
+        element.setAttribute("data-span", String(span));
       next.set(x, element);
       if (rowElement.children[position] !== element) {
         rowElement.insertBefore(element, rowElement.children[position] ?? null);
@@ -782,9 +874,8 @@ function resolveCellStyle(
   const forcedColors = forcedForeground !== undefined;
   const elementStyle = {
     position: "relative",
-    display: "inline-block",
-    verticalAlign: "top",
-    contain: "size",
+    display: "inline",
+    verticalAlign: "baseline",
     boxSizing: "border-box",
     padding: "0",
     margin: "0",
@@ -806,9 +897,7 @@ function resolveCellStyle(
     fontSynthesis: "none",
     fontVariantLigatures: "none",
     top: "0",
-    height: "100%",
     whiteSpace: "pre",
-    overflow: "hidden",
     direction: "ltr",
     unicodeBidi: "isolate",
     color: forcedForeground ?? resolvedSurfaceForeground(style, metrics.style),
@@ -896,35 +985,52 @@ function createElement(tagName: string): HTMLElement {
   return document.createElement(tagName);
 }
 
-/** Only a mutation of selected content cancels a live selection. */
-function selectionInvalidator(): (element: HTMLElement) => void {
+interface SelectionEditor {
+  (element: Node): void;
+  replaceText(element: HTMLElement, value: string): void;
+}
+
+/** Read selection once before measurements/patches to avoid forced layout per cell. */
+function selectionInvalidator(): SelectionEditor {
   let selection = globalThis.document?.getSelection?.();
-  if (!selection || selection.isCollapsed) return () => {};
-  const ranges = Array.from({ length: selection.rangeCount }, (_, index) =>
-    selection!.getRangeAt(index),
+  if (selection?.isCollapsed) selection = null;
+  const ranges = Array.from(
+    { length: selection?.rangeCount ?? 0 },
+    (_, index) => selection!.getRangeAt(index),
   );
-  return (element) => {
+  const invalidate = (element: Node) => {
     if (selection && ranges.some((range) => range.intersectsNode(element))) {
       selection.removeAllRanges();
       selection = null;
     }
   };
-}
-
-/** Spaces represent every unoccupied grid column; a wide cell contributes its
- * supplied grapheme once, never a second continuation character. */
-function copyableRow(
-  cells: WebHostSurfaceCell[],
-  width: number,
-): WebHostSurfaceCell[] {
-  const result: WebHostSurfaceCell[] = [];
-  let end = 0;
-  for (const cell of cells) {
-    if (cell[0] > end)
-      result.push([end, " ".repeat(cell[0] - end), cell[0] - end, -1]);
-    result.push(cell);
-    end = cell[0] + Math.max(1, cell[2]);
-  }
-  if (end < width) result.push([end, " ".repeat(width - end), width - end, -1]);
-  return result;
+  return Object.assign(invalidate, {
+    replaceText(element: HTMLElement, value: string) {
+      if (element.textContent === value) return;
+      const node = element.firstChild;
+      if (node?.nodeType !== 3) {
+        invalidate(element);
+        element.textContent = value;
+        return;
+      }
+      const text = node as Text;
+      // Preserve offsets when an equal-length run changes outside the selection.
+      if (selection && text.length === value.length) {
+        const touched = ranges.filter((range) => range.intersectsNode(text));
+        const unchanged = touched.every((range) => {
+          const lo = range.startContainer === text ? range.startOffset : 0;
+          const hi =
+            range.endContainer === text ? range.endOffset : text.length;
+          return text.data.slice(lo, hi) === value.slice(lo, hi);
+        });
+        if (touched.length && unchanged) {
+          for (let i = value.length - 1; i >= 0; i--)
+            if (text.data[i] !== value[i]) text.replaceData(i, 1, value[i]!);
+          return;
+        }
+      }
+      invalidate(text);
+      text.data = value;
+    },
+  });
 }

@@ -115,7 +115,11 @@ const api = {
         ),
       ].map((cell) => ({
         text: cell.textContent,
-        svg: decodeURIComponent(cell.style.backgroundImage),
+        svg: decodeURIComponent(
+          host.querySelector<HTMLElement>(
+            `.webhost-scene__surface-graphics > [data-row="${[...cell.parentElement!.parentElement!.children].indexOf(cell.parentElement!)}"][data-column="${cell.dataset.column}"]`,
+          )?.style.backgroundImage ?? "",
+        ),
         color: getComputedStyle(cell).color,
         forcedColorAdjust: cell.style.forcedColorAdjust,
         opacity: cell.style.opacity,
@@ -129,6 +133,11 @@ const api = {
         }),
       ),
     };
+  },
+  ownership() {
+    // One layout read; avoid a per-cell computed-style census on a maximum grid.
+    host.getBoundingClientRect();
+    return { stats: painter.statistics, textLength: host.textContent?.length };
   },
   saveImages() {
     savedImages = [...host.querySelectorAll<HTMLImageElement>("img")];

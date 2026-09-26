@@ -1,0 +1,53 @@
+# STUI-639: source-generated contours, no post-build glyph scaling.
+[buildPlans.SwiftTUICoreCandidate3]
+family = "SwiftTUI Core Candidate 3"
+spacing = "fixed"
+serifs = "sans"
+noCvSs = true
+noLigation = true
+exportGlyphNames = false
+
+[buildPlans.SwiftTUICoreCandidate3.weights.Regular]
+shape = 400
+menu = 400
+css = 400
+
+[buildPlans.SwiftTUICoreCandidate3.weights.Bold]
+shape = 700
+menu = 700
+css = 700
+
+[buildPlans.SwiftTUICoreCandidate3.widths.Normal]
+shape = 600
+menu = 5
+css = "normal"
+
+[buildPlans.SwiftTUICoreCandidate3.slopes.Upright]
+angle = 0
+shape = "upright"
+menu = "upright"
+css = "normal"
+
+[buildPlans.SwiftTUICoreCandidate3.slopes.Italic]
+angle = 4
+shape = "italic"
+menu = "italic"
+css = "italic"
+
+[buildPlans.SwiftTUICoreCandidate3.metricOverride]
+leading = 1500
+accentWidth = 150
+accentClearance = 50
+accentHeight = 100
+accentStackOffset = 145
+sb = "default_sb + 75"
+
+[buildPlans.SwiftTUICoreCandidate3.subset.include]
+textFile = "swifttui-core-characters.txt"
+
+[buildPlans.SwiftTUICoreCandidate3.namingOverride]
+version = "0.3.0"
+description = "SwiftTUI core candidate derived from Iosevka 34.8.1; preserves upstream copyright and OFL license."
+
+[buildPlans.SwiftTUICoreCandidate3.variants.italic]
+j = "straight-line"

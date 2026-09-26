@@ -112,7 +112,7 @@ window.runGeometryCorpus = async (transport, renderer) => {
     painted,
     announcements,
     text: renderer === "dom" ? surface.textContent : undefined,
-    children: surface.childElementCount,
+    rows: surface.querySelectorAll(".webhost-scene__surface-row").length,
   };
   scheduler.dispose();
   painter.dispose?.();
@@ -131,7 +131,7 @@ declare global {
       painted: number[];
       announcements: string[];
       text: string | null | undefined;
-      children: number;
+      rows: number;
     }>;
   }
 }

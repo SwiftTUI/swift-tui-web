@@ -50,7 +50,8 @@ test("retained cell-DOM cost at five repeats", async ({
       );
       expect(result.retainedIdentity).toBe(true);
       expect(result.exact).toBe(true);
-      expect(result.counts.cells).toBe(width * height);
+      expect(result.counts.cells).toBeLessThanOrEqual(width * height);
+      expect(result.counts.cells).toBeGreaterThanOrEqual(height);
       expect(result.disposedElements).toBe(0);
       results.push(result);
       await writeFile(

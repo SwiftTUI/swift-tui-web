@@ -91,57 +91,65 @@ test("wire lead cells preserve Unicode, order and allocation through replacement
       const root = document
         .querySelector("#typography")!
         .getBoundingClientRect();
-      const rows = [
-        ...document.querySelectorAll(".webhost-scene__surface-row"),
-      ];
-      return rows.map((row) =>
-        [...row.children].map((cell) => {
-          const rect = cell.getBoundingClientRect();
-          const css = getComputedStyle(cell);
-          return {
-            text: cell.textContent,
-            x: rect.x - root.x,
-            y: rect.y - root.y,
-            width: rect.width,
-            height: rect.height,
-            overflow: css.overflow,
-            bidi: css.unicodeBidi,
-            spacing: css.letterSpacing,
-          };
-        }),
+      return [...document.querySelectorAll(".webhost-scene__surface-row")].map(
+        (row, y) => {
+          const samples =
+            y < 4
+              ? window.typography.samples
+              : [
+                  [1, "W", 1, 0],
+                  [200, "W", 1, 0],
+                ];
+          return samples.map(([x, text]) => {
+            const cell = [...row.children].find((e) => {
+              const start = Number(e.getAttribute("data-column"));
+              return (
+                Number(x) >= start &&
+                Number(x) < start + Number(e.getAttribute("data-span"))
+              );
+            })!;
+            if (!text) return { text: "", x: Number(x), y: 0, interior: false };
+            const offset = Number(x) - Number(cell.getAttribute("data-column"));
+            const range = document.createRange();
+            range.setStart(cell.firstChild!, offset);
+            range.setEnd(cell.firstChild!, offset + String(text).length);
+            const rect =
+              offset === 0 && getComputedStyle(cell).display !== "contents"
+                ? cell.getBoundingClientRect()
+                : range.getBoundingClientRect();
+            return {
+              text: range.toString(),
+              x: rect.x - root.x,
+              y: row.getBoundingClientRect().y - root.y,
+              interior: offset > 0,
+            };
+          });
+        },
       );
     });
     const samples = await page.evaluate(() => window.typography.samples);
     for (const [y, row] of result.slice(0, 4).entries()) {
-      expect(row).toHaveLength(samples.length + 1);
-      expect(row.at(-1)?.text).toBe(" ".repeat(181));
-      expect(row.at(-1)?.width).toBe(181 * cw);
-      for (const [i, cell] of row.slice(0, samples.length).entries()) {
-        const [x, text, span] = samples[i]!;
+      for (const [i, cell] of row.entries()) {
+        const [x, text] = samples[i]!;
         expect(cell.text).toBe(text);
-        expect(cell.x).toBeCloseTo(x * cw, 1);
+        if (!text) continue;
+        expect(
+          Math.abs(cell.x - x * cw),
+          JSON.stringify({ size, y, x, text, cell }),
+        ).toBeLessThanOrEqual(cell.interior ? 1 + 1 / 32 : 0.5);
         expect(cell.y).toBeCloseTo(y * ch, 1);
-        expect(cell.width).toBeCloseTo(span * cw, 1);
-        expect(cell.overflow).toBe("hidden");
-        expect(cell.bidi).toBe("isolate");
-        expect(["normal", "0px"]).toContain(cell.spacing);
       }
     }
-    for (const x of [1, 200])
-      expect(Math.abs(result[4]![x]!.x - x * cw)).toBeLessThanOrEqual(0.5);
+    for (const [i, x] of [1, 200].entries())
+      expect(Math.abs(result[4]![i]!.x - x * cw)).toBeLessThanOrEqual(
+        1 + 1 / 32,
+      );
     await info.attach(`unicode-${size}`, {
       body: await page.locator("#typography").screenshot(),
       contentType: "image/png",
     });
     await page.evaluate((size) => window.typography.paint(size, true), size);
-    await expect(rows.first().locator("span").nth(3)).toHaveText("n");
-    expect(
-      await rows
-        .first()
-        .locator("span")
-        .nth(3)
-        .evaluate((e) => e.getBoundingClientRect().width),
-    ).toBe(cw);
+    await expect(rows.first().locator('[data-column="3"]')).toHaveText("n");
   }
   await page.evaluate(() => window.typography.dispose());
   await expect(page.locator("#typography")).toBeEmpty();

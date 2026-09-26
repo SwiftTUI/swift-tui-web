@@ -54,7 +54,7 @@ await buildSwiftTUIWebApp({
 ```
 
 The full build copies the runtime package's four verified WOFF2 faces, their
-manifest and OFL notice into `assets/swifttui-fonts/2184c1f2bac4/`. Deploy that
+manifest and OFL notice into `assets/swifttui-fonts/6ec060766aae/`. Deploy that
 directory with the app. Build systems that package WASM separately can use
 `await copyDomFontAssets(outputDirectory)` from `@swifttui/build`; it validates
 the installed asset hashes before copying. Runtime `domFont.assetBase` can

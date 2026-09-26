@@ -26,7 +26,7 @@ for (const transport of ["wasi", "websocket"] as const) {
       ]);
       expect(result.painted).toEqual([1, 2, 3, 3, Number.MAX_SAFE_INTEGER]);
       if (renderer === "dom") {
-        expect(result.children).toBe(2);
+        expect(result.rows).toBe(2);
         expect(result.text).toBe("abcd\n宽e ");
       }
     });

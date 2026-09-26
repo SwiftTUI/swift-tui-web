@@ -101,26 +101,33 @@ test("full paint renders positioned row and cell elements with resolved styles",
     const emphasized = firstRow?.children[0];
     expect(emphasized?.textContent).toBe("Hi");
     expect(emphasized?.style.left).toBe("0px");
-    expect(emphasized?.style.width).toBe("16px");
+    expect(root.children[2]?.children[0]?.style.width).toBe("16px");
     expect(emphasized?.style.color).toBe("#ff0000");
-    expect(emphasized?.style.backgroundColor).toBe("#00ff00");
+    expect(root.children[2]?.children[0]?.style.backgroundColor).toBe(
+      "#00ff00",
+    );
     expect(emphasized?.style.fontWeight).toBe("700");
     expect(emphasized?.style.fontStyle).toBe("italic");
 
     // Reverse video (em & 16) swaps the cell's colors against the theme.
-    const reversed = firstRow?.children[2];
-    expect(reversed?.style.left).toBe("32px");
-    expect(reversed?.style.backgroundColor).toBe("#123456");
+    expect(root.children[2]?.children[1]?.style.left).toBe("32px");
+    expect(root.children[2]?.children[1]?.style.backgroundColor).toBe(
+      "#123456",
+    );
 
     const decorated = rowsLayer?.children[1]?.children[1];
     expect(decorated?.style.top).toBe("0");
     expect(rowsLayer?.children[1]?.style.top).toBe("18px");
     expect(decorated?.style.textDecorationLine).toBe("none");
     expect(
-      decodeURIComponent(decorated?.style.backgroundImage ?? ""),
+      decodeURIComponent(
+        root.children[2]?.children[2]?.style.backgroundImage ?? "",
+      ),
     ).toContain("#abcdef");
     expect(
-      decodeURIComponent(decorated?.style.backgroundImage ?? ""),
+      decodeURIComponent(
+        root.children[2]?.children[2]?.style.backgroundImage ?? "",
+      ),
     ).toContain("C1");
     expect(decorated?.style.opacity).toBe("0.5");
   } finally {
@@ -128,8 +135,8 @@ test("full paint renders positioned row and cell elements with resolved styles",
   }
 });
 
-test("root style pins line height and isolates text without advance correction", () => {
-  const dom = installFakeDOM({ measuredAdvance: 7.5 });
+test("root style pins row line height and shaping settings", () => {
+  const dom = installFakeDOM();
   try {
     const painter = new DomSurfacePainter();
     const root = new FakeElement("div");
@@ -172,8 +179,10 @@ test("blank runs remain selectable alongside decorated whitespace", () => {
 
     const row = root.children[0]?.children[0];
     expect(row?.children).toHaveLength(3);
-    expect(row?.children[1]?.style.backgroundColor).toBe("#222222");
-    expect(row?.children[1]?.style.width).toBe("24px");
+    expect(root.children[2]?.children[0]?.style.backgroundColor).toBe(
+      "#222222",
+    );
+    expect(root.children[2]?.children[0]?.style.width).toBe("24px");
   } finally {
     dom.restore();
   }
@@ -652,11 +661,7 @@ function makeFrame(
 // ---------------------------------------------------------------------------
 // Fake DOM
 
-interface FakeDOMOptions {
-  measuredAdvance?: number;
-}
-
-function installFakeDOM(options: FakeDOMOptions = {}): { restore(): void } {
+function installFakeDOM(): { restore(): void } {
   const previousDocument = globalThis.document;
   globalThis.document = {
     createTextNode: (text: string) => {
@@ -666,7 +671,7 @@ function installFakeDOM(options: FakeDOMOptions = {}): { restore(): void } {
     },
     createElement: (tagName: string) => {
       if (tagName === "canvas") {
-        return new FakeCanvasElement(options.measuredAdvance ?? 8);
+        throw new Error("DOM painter requested Canvas");
       }
       return new FakeElement(tagName);
     },
@@ -698,6 +703,15 @@ class FakeElement {
 
   constructor(tagName: string) {
     this.tagName = tagName.toUpperCase();
+  }
+
+  getBoundingClientRect() {
+    return {
+      width:
+        Number.parseFloat(this.style.width) ||
+        this.textContent.length *
+          (8 + (Number.parseFloat(this.style.letterSpacing) || 0)),
+    };
   }
 
   appendChild(child: FakeElement): FakeElement {
@@ -741,31 +755,5 @@ class FakeElement {
   }
   removeAttribute(name: string): void {
     this.attributes.delete(name);
-  }
-}
-
-class FakeCanvasElement extends FakeElement {
-  private readonly advance: number;
-
-  constructor(advance: number) {
-    super("canvas");
-    this.advance = advance;
-  }
-
-  getContext(
-    contextId: string,
-  ):
-    | { font: string; measureText(text: string): { width: number } }
-    | undefined {
-    if (contextId !== "2d") {
-      return undefined;
-    }
-    const advance = this.advance;
-    return {
-      font: "",
-      measureText: (text: string) => ({
-        width: Math.max(1, Array.from(text).length) * advance,
-      }),
-    };
   }
 }

@@ -35,20 +35,17 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => !!window.domFidelity);
 });
 
-test("browser find joins adjacent one-grapheme wire cells exactly once", async ({
+test("browser find crosses style and link boundaries exactly once", async ({
   page,
-  browserName,
 }) => {
-  test.fail(
-    browserName === "chromium",
-    "STUI-559: native find stops at each HTML inline-block; this is a production qualification blocker",
-  );
   const word: WebHostSurfaceFrame = {
     version: 2,
     width: 6,
     height: 1,
-    styles: [null],
-    rows: [[..."findme"].map((c, x) => [x, c, 1, 0])],
+    styles: [null, { em: 1, fg: "#bb2233" }, { em: 2 }],
+    rows: [[..."findme"].map((c, x) => [x, c, 1, x % 3])],
+    links: [[0, [[2, 2, 0]]]],
+    linkTargets: ["https://example.test/find"],
   };
   await page.evaluate((frame) => window.domFidelity.paint(frame), word);
   expect(
@@ -70,6 +67,47 @@ test("browser find joins adjacent one-grapheme wire cells exactly once", async (
       ];
     }),
   ).toEqual([true, false]);
+});
+
+test("coalesced text retains a live Range through changes outside the selection", async ({
+  page,
+}) => {
+  const result = await page.evaluate(() => {
+    HTMLCanvasElement.prototype.getContext = () => {
+      throw new Error("DOM selection requested Canvas");
+    };
+    const frame: WebHostSurfaceFrame = {
+      version: 2,
+      width: 16,
+      height: 1,
+      styles: [null],
+      rows: [[..."select--outside!"].map((text, x) => [x, text, 1, 0])],
+    };
+    window.domFidelity.paint(frame);
+    const row = document.querySelector(".webhost-scene__surface-row")!;
+    const node = row.firstChild!.firstChild!;
+    const range = document.createRange();
+    range.setStart(node, 0);
+    range.setEnd(node, 6);
+    const selection = document.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    frame.rows[0]![14]![1] = "X";
+    window.domFidelity.paint(frame);
+    const retained =
+      row.childElementCount === 1 &&
+      row.firstChild!.firstChild === node &&
+      selection.getRangeAt(0) === range &&
+      selection.toString() === "select";
+    frame.rows[0]![2]![1] = "X";
+    window.domFidelity.paint(frame);
+    return { retained, selected: selection.toString(), text: row.textContent };
+  });
+  expect(result).toEqual({
+    retained: true,
+    selected: "",
+    text: "seXect--outsidX!",
+  });
 });
 
 test("every decoration pattern retains independent colors on text and geometric cells", async ({
@@ -98,7 +136,7 @@ test("every decoration pattern retains independent colors on text and geometric 
   await page.evaluate(() => window.domFidelity.refresh());
   const full = await page.evaluate(() => window.domFidelity.state());
   expect(partial.cells).toEqual(full.cells);
-  expect(partial.stats.decorationNodes).toBe(0);
+  expect(partial.stats.decorationNodes).toBe(14);
   expect(partial.stats.geometryCacheEntries).toBeLessThanOrEqual(512);
 });
 
@@ -123,8 +161,8 @@ test("unrelated damage and identical full repaint leave retained rows untouched 
     .locator("span")
     .first()
     .boundingBox();
-  expect(cell?.width).toBe(10);
-  expect(cell?.height).toBe(24);
+  expect(cell?.x).toBe(before?.x);
+  expect(cell!.height).toBeLessThanOrEqual(24);
   const changed = structuredClone(frame);
   changed.rows[0]![0]![1] = "Y";
   await page.evaluate(
@@ -388,5 +426,47 @@ test("aggregate decoded image admission and missing-payload recovery stay bounde
     imageNodes: 0,
     decodedImageBytes: 0,
     retainedPayloadBytes: 0,
+  });
+});
+
+test("the admitted maximum grid completes with bounded text ownership and releases it", async ({
+  page,
+}, info) => {
+  const result = await page.evaluate(() => {
+    HTMLCanvasElement.prototype.getContext = () => {
+      throw new Error("DOM maximum grid requested Canvas");
+    };
+    const start = performance.now();
+    window.domFidelity.paint({
+      version: 2,
+      width: 1024,
+      height: 64,
+      styles: [null, { em: 1 }, { em: 2 }, { em: 3 }],
+      rows: Array.from({ length: 64 }, () =>
+        Array.from({ length: 1024 }, (_, x) => [x, "W", 1, x % 4]),
+      ),
+    });
+    const state = window.domFidelity.ownership();
+    const populated = {
+      elapsed: performance.now() - start,
+      stats: state.stats,
+      textLength: state.textLength,
+    };
+    window.domFidelity.dispose();
+    return { populated, disposed: window.domFidelity.state().stats };
+  });
+  expect(result.populated.stats.cells).toBe(65536);
+  expect(result.populated.stats.rows).toBe(64);
+  expect(result.populated.stats.textAdvanceCacheEntries).toBeLessThanOrEqual(4);
+  expect(result.populated.textLength).toBe(65536 + 63);
+  expect(result.disposed).toMatchObject({
+    rows: 0,
+    cells: 0,
+    decorationNodes: 0,
+    textAdvanceCacheEntries: 0,
+  });
+  await info.attach("maximum-grid", {
+    body: JSON.stringify(result),
+    contentType: "application/json",
   });
 });

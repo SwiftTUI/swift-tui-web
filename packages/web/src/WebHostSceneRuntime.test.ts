@@ -4212,14 +4212,15 @@ test("dom renderer mounts a DOM surface and renders decoded frames as text eleme
     const styled = rowsLayer.children[0]!.children[0]!;
     expect(styled.textContent).toBe("A");
     expect(styled.style.color).toBe("#000000FF");
-    expect(styled.style.backgroundColor).toBe("#E05757FF");
+    const graphic = surface.children[2]!.children[0]!;
+    expect(graphic.style.backgroundColor).toBe("#E05757FF");
     expect(styled.style.fontWeight).toBe("700");
     expect(styled.style.fontStyle).toBe("italic");
     expect(styled.style.textDecorationLine).toBe("none");
-    expect(decodeURIComponent(styled.style.backgroundImage ?? "")).toContain(
+    expect(decodeURIComponent(graphic.style.backgroundImage ?? "")).toContain(
       "#EBB33CFF",
     );
-    expect(decodeURIComponent(styled.style.backgroundImage ?? "")).toContain(
+    expect(decodeURIComponent(graphic.style.backgroundImage ?? "")).toContain(
       "#E05757FF",
     );
     expect(styled.style.opacity).toBe("0.75");
@@ -4227,8 +4228,8 @@ test("dom renderer mounts a DOM surface and renders decoded frames as text eleme
     // Cell [1,"界",2,2]: double-width run occupies two cells.
     const wide = rowsLayer.children[0]!.children[1]!;
     expect(wide.textContent).toBe("界");
-    expect(wide.style.left).toBe("10px");
-    expect(wide.style.width).toBe("20px");
+    expect(wide.getAttribute("data-column")).toBe("1");
+    expect(wide.getAttribute("data-span")).toBe("2");
 
     // Cell [2,"B",1,0]: null style falls back to the theme foreground; the
     // trailing blank cell [3," ",1,0] remains selectable.
