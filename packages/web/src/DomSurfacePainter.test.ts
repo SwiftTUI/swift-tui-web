@@ -29,7 +29,10 @@ test("authored paragraphs own existing runs across rows and retain them through 
     const first = paragraph.children[0]!.children[0]!;
     expect(first.textContent).toBe("CDEF");
     expect(paragraph.children[1]!.children[0]!.textContent).toBe("MNOP");
-    expect(first.style.left).toBe("16px");
+    expect(paragraph.children[0]!.style.left).toBe("16px");
+    expect(paragraph.children[0]!.style.width).toBe("32px");
+    expect(first.style.left).toBe("0px");
+    expect(layer.children[0]!.style.width).toBe("16px");
     painter.paint(metricsFor(2), frame, {
       textRows: [[1, [[0, 10]]]],
       requiresFullTextRepaint: false,

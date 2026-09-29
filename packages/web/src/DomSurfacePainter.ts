@@ -573,7 +573,8 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         element.style.webkitUserSelect = selectable ? "text" : "none";
         element.style.cursor = selectable ? "text" : "";
       }
-      const left = x * metrics.cellWidth - state.inlineOrigin;
+      const left =
+        (x - (fragment?.start ?? 0)) * metrics.cellWidth - state.inlineOrigin;
       state.inlineOrigin += this.textLayout!.advance(
         text,
         span,
@@ -737,7 +738,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       this.rowElements[y] = rowElement;
       this.rowsLayer?.appendChild(rowElement);
     }
-    styleTextRow(rowElement, y, metrics);
+    if (!this.paragraphs) styleTextRow(rowElement, y, metrics);
     return rowElement;
   }
 
@@ -1145,6 +1146,8 @@ function styleTextRow(
   rowElement: HTMLElement,
   y: number,
   metrics: SurfaceMetrics,
+  start = 0,
+  columns = metrics.columns,
 ): void {
   if (rowElement.className !== "webhost-scene__surface-row") {
     rowElement.className = "webhost-scene__surface-row";
@@ -1159,15 +1162,15 @@ function styleTextRow(
       webkitUserSelect: "text",
       position: "absolute",
       display: "block",
-      left: "0",
     });
   }
   const geometry = {
+    left: `${start * metrics.cellWidth}px`,
     top: `${y * metrics.cellHeight}px`,
     height: `${metrics.cellHeight}px`,
-    width: `${metrics.columns * metrics.cellWidth}px`,
+    width: `${columns * metrics.cellWidth}px`,
   };
-  for (const key of ["top", "height", "width"] as const)
+  for (const key of ["left", "top", "height", "width"] as const)
     if (rowElement.style[key] !== geometry[key])
       rowElement.style[key] = geometry[key];
 }

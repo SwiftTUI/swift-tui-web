@@ -122,9 +122,22 @@ export class DomParagraphs {
       element: HTMLElement,
       y: number,
       metrics: SurfaceMetrics,
+      start: number,
+      columns: number,
     ) => void,
   ): void {
     for (const [y, fragments] of this.rows.entries())
-      for (const fragment of fragments) styleRow(fragment.element, y, metrics);
+      for (const fragment of fragments) {
+        // Disjoint fragments must also have disjoint hit boxes. A full-width
+        // trailing blank fragment would intercept native selection over the
+        // paragraph even though its visible glyphs are positioned correctly.
+        styleRow(
+          fragment.element,
+          y,
+          metrics,
+          fragment.start,
+          fragment.end - fragment.start,
+        );
+      }
   }
 }
