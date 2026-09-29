@@ -855,8 +855,6 @@ export class WebHostSceneRuntime {
 
   private installResizeObserver(): void {
     const refresh = () => {
-      if (this.painter instanceof DomSurfacePainter)
-        this.painter.invalidateFontMetrics();
       if (this.domGeometry) {
         this.refreshGeometry();
         return;
@@ -878,7 +876,11 @@ export class WebHostSceneRuntime {
     // ancestor state, never the painter's per-frame DOM mutations.
     const userStyleObserver =
       this.domGeometry && typeof MutationObserver !== "undefined"
-        ? new MutationObserver(refresh)
+        ? new MutationObserver(() => {
+            if (this.painter instanceof DomSurfacePainter)
+              this.painter.invalidateFontMetrics();
+            refresh();
+          })
         : undefined;
     if (userStyleObserver) {
       userStyleObserver.observe(document.head, {
