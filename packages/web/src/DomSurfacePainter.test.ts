@@ -48,6 +48,27 @@ test("authored paragraphs own existing runs across rows and retain them through 
   }
 });
 
+test("a paragraph ending the surface adds no trailing copy separator", () => {
+  const dom = installFakeDOM();
+  try {
+    const painter = new DomSurfacePainter();
+    painter.attach(new FakeElement("div") as unknown as HTMLElement);
+    painter.paint(
+      metricsFor(2),
+      makeFrame({
+        width: 2,
+        height: 2,
+        paragraphs: [{ id: "prose", rect: [0, 0, 2, 2] }],
+        rows: [[[0, "ab", 2, 0]], [[0, "cd", 2, 0]]],
+      }),
+    );
+    expect(painter.statistics.rowSeparators).toBe(1);
+    painter.dispose();
+  } finally {
+    dom.restore();
+  }
+});
+
 test("image placements retain duplicate payload ids, reorder in wire order and release bounded ownership", () => {
   const dom = installFakeDOM();
   try {

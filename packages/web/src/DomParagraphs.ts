@@ -68,6 +68,20 @@ export class DomParagraphs {
     }
     roots.sort((a, b) => a.y - b.y || a.x - b.x);
     for (const root of roots) layer.appendChild(root.element);
+    // Preserve the raster text's exact final offset: a paragraph boundary is a
+    // separator between visible fragments, not an extra trailing copy byte.
+    const lastRoot = roots.at(-1)?.element;
+    const lastElement =
+      lastRoot?.tagName === "P"
+        ? lastRoot.children[lastRoot.children.length - 1]
+        : lastRoot;
+    for (const row of this.rows) {
+      const last = row.find((fragment) => fragment.element === lastElement);
+      if (last?.separator) {
+        last.separator.remove();
+        last.separator = undefined;
+      }
+    }
   }
 
   owner(y: number, x: number): number {

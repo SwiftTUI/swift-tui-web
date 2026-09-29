@@ -21,21 +21,38 @@ for (const [label, shape] of [
     page,
   }) => {
     await loadFixture(page);
-    const batched = await page.evaluate(
-      (options) => window.runPaintBurst(options),
+    // Compare the full pixel arrays inside the browser. Shipping millions of
+    // numbers through the inspector can monopolize the WebKit test worker.
+    const { batched, synchronous, pixels } = await page.evaluate(
+      async (options) => {
+        const { pixels: batchedPixels, ...batched } =
+          await window.runPaintBurst({
+            ...options,
+            scheduling: "default",
+          });
+        const { pixels: synchronousPixels, ...synchronous } =
+          await window.runPaintBurst({
+            ...options,
+            scheduling: "synchronous",
+          });
+        const firstDifferentByte = batchedPixels.findIndex(
+          (value, index) => value !== synchronousPixels[index],
+        );
+        return {
+          batched,
+          synchronous,
+          pixels: {
+            sameLength: batchedPixels.length === synchronousPixels.length,
+            firstDifferentByte,
+            batchedByte: batchedPixels[firstDifferentByte],
+            synchronousByte: synchronousPixels[firstDifferentByte],
+          },
+        };
+      },
       {
         ...shape,
         frameCount: BURST_FRAMES,
-        scheduling: "default",
-      } satisfies PaintBurstOptions,
-    );
-    const synchronous = await page.evaluate(
-      (options) => window.runPaintBurst(options),
-      {
-        ...shape,
-        frameCount: BURST_FRAMES,
-        scheduling: "synchronous",
-      } satisfies PaintBurstOptions,
+      } satisfies Omit<PaintBurstOptions, "scheduling">,
     );
 
     // Every frame in the burst was presented; batching painted the burst
@@ -50,7 +67,12 @@ for (const [label, shape] of [
     // The single (unioned or full) paint shows exactly what painting every
     // frame shows, and the burst touched enough pixels for a missed row to show.
     expect(batched.changedPixels).toBeGreaterThan(1_000);
-    expect(batched.pixels).toEqual(synchronous.pixels);
+    expect(pixels).toEqual({
+      sameLength: true,
+      firstDifferentByte: -1,
+      batchedByte: undefined,
+      synchronousByte: undefined,
+    });
 
     console.log(
       "PAINT-BATCHING",
