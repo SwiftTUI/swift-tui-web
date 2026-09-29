@@ -281,7 +281,9 @@ test("current producer cancels a real DOM drag without completion and accepts th
       .getBoundingClientRect();
     return {
       x: box.x + ((col + 3) * box.width) / frame.width,
-      y: box.y + ((row + 0.5) * box.height) / frame.height,
+      // Plain text now selects natively. Exercise app-owned dragging from the
+      // blank second row of the target's authored two-row gesture region.
+      y: box.y + ((row + 1.5) * box.height) / frame.height,
     };
   });
   await page.mouse.move(point.x, point.y);
