@@ -6,6 +6,21 @@ const BURST_FRAMES = 120;
 async function loadFixture(
   page: import("@playwright/test").Page,
 ): Promise<void> {
+  // This test compares readback bytes, so request that context from its first
+  // allocation. Engines may otherwise choose different rendering backends for
+  // one coalesced paint versus 119 immediate paints between readbacks.
+  await page.addInitScript(() => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      value(this: HTMLCanvasElement, type: string, options?: object) {
+        return getContext.call(
+          this,
+          type,
+          type === "2d" ? { ...options, willReadFrequently: true } : options,
+        );
+      },
+    });
+  });
   await page.goto("/health");
   await page.addScriptTag({ url: "/paint-batching.js", type: "module" });
   await page.waitForFunction(() => typeof window.runPaintBurst === "function");
