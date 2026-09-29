@@ -451,6 +451,7 @@ export class WebHostSceneRuntime {
     this.bridge?.bindOutput({
       resetSurfaceSession: () => {
         this.finishGeometryWait();
+        this.domGeometry?.resetParagraphs();
         this.geometrySession.resetConnection();
         this.paintScheduler.resetSession();
         this.terminalMount.setAttribute("aria-busy", "true");

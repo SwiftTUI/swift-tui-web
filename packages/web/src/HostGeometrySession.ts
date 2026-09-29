@@ -74,6 +74,9 @@ export class HostGeometrySession {
   }
 
   resetConnection(): void {
+    // A replacement producer may understand geometry but predate paragraphs.
+    // Await a fresh measurement before sending any extension on that stream.
+    if (this.latest?.paragraphSpacing !== undefined) this.latest = undefined;
     this.acknowledged = false;
     this.sentRevision = undefined;
     this.presentedRevision = undefined;

@@ -57,3 +57,18 @@ test("same-grid typography revisions coalesce, old responses never commit, and r
     RangeError,
   );
 });
+
+test("reconnect cannot send an old producer a prior paragraph extension", () => {
+  const session = new HostGeometrySession();
+  session.observe(frame(0));
+  session.request({ ...geometry, paragraphSpacing: 2 });
+  expect(session.takeRequest()?.paragraphSpacing).toBe(2);
+  session.didPresent(frame(1));
+  session.resetConnection();
+  session.observe(frame(0));
+  expect(session.takeRequest()).toBeUndefined();
+  expect(session.canPresent(frame(1))).toBe(false);
+  session.request({ ...geometry, revision: 2 });
+  expect(session.takeRequest()?.paragraphSpacing).toBeUndefined();
+  expect(session.canPresent(frame(2))).toBe(true);
+});

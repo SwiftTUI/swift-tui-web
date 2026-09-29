@@ -171,6 +171,11 @@ export class DomGeometryController {
   constructor(private readonly mount: HTMLElement) {
     this.probe = new DomCellProbe(mount);
   }
+  resetParagraphs(): void {
+    this.paragraphSupport = false;
+    this.paragraphProbe?.remove();
+    this.paragraphProbe = undefined;
+  }
   enableParagraphs(): boolean {
     if (this.paragraphSupport) return false;
     this.paragraphSupport = true;
