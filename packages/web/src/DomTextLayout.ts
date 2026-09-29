@@ -1,3 +1,4 @@
+import type { DomParagraphs } from "./DomParagraphs.ts";
 import type { DomTextSelection } from "./DomTextSelection.ts";
 import { type DomTextSpacing, readDomTextSpacing } from "./DomTextSpacing.ts";
 import type { SurfaceMetrics } from "./SurfaceRenderer.ts";
@@ -159,6 +160,7 @@ export class DomTextLayout {
     metrics: SurfaceMetrics,
     linkedRows: Set<number>,
     selection: DomTextSelection,
+    paragraphs?: DomParagraphs,
   ): WebHostSurfaceCell[][] {
     // A local ruler accounts for ancestor transforms, CSS zoom and browser zoom.
     // Read before patches; font/configuration changes are the only two-stage measurement.
@@ -216,7 +218,9 @@ export class DomTextLayout {
           : [cell],
       );
       for (const cell of allocated.flatMap((cell) =>
-        selection.split(y, cell),
+        selection
+          .split(y, cell)
+          .flatMap((part) => paragraphs?.split(y, part) ?? [part]),
       )) {
         const last = result.at(-1);
         if (
@@ -225,6 +229,7 @@ export class DomTextLayout {
           this.monospace[(frame.styles[cell[3]]?.em ?? 0) & 3] &&
           last &&
           last[3] === cell[3] &&
+          paragraphs?.owner(y, last[0]) === paragraphs?.owner(y, cell[0]) &&
           selection.allows(y, last[0], last[2]) ===
             selection.allows(y, cell[0], cell[2]) &&
           last[0] + last[2] === cell[0] &&

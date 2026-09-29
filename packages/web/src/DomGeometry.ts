@@ -3,6 +3,7 @@ import {
   HOST_WIRE_MAX_GRID_CELLS,
   HOST_WIRE_MAX_GRID_DIMENSION,
 } from "./HostWireBudget.ts";
+import { fontForStyle } from "./SurfaceTypography.ts";
 import type { ResolvedWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
 export interface DomContentBox {
@@ -26,6 +27,7 @@ export interface DomGeometrySnapshot {
   readonly fontSize: number;
   readonly cellWidth: number;
   readonly cellHeight: number;
+  readonly paragraphSpacing?: number;
   readonly baseline: number;
   readonly columns: number;
   readonly rows: number;
@@ -163,9 +165,55 @@ export class DomGeometryController {
   readonly probe: DomCellProbe;
   pending?: DomGeometrySnapshot;
   presented?: DomGeometrySnapshot;
+  private paragraphProbe?: HTMLElement;
+  private paragraphSupport = false;
   private typography?: { identity: string; cells: DomCellMeasurement };
   constructor(private readonly mount: HTMLElement) {
     this.probe = new DomCellProbe(mount);
+  }
+  enableParagraphs(): boolean {
+    if (this.paragraphSupport) return false;
+    this.paragraphSupport = true;
+    return true;
+  }
+  private paragraphSpacing(
+    style: ResolvedWebHostTerminalStyle,
+    cellHeight: number,
+  ): number | undefined {
+    if (!this.paragraphSupport) return undefined;
+    const view = this.mount.ownerDocument?.defaultView;
+    if (!view) return 0;
+    if (!this.paragraphProbe?.isConnected) {
+      const probe = this.mount.ownerDocument.createElement("p");
+      probe.className = "webhost-scene__paragraph";
+      probe.setAttribute("data-paragraph-probe", "");
+      probe.setAttribute("aria-hidden", "true");
+      Object.assign(probe.style, {
+        position: "absolute",
+        visibility: "hidden",
+        pointerEvents: "none",
+        width: "0",
+        height: "0",
+        margin: "0",
+        padding: "0",
+        overflow: "hidden",
+      });
+      (
+        this.mount.querySelector(".webhost-scene__surface-rows") ?? this.mount
+      ).appendChild(probe);
+      this.paragraphProbe = probe;
+    }
+    this.paragraphProbe.style.font = fontForStyle(style);
+    let pixels = 0;
+    for (const paragraph of this.mount.querySelectorAll<HTMLElement>(
+      "p.webhost-scene__paragraph",
+    )) {
+      const margin = Number.parseFloat(
+        view.getComputedStyle(paragraph).marginBottom,
+      );
+      if (Number.isFinite(margin)) pixels = Math.max(pixels, margin);
+    }
+    return Math.min(8192, Math.ceil(pixels / cellHeight));
   }
   measure(
     style: ResolvedWebHostTerminalStyle,
@@ -188,13 +236,17 @@ export class DomGeometryController {
       cells = prior.cells;
     } else this.typography = { identity: style.fontFamily, cells };
     const previous = this.pending;
-    const next = makeDomGeometry(
+    const measured = makeDomGeometry(
       previous?.revision ?? 1,
       style.fontFamily,
       cells,
       content,
     );
-    if (!next) return undefined;
+    if (!measured) return undefined;
+    const next = {
+      ...measured,
+      paragraphSpacing: this.paragraphSpacing(style, measured.cellHeight),
+    };
     // Moving the page changes the client mapping, not the producer's layout.
     const layoutChanged =
       previous &&
@@ -203,6 +255,7 @@ export class DomGeometryController {
         "fontSize",
         "cellWidth",
         "cellHeight",
+        "paragraphSpacing",
         "columns",
         "rows",
       ].some(
@@ -223,6 +276,8 @@ export class DomGeometryController {
   }
   dispose(): void {
     this.probe.dispose();
+    this.paragraphProbe?.remove();
+    this.paragraphProbe = undefined;
     this.pending = undefined;
     this.presented = undefined;
   }

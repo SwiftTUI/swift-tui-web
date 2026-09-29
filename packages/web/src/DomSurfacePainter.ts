@@ -1,5 +1,6 @@
 import { canRenderBoxDrawing } from "./BoxDrawingRenderer.ts";
 import { DomGlyphBackground } from "./DomGlyphBackground.ts";
+import { DomParagraphs } from "./DomParagraphs.ts";
 import { DomTextLayout, naturalText } from "./DomTextLayout.ts";
 import { DomTextSelection } from "./DomTextSelection.ts";
 import { imagePayloadMetrics } from "./ImageAllocationBudget.ts";
@@ -101,6 +102,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   private textLayout?: DomTextLayout;
   private imagesLayer?: HTMLElement;
   private rowElements: HTMLElement[] = [];
+  private paragraphs?: DomParagraphs;
   private cells: Map<number, HTMLElement>[] = [];
   private rowBreaks: Text[] = [];
   private renderedImages = new Map<string, RenderedImage>();
@@ -193,9 +195,16 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
   get statistics(): DomSurfaceStatistics {
     const images = [...this.renderedImages.values()];
     return {
-      rows: this.rowElements.length,
+      rows: this.paragraphs
+        ? this.paragraphs.rows.reduce((n, row) => n + row.length, 0)
+        : this.rowElements.length,
       cells: this.cells.reduce((sum, cells) => sum + cells.size, 0),
-      rowSeparators: this.rowBreaks.length,
+      rowSeparators: this.paragraphs
+        ? this.paragraphs.rows.reduce(
+            (n, row) => n + row.filter((part) => part.separator).length,
+            0,
+          )
+        : this.rowBreaks.length,
       decorationNodes: this.graphics.reduce((sum, row) => sum + row.size, 0),
       imageNodes: images.length * 2,
       styleCacheEntries: this.styleCache.size,
@@ -259,6 +268,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     this.textLayout?.dispose();
     root.replaceChildren(rowsLayer, imagesLayer, graphicsLayer);
     this.textLayout = new DomTextLayout(root);
+    this.paragraphs = undefined;
     this.rowElements = [];
     this.cells = [];
     this.rowBreaks = [];
@@ -319,6 +329,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     if (!frame) {
       this.textLayout?.clear();
       clearSelection(rowsLayer);
+      this.paragraphs = undefined;
       this.rowElements = [];
       this.cells = [];
       this.rowBreaks = [];
@@ -334,6 +345,26 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       this.hasRenderedFrame = false;
       return;
     }
+
+    const paragraphKey = frame.paragraphs?.length
+      ? JSON.stringify([frame.width, frame.height, frame.paragraphs])
+      : undefined;
+    const paragraphsChanged = paragraphKey !== this.paragraphs?.key;
+    if (paragraphsChanged) {
+      clearSelection(rowsLayer);
+      rowsLayer.replaceChildren();
+      this.rowElements = [];
+      this.rowBreaks = [];
+      this.cells = [];
+      this.graphicsLayer?.replaceChildren();
+      this.graphics = [];
+      this.paragraphs = paragraphKey
+        ? new DomParagraphs(frame, rowsLayer)
+        : undefined;
+      if (this.paragraphs)
+        this.rowElements = this.paragraphs.rows.map((row) => row[0]!.element);
+    }
+    this.paragraphs?.restyle(metrics, styleTextRow);
 
     const selection = new DomTextSelection(frame);
     const selectionChanged = selection.key !== this.selection.key;
@@ -364,6 +395,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       }
     }
     const fullRepaint =
+      paragraphsChanged ||
       selectionChanged ||
       linksChanged ||
       metricsChanged ||
@@ -383,6 +415,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
           .map(([y]) => y),
       ),
       this.selection,
+      this.paragraphs,
     );
     if (fullRepaint) {
       for (let y = this.rowElements.length; y > frame.rows.length; y -= 1) {
@@ -460,6 +493,7 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     this.rowsLayer = undefined;
     this.selection = new DomTextSelection();
     this.imagesLayer = undefined;
+    this.paragraphs = undefined;
     this.rowElements = [];
     this.cells = [];
     this.rowBreaks = [];
@@ -492,9 +526,18 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         graphics.delete(x);
       }
     }
-    let inlineOrigin = 0;
-    let position = 0;
+    const positions = new Map<
+      HTMLElement,
+      { inlineOrigin: number; position: number }
+    >();
     for (const [x, text, span, styleIndex] of rowCells) {
+      const fragment = this.paragraphs?.fragment(y, x);
+      const destination = fragment?.element ?? rowElement;
+      const state = positions.get(destination) ?? {
+        inlineOrigin: 0,
+        position: 0,
+      };
+      positions.set(destination, state);
       const cellStyle = frame.styles[styleIndex] ?? undefined;
       const target = this.linkCells.get(y * frame.width + x);
       const isLink =
@@ -530,8 +573,12 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
         element.style.webkitUserSelect = selectable ? "text" : "none";
         element.style.cursor = selectable ? "text" : "";
       }
-      const left = x * metrics.cellWidth - inlineOrigin;
-      inlineOrigin += this.textLayout!.advance(text, span, cellStyle?.em ?? 0);
+      const left = x * metrics.cellWidth - state.inlineOrigin;
+      state.inlineOrigin += this.textLayout!.advance(
+        text,
+        span,
+        cellStyle?.em ?? 0,
+      );
       const spacing = this.textLayout!.spacing(
         text,
         span,
@@ -653,18 +700,22 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       if (element.getAttribute("data-span") !== String(span))
         element.setAttribute("data-span", String(span));
       next.set(x, element);
-      if (rowElement.children[position] !== element) {
+      if (destination.children[state.position] !== element) {
         // `children` excludes the trailing newline Text node. Appending after
         // it would push reinserted runs onto a clipped second line and corrupt
         // copy order, even though their text and graphics remain in the DOM.
-        rowElement.insertBefore(
+        destination.insertBefore(
           element,
-          rowElement.children[position] ?? this.rowBreaks[y] ?? null,
+          destination.children[state.position] ??
+            fragment?.separator ??
+            this.rowBreaks[y] ??
+            null,
         );
       }
-      position += 1;
+      state.position += 1;
     }
     this.cells[y] = next;
+    if (this.paragraphs) return;
     let rowBreak = this.rowBreaks[y];
     if (y < frame.rows.length - 1) {
       if (!rowBreak) {
@@ -683,35 +734,10 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
     let rowElement = this.rowElements[y];
     if (!rowElement) {
       rowElement = createElement("div");
-      rowElement.className = "webhost-scene__surface-row";
-      Object.assign(rowElement.style, scopedBoxStyle, {
-        font: "inherit",
-        // Keep the authored line box independent of the negotiated cell height
-        // so a user override remains measurable after reprojection and removal.
-        lineHeight: "1.5",
-        letterSpacing: "0px",
-        wordSpacing: "0px",
-        whiteSpace: "pre",
-        contain: "strict",
-      });
-      // Firefox ignores user-select overrides on display:contents children.
-      // Let text rows select by default and give excluded runs real inline boxes.
-      rowElement.style.userSelect = "text";
-      rowElement.style.webkitUserSelect = "text";
-      rowElement.style.position = "absolute";
-      rowElement.style.left = "0";
       this.rowElements[y] = rowElement;
       this.rowsLayer?.appendChild(rowElement);
     }
-    const geometry = {
-      top: `${y * metrics.cellHeight}px`,
-      height: `${metrics.cellHeight}px`,
-      width: `${metrics.columns * metrics.cellWidth}px`,
-    };
-    for (const key of ["top", "height", "width"] as const) {
-      if (rowElement.style[key] !== geometry[key])
-        rowElement.style[key] = geometry[key];
-    }
+    styleTextRow(rowElement, y, metrics);
     return rowElement;
   }
 
@@ -1113,4 +1139,35 @@ function selectionInvalidator(): SelectionEditor {
       text.data = value;
     },
   });
+}
+
+function styleTextRow(
+  rowElement: HTMLElement,
+  y: number,
+  metrics: SurfaceMetrics,
+): void {
+  if (rowElement.className !== "webhost-scene__surface-row") {
+    rowElement.className = "webhost-scene__surface-row";
+    Object.assign(rowElement.style, scopedBoxStyle, {
+      font: "inherit",
+      lineHeight: "1.5",
+      letterSpacing: "0px",
+      wordSpacing: "0px",
+      whiteSpace: "pre",
+      contain: "strict",
+      userSelect: "text",
+      webkitUserSelect: "text",
+      position: "absolute",
+      display: "block",
+      left: "0",
+    });
+  }
+  const geometry = {
+    top: `${y * metrics.cellHeight}px`,
+    height: `${metrics.cellHeight}px`,
+    width: `${metrics.columns * metrics.cellWidth}px`,
+  };
+  for (const key of ["top", "height", "width"] as const)
+    if (rowElement.style[key] !== geometry[key])
+      rowElement.style[key] = geometry[key];
 }

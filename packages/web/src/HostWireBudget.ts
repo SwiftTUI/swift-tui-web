@@ -94,6 +94,7 @@ export function fitsSurfaceBudget(frame: {
   accessibilityTree?: unknown[];
   accessibilityAnnouncements?: unknown[];
   scrollRegions?: unknown[];
+  paragraphs?: Array<{ id: string; rect: [number, number, number, number] }>;
   linkTargets?: string[];
   links?: Array<[number, Array<[number, number, number]>]>;
   damage?: { textRows: Array<[number, Array<[number, number]>]> };
@@ -156,6 +157,33 @@ export function fitsSurfaceBudget(frame: {
         w * h > 16 * 1024 * 1024
       )
         return false;
+    }
+  }
+  // Paragraph ownership is bounded by the visible grid: no overlapping regions,
+  // duplicate identifiers, offscreen rectangles or more regions than cells.
+  const occupied = new Uint8Array(
+    frame.paragraphs?.length ? width * height : 0,
+  );
+  if ((frame.paragraphs?.length ?? 0) > width * height) return false;
+  for (const paragraph of frame.paragraphs ?? []) {
+    if (!fitsUTF8(paragraph.id, 1024)) return false;
+    const [x, y, w, h] = paragraph.rect;
+    if (
+      ![x, y, w, h].every(Number.isInteger) ||
+      x < 0 ||
+      y < 0 ||
+      w <= 0 ||
+      h <= 0 ||
+      x + w > width ||
+      y + h > height
+    )
+      return false;
+    for (let row = y; row < y + h; row++) {
+      for (let col = x; col < x + w; col++) {
+        const index = row * width + col;
+        if (occupied[index]) return false;
+        occupied[index] = 1;
+      }
     }
   }
   for (const entries of [

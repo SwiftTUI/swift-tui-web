@@ -210,6 +210,12 @@ export interface WebHostScrollRegion {
   content: WebHostSurfaceSize;
 }
 
+/** Visible bounds of an explicitly authored Text paragraph, with no duplicated text. */
+export interface WebHostParagraph {
+  id: string;
+  rect: WebHostSurfaceRect;
+}
+
 export interface WebHostSurfaceFrame {
   version: 1 | 2;
   epoch?: number;
@@ -227,6 +233,7 @@ export interface WebHostSurfaceFrame {
   accessibilityActionResponse?: WebHostAccessibilityActionResponse;
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
   scrollRegions?: WebHostScrollRegion[];
+  paragraphs?: WebHostParagraph[];
   links?: WebHostSurfaceLinkRow[];
   linkTargets?: string[];
   focusPresentation?: WebHostFocusPresentation;
@@ -266,6 +273,7 @@ export interface WebHostSurfaceDeltaFrame {
   accessibilityActionResponse?: WebHostAccessibilityActionResponse;
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
   scrollRegions?: WebHostScrollRegion[];
+  paragraphs?: WebHostParagraph[];
   links?: WebHostSurfaceLinkRow[];
   linkTargets?: string[];
   focusPresentation?: WebHostFocusPresentation;
@@ -770,6 +778,7 @@ export class WebHostOutputDecoder {
       accessibilityActionResponse: frame.accessibilityActionResponse,
       accessibilityAnnouncements: frame.accessibilityAnnouncements,
       scrollRegions: frame.scrollRegions,
+      paragraphs: frame.paragraphs,
       links: frame.links,
       linkTargets: frame.linkTargets,
       focusPresentation: frame.focusPresentation,
@@ -1055,6 +1064,7 @@ function isWebHostSurfaceFrame(value: unknown): value is WebHostSurfaceFrame {
       isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)) &&
     (frame.scrollRegions === undefined ||
       isWebHostScrollRegions(frame.scrollRegions)) &&
+    (frame.paragraphs === undefined || isWebHostParagraphs(frame.paragraphs)) &&
     hasValidAdditiveFrameFields(frame)
   );
 }
@@ -1088,6 +1098,7 @@ function isWebHostSurfaceDeltaFrame(
       isWebHostAccessibilityAnnouncements(frame.accessibilityAnnouncements)) &&
     (frame.scrollRegions === undefined ||
       isWebHostScrollRegions(frame.scrollRegions)) &&
+    (frame.paragraphs === undefined || isWebHostParagraphs(frame.paragraphs)) &&
     hasValidAdditiveFrameFields(frame)
   );
 }
@@ -1395,6 +1406,23 @@ function isWebHostSurfaceImageFormat(
   value: unknown,
 ): value is WebHostSurfaceImageFormat {
   return typeof value === "string";
+}
+
+function isWebHostParagraphs(value: unknown): value is WebHostParagraph[] {
+  if (!Array.isArray(value)) return false;
+  const ids = new Set<string>();
+  return value.every((item) => {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      typeof item.id !== "string" ||
+      ids.has(item.id) ||
+      !isWebHostSurfaceRect(item.rect)
+    )
+      return false;
+    ids.add(item.id);
+    return true;
+  });
 }
 
 function isWebHostScrollRegions(

@@ -30,7 +30,7 @@ export class HostGeometrySession {
     if (
       this.latest &&
       geometry.revision === this.latest.revision &&
-      ["columns", "rows", "cellWidth", "cellHeight"].some(
+      ["columns", "rows", "cellWidth", "cellHeight", "paragraphSpacing"].some(
         (key) =>
           this.latest![key as keyof HostGeometryRequest] !==
           geometry[key as keyof HostGeometryRequest],

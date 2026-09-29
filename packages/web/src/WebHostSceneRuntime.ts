@@ -1562,6 +1562,11 @@ export class WebHostSceneRuntime {
       resized ? undefined : request.damage,
       request.recoveredImagePayloadIds,
     );
+    if (
+      request.frame?.paragraphs?.length &&
+      this.domGeometry?.enableParagraphs()
+    )
+      this.refreshGeometry();
     // Reported before the ARIA sidecar sync so the timestamp brackets the
     // visual paint alone; the sidecar is not part of the presented surface.
     this.onSurfacePainted?.({

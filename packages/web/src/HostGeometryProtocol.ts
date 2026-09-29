@@ -9,6 +9,8 @@ export interface HostGeometryRequest {
   rows: number;
   cellWidth: number;
   cellHeight: number;
+  /** Whole rows reserved after explicitly authored paragraphs. Absent for older producers. */
+  paragraphSpacing?: number;
 }
 
 export function isGeometryRevision(
@@ -25,6 +27,10 @@ export function isGeometryRevision(
 export function isHostGeometryRequest(request: HostGeometryRequest): boolean {
   return (
     isGeometryRevision(request.revision) &&
+    (request.paragraphSpacing === undefined ||
+      (Number.isInteger(request.paragraphSpacing) &&
+        request.paragraphSpacing >= 0 &&
+        request.paragraphSpacing <= MAX_HOST_CELL_PITCH)) &&
     request.columns > 0 &&
     request.rows > 0 &&
     fitsWireGrid(request.columns, request.rows) &&
@@ -42,6 +48,6 @@ export function encodeGeometryControlMessage(
   if (!isHostGeometryRequest(request))
     throw new RangeError("Invalid host geometry request");
   return new TextEncoder().encode(
-    `\u001egeometry:${request.revision}:${request.columns}:${request.rows}:${request.cellWidth}:${request.cellHeight}\n`,
+    `\u001egeometry:${request.revision}:${request.columns}:${request.rows}:${request.cellWidth}:${request.cellHeight}${request.paragraphSpacing === undefined ? "" : `:${request.paragraphSpacing}`}\n`,
   );
 }

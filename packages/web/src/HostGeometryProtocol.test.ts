@@ -138,3 +138,75 @@ test("invalid geometry echoes are rejected without inventing a fallback revision
     expect(records.some((record) => record.type === "surface")).toBe(false);
   }
 });
+
+test("paragraph spacing is an optional bounded geometry extension", () => {
+  const geometry = {
+    revision: 2,
+    columns: 32,
+    rows: 16,
+    cellWidth: 10,
+    cellHeight: 24,
+  };
+  for (const spacing of [0, 2, 8192]) {
+    expect(
+      new TextDecoder().decode(
+        encodeGeometryControlMessage({
+          ...geometry,
+          paragraphSpacing: spacing,
+        }),
+      ),
+    ).toBe(`\u001egeometry:2:32:16:10:24:${spacing}\n`);
+  }
+  for (const paragraphSpacing of [-1, 0.5, 8193, Infinity])
+    expect(() =>
+      encodeGeometryControlMessage({ ...geometry, paragraphSpacing }),
+    ).toThrow(RangeError);
+});
+
+test("paragraph metadata is a complete snapshot in full and delta frames", () => {
+  const decoder = new WebHostOutputDecoder();
+  const frame = {
+    version: 2,
+    epoch: 1,
+    gen: 1,
+    width: 3,
+    height: 1,
+    styles: [null],
+    rows: [[[0, "abc", 3, 0]]],
+    paragraphs: [{ id: "p", rect: [0, 0, 3, 1] }],
+  };
+  // Match the production record delimiter used by the existing geometry corpus.
+  const prefix = corpus.cases[0]!.record.slice(
+    0,
+    corpus.cases[0]!.record.indexOf("{"),
+  );
+  const read = (value: unknown) =>
+    decoder.feed(
+      new TextEncoder().encode(`${prefix}${JSON.stringify(value)}\n`),
+    );
+  const initial = read(frame)[0];
+  expect(initial?.type).toBe("surface");
+  if (initial?.type === "surface")
+    expect(initial.frame.paragraphs).toEqual(frame.paragraphs);
+  const next = read({
+    version: 3,
+    encoding: "delta",
+    epoch: 1,
+    gen: 2,
+    baselineGen: 1,
+    width: 3,
+    height: 1,
+    styles: [null],
+    deltaRows: [],
+  })[0];
+  expect(next?.type).toBe("surface");
+  if (next?.type === "surface") expect(next.frame.paragraphs).toBeUndefined();
+  for (const rect of [
+    [-1, 0, 3, 1],
+    [0, 0, 4, 1],
+    [0, 0, 0, 1],
+  ])
+    expect(
+      read({ ...frame, gen: 3, paragraphs: [{ id: "p", rect }] })[0]?.type,
+    ).not.toBe("surface");
+});

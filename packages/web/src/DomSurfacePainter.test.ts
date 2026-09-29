@@ -9,6 +9,45 @@ import {
 } from "./WebHostSurfaceTransport.ts";
 import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
+test("authored paragraphs own existing runs across rows and retain them through damage", () => {
+  const dom = installFakeDOM();
+  try {
+    const painter = new DomSurfacePainter();
+    const root = new FakeElement("div");
+    painter.attach(root as unknown as HTMLElement);
+    const frame = makeFrame({
+      width: 10,
+      height: 2,
+      paragraphs: [{ id: "prose", rect: [2, 0, 4, 2] }],
+      rows: [[[0, "abCDEFghij", 10, 0]], [[0, "klMNOPqrst", 10, 0]]],
+    });
+    painter.paint(metricsFor(2), frame);
+    const layer = root.children[0]!;
+    const paragraph = layer.children.find((node) => node.tagName === "P")!;
+    expect(paragraph.getAttribute("data-paragraph-id")).toBe("prose");
+    expect(paragraph.children).toHaveLength(2);
+    const first = paragraph.children[0]!.children[0]!;
+    expect(first.textContent).toBe("CDEF");
+    expect(paragraph.children[1]!.children[0]!.textContent).toBe("MNOP");
+    expect(first.style.left).toBe("16px");
+    painter.paint(metricsFor(2), frame, {
+      textRows: [[1, [[0, 10]]]],
+      requiresFullTextRepaint: false,
+      requiresFullGraphicsReplay: false,
+    });
+    expect(paragraph.children[0]!.children[0]).toBe(first);
+    painter.paint(metricsFor(2), { ...frame, paragraphs: undefined });
+    expect(layer.children.some((node) => node.tagName === "P")).toBe(false);
+    expect(
+      layer.children[0]!.children.map((node) => node.textContent).join(""),
+    ).toBe("abCDEFghij");
+    painter.dispose();
+    expect(painter.statistics.rows).toBe(0);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("image placements retain duplicate payload ids, reorder in wire order and release bounded ownership", () => {
   const dom = installFakeDOM();
   try {

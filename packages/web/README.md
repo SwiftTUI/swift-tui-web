@@ -281,7 +281,7 @@ detecting the packaged-font API rather than requiring it.
 | Selection and print | Mounted viewport only. Plain dragging selects text outside semantic controls; clipboard serialization excludes control labels. Native fields support keyboard selection. Replaced selected content clears selection. Offscreen content is not exported. |
 | Accessibility | The shared semantic sidecar sends typed actions to Swift; visible text is not a second accessible control tree. The complete DOM control/AT journey and bounded WCAG claim are not qualified. Shared host-native IME/pre-edit presentation is excluded; committed Unicode, paste and final composition values are delivered exactly once. |
 | Browser evidence | Qualification is scoped to macOS desktop. Automated checks use Chromium 149, Firefox 151 and Playwright WebKit 26.5; actual Safari 27 has bounded control, keyboard, selection, find and enlargement observations. VoiceOver output remains unqualified. |
-| User text spacing | Ordinary prose reflows at 320 CSS px and remains operable with doubled text size in the compiled WASI fixture. Uniform user CSS letter/word spacing and line-height overrides are measured and renegotiated with Swift; Chromium, Firefox, and WebKit cover .12em/.16em spacing, 1.5/2 line height, pointer activation, and override removal. Authored paragraph boundaries remain absent from the raster presentation, so paragraph spacing and full WCAG 1.4.12 conformance remain unqualified. |
+| User text spacing | Ordinary prose reflows at 320 CSS px and remains operable with doubled text size in the compiled WASI fixture. Uniform user CSS letter/word spacing and line-height overrides are measured and renegotiated with Swift; Chromium, Firefox, and WebKit cover .12em/.16em spacing, 1.5/2 line height, pointer activation, and override removal. `Text.paragraph()` publishes authored paragraph boundaries. Supporting producers reserve whole rows for uniform CSS paragraph `margin-bottom`; ordinary unmarked text has no inferred paragraph boundary. This bounded profile is not a blanket WCAG conformance claim. |
 | Performance | The integrated inline painter measured 1.03/1.14ms p95 for partial/full 120×40 updates and 93.50ms for dense 240×80 replacement on the macOS reference machine. The dense workload exceeds its 50ms target and is accepted for experimental use. Full host/soak qualification is separate. |
 | Mobile and preferences | Media-query emulation exists. Real Windows High Contrast and physical mobile interaction/AT are unqualified; emulation is not that evidence. |
 
@@ -556,3 +556,19 @@ Native semantic controls participate in browser Tab/Shift-Tab order. Focus moves
 immediately in the browser and the existing typed focus request informs Swift;
 a rapid key after Tab therefore reaches the newly focused control without
 waiting for a producer frame. Disabled controls are excluded from tab order.
+
+### Authored paragraphs
+
+With a supporting Swift producer, apply `.paragraph()` after styling a `Text`
+to mark one paragraph. The DOM host groups its existing visible runs into a
+`<p>` element. Uniform `p { margin-bottom: 2em !important; }` overrides are
+rounded up to whole cell rows and returned to Swift in the geometry request.
+Swift owns wrapping and reserves that space in addition to authored stack gaps.
+Removing the override restores zero additional rows. Older producers and hosts
+retain their existing layout; ordinary text and newlines do not infer paragraphs.
+
+The contract covers disjoint paragraph bounds in the visible viewport. It does
+not add a hidden source-text mirror, offscreen Find, paragraph-specific unequal
+margins, or browser-owned layout. Overlapping paragraph rectangles fall back to
+ordinary raster text. Apply uniform overrides through a stylesheet or ancestor
+class/style change; after direct CSSOM edits, call `refreshGeometry()`.
