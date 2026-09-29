@@ -181,6 +181,7 @@ export class DomGeometryController {
     if (
       prior?.identity === style.fontFamily &&
       prior.cells.fontSize === cells.fontSize &&
+      prior.cells.spacingKey === cells.spacingKey &&
       Math.abs(prior.cells.advance - cells.advance) <= 1 / 32 &&
       prior.cells.height === cells.height
     ) {

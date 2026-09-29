@@ -1,3 +1,4 @@
+import { readDomTextSpacing } from "./DomTextSpacing.ts";
 import { fontForStyle } from "./SurfaceTypography.ts";
 import type { ResolvedWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
@@ -7,6 +8,7 @@ export interface DomCellMeasurement {
   advance: number;
   baseline: number;
   fontSize: number;
+  spacingKey?: string;
 }
 
 /** Persistent, inert typography sentinel. Never participates in selection or find. */
@@ -102,6 +104,13 @@ export class DomCellProbe {
     scaleY = scaleX,
   ): DomCellMeasurement | undefined {
     this.configure(style);
+    const spacing = readDomTextSpacing(this.mount);
+    for (const { line, text } of this.faces) {
+      line.style.lineHeight = text.style.lineHeight =
+        spacing.lineHeight === undefined ? "1.5" : `${spacing.lineHeight}px`;
+      text.style.letterSpacing = `${spacing.letterSpacing ?? 0}px`;
+      text.style.wordSpacing = `${spacing.wordSpacing ?? 0}px`;
+    }
     let width = 0,
       height = 0,
       baseline = 0;
@@ -153,6 +162,7 @@ export class DomCellProbe {
       advance: baseAdvance,
       baseline,
       fontSize: Number.parseFloat(computed?.fontSize ?? "") || style.fontSize,
+      spacingKey: JSON.stringify(spacing),
     };
   }
 

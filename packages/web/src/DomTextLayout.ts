@@ -1,4 +1,5 @@
 import type { DomTextSelection } from "./DomTextSelection.ts";
+import { type DomTextSpacing, readDomTextSpacing } from "./DomTextSpacing.ts";
 import type { SurfaceMetrics } from "./SurfaceRenderer.ts";
 import { fontForStyle } from "./SurfaceTypography.ts";
 import type {
@@ -19,6 +20,7 @@ export class DomTextLayout {
   private advances = new Map<string, number>();
   private base = [0, 0, 0, 0];
   private monospace = [false, false, false, false];
+  private userSpacing: DomTextSpacing = {};
 
   get cacheEntries(): number {
     return this.advances.size;
@@ -27,7 +29,7 @@ export class DomTextLayout {
     this.advances.clear();
   }
 
-  constructor(mount: HTMLElement) {
+  constructor(private readonly mount: HTMLElement) {
     this.probe = document.createElement("div");
     this.probe.setAttribute("aria-hidden", "true");
     Object.assign(this.probe.style, {
@@ -115,8 +117,8 @@ export class DomTextLayout {
       fontKerning: "none",
       fontVariantLigatures: "none",
       fontSynthesis: "none",
-      letterSpacing: `${spacing}px`,
-      wordSpacing: "0",
+      letterSpacing: `${this.userSpacing.letterSpacing ?? spacing}px`,
+      wordSpacing: `${this.userSpacing.wordSpacing ?? 0}px`,
       direction: "ltr",
       unicodeBidi: "isolate",
     });
@@ -135,12 +137,21 @@ export class DomTextLayout {
   private key(text: string, span: number, em: number): string {
     return JSON.stringify([
       em & 3,
-      this.monospace[em & 3] && naturalText(text, span) ? text.length : text,
+      !this.hasUserSpacing && this.monospace[em & 3] && naturalText(text, span)
+        ? text.length
+        : text,
     ]);
   }
 
   advance(text: string, span: number, em: number): number {
     return this.advances.get(this.key(text, span, em)) ?? 0;
+  }
+
+  private get hasUserSpacing(): boolean {
+    return (
+      this.userSpacing.letterSpacing !== undefined ||
+      this.userSpacing.wordSpacing !== undefined
+    );
   }
 
   prepare(
@@ -152,10 +163,12 @@ export class DomTextLayout {
     // A local ruler accounts for ancestor transforms, CSS zoom and browser zoom.
     // Read before patches; font/configuration changes are the only two-stage measurement.
     const scale = this.ruler.getBoundingClientRect().width / 1024 || 1;
+    this.userSpacing = readDomTextSpacing(this.mount);
     const config = JSON.stringify([
       fontForStyle(metrics.style),
       metrics.cellWidth,
       scale,
+      this.userSpacing,
     ]);
     if (config !== this.config) {
       this.advances.clear();
@@ -190,9 +203,24 @@ export class DomTextLayout {
           -1,
         ]);
       const result: WebHostSurfaceCell[] = [];
-      for (const cell of spaced.flatMap((cell) => selection.split(y, cell))) {
+      const allocated = spaced.flatMap((cell) =>
+        this.hasUserSpacing && naturalText(cell[1], cell[2])
+          ? [...cell[1]].map(
+              (text, index): WebHostSurfaceCell => [
+                cell[0] + index,
+                text,
+                1,
+                cell[3],
+              ],
+            )
+          : [cell],
+      );
+      for (const cell of allocated.flatMap((cell) =>
+        selection.split(y, cell),
+      )) {
         const last = result.at(-1);
         if (
+          !this.hasUserSpacing &&
           !linkedRows.has(y) &&
           this.monospace[(frame.styles[cell[3]]?.em ?? 0) & 3] &&
           last &&

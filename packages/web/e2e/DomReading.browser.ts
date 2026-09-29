@@ -1,6 +1,112 @@
 import { expect, test } from "@playwright/test";
 import type {} from "./compiled-wasm.fixture.ts";
 
+test("user letter, word and line spacing renegotiate the compiled grid without losing text or input", async ({
+  page,
+}) => {
+  await page.goto("/compiled-wasm.html");
+  await page.waitForFunction(() => !!window.__compiledWasm);
+  await page.evaluate(async () => {
+    window.__compiledWasm.resizeMount(640, 1200);
+    await window.__compiledWasm.start("worker", "reading", undefined, "dom");
+  });
+  const button = page.getByRole("button", {
+    name: "Continue reading",
+    exact: true,
+  });
+  await expect(button).toBeAttached();
+  const before = await page.evaluate(
+    () => window.__compiledWasm.snapshot().geometry[0]!,
+  );
+  for (const lineHeight of [1.5, 2]) {
+    const style = await page.addStyleTag({
+      content: `
+      .webhost-scene__surface-rows, .webhost-scene__surface-row,
+      .webhost-scene__surface-row span, .webhost-scene__surface-row a {
+        line-height: ${lineHeight} !important;
+        letter-spacing: .12em !important; word-spacing: .16em !important;
+      }
+    `,
+    });
+    await expect
+      .poll(() =>
+        page.evaluate((before) => {
+          const state = window.__compiledWasm.snapshot();
+          const geometry = state.geometry[0]!;
+          return (
+            geometry.cellWidth > before.cellWidth &&
+            geometry.revision === state.frames.reading?.geometryRevision
+          );
+        }, before),
+      )
+      .toBe(true);
+    const result = await page.evaluate(() => {
+      const state = window.__compiledWasm.snapshot();
+      const geometry = state.geometry[0]!;
+      const errors: { column: number; error: number }[] = [];
+      for (const row of document.querySelectorAll<HTMLElement>(
+        ".webhost-scene__surface-row",
+      )) {
+        const box = row.getBoundingClientRect();
+        for (const element of row.querySelectorAll<HTMLElement>(
+          "[data-column]",
+        )) {
+          if (!/^[!-~]$/.test(element.textContent ?? "")) continue;
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          const bounds = range.getBoundingClientRect();
+          const column = Number(element.dataset.column);
+          const error = Math.abs(
+            bounds.left - box.left - column * geometry.cellWidth,
+          );
+          if (error > 0.5 || bounds.right > box.right + 0.5)
+            errors.push({ column, error });
+        }
+      }
+      return {
+        geometry,
+        errors,
+        text: document.querySelector(".webhost-scene__surface-rows")!
+          .textContent,
+        regions: state.frames.reading!.scrollRegions,
+      };
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.geometry.cellHeight).toBeGreaterThanOrEqual(
+      result.geometry.fontSize * lineHeight,
+    );
+    expect(result.text!.replace(/\s+/g, " ")).toContain("reading complete.");
+    for (const region of result.regions ?? [])
+      expect(region.content[0]).toBeLessThanOrEqual(region.rect[2]);
+    const bounds = await button.boundingBox();
+    if (!bounds) throw new Error("Missing compiled control geometry");
+    // The semantic sidecar deliberately yields pointer input to the painted
+    // surface. Exercise its actual hit target rather than clicking the sidecar.
+    await page.mouse.click(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+    );
+    await expect(page.locator(".webhost-scene__surface-rows")).toContainText(
+      lineHeight === 1.5 ? "Continued 1" : "Continued 2",
+    );
+    await style.evaluate((element) => element.parentNode?.removeChild(element));
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const state = window.__compiledWasm.snapshot();
+          return [
+            state.geometry[0]?.cellWidth,
+            state.geometry[0]?.cellHeight,
+            state.geometry[0]?.revision ===
+              state.frames.reading?.geometryRevision,
+          ];
+        }),
+      )
+      .toEqual([before.cellWidth, before.cellHeight, true]);
+  }
+  await page.evaluate(() => window.__compiledWasm.dispose());
+});
+
 // This is a qualification oracle, not a claim that every application reflows.
 for (const fontSize of [16, 32]) {
   test(`compiled ordinary prose at 320 CSS px and ${fontSize}px text`, async ({

@@ -855,6 +855,8 @@ export class WebHostSceneRuntime {
 
   private installResizeObserver(): void {
     const refresh = () => {
+      if (this.painter instanceof DomSurfacePainter)
+        this.painter.invalidateFontMetrics();
       if (this.domGeometry) {
         this.refreshGeometry();
         return;
@@ -871,6 +873,30 @@ export class WebHostSceneRuntime {
         this.resizeObserver.observe(this.domGeometry.probe.element);
     }
     const fonts = document.fonts;
+    // Stylesheet insertion and ancestor class/style changes can alter visible
+    // text without resizing the fixed row boxes. Observe only stylesheet and
+    // ancestor state, never the painter's per-frame DOM mutations.
+    const userStyleObserver =
+      this.domGeometry && typeof MutationObserver !== "undefined"
+        ? new MutationObserver(refresh)
+        : undefined;
+    if (userStyleObserver) {
+      userStyleObserver.observe(document.head, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+      });
+      for (
+        let node: HTMLElement | null = this.embeddingMount;
+        node;
+        node = node.parentElement
+      )
+        userStyleObserver.observe(node, {
+          attributes: true,
+          attributeFilter: ["style", "class"],
+        });
+    }
     const refreshFonts = () => {
       // A custom/fallback face can change fractional shaping advances while
       // the rounded grid pitch stays identical. Reprobe inline runs as well.
@@ -910,6 +936,7 @@ export class WebHostSceneRuntime {
     for (const query of preferences)
       query.addEventListener?.("change", preferenceChanged);
     this.detachMetricObservers = () => {
+      userStyleObserver?.disconnect();
       for (const query of preferences)
         query.removeEventListener?.("change", preferenceChanged);
       fonts?.removeEventListener?.("loadingdone", refreshFonts);

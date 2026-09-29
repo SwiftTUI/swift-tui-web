@@ -686,7 +686,9 @@ export class DomSurfacePainter implements WebHostSurfacePainter {
       rowElement.className = "webhost-scene__surface-row";
       Object.assign(rowElement.style, scopedBoxStyle, {
         font: "inherit",
-        lineHeight: "inherit",
+        // Keep the authored line box independent of the negotiated cell height
+        // so a user override remains measurable after reprojection and removal.
+        lineHeight: "1.5",
         letterSpacing: "0px",
         wordSpacing: "0px",
         whiteSpace: "pre",

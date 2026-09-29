@@ -284,6 +284,9 @@ const api = {
   setFontSize(fontSize: number) {
     for (const runtime of runtimes) runtime.setStyle({ fontSize });
   },
+  setStyle(style: import("../dist/index.js").WebHostTerminalStyle) {
+    for (const runtime of runtimes) runtime.setStyle(style);
+  },
   async switchScene(scene: string) {
     await controller?.switchScene(scene);
   },
