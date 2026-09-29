@@ -66,7 +66,7 @@ test("thirty-minute compiled DOM scroll, update, style and scene soak", async ({
       .press("Enter");
     count++;
     await expect(
-      page.getByLabel(`Activated ${count}`, { exact: true }),
+      page.getByRole("group", { name: `Activated ${count}`, exact: true }),
     ).toBeAttached();
   }
   for (let i = 0; i < 10; i++) await cycle(i);
@@ -116,8 +116,8 @@ test("thirty-minute compiled DOM scroll, update, style and scene soak", async ({
       message !==
       "SwiftTUI runtime warning [host.geometry.stalePointer] from HostGeometry Pointer input from an obsolete host geometry was rejected.",
   );
-  await page.evaluate(() => window.__compiledWasm.dispose());
   const disposalStart = Date.now();
+  await page.evaluate(() => window.__compiledWasm.dispose());
   while (closed < started && Date.now() - disposalStart < 2000)
     await page.waitForTimeout(20);
   const disposalMs = Date.now() - disposalStart;
