@@ -37,6 +37,7 @@ export class AccessibilityTreeMounter {
   private previousLabelsById = new Map<string, string>();
   private hasLiveRegionBaseline = false;
 
+  private readingText = new WeakMap<HTMLElement, Text>();
   private modelsById = new Map<string, WebHostAccessibilityNode>();
   private presenting = false;
   private nextRequestID = 0n;
@@ -162,6 +163,10 @@ export class AccessibilityTreeMounter {
 
     this.nodesById = nextById;
     this.modelsById = modelsById;
+    for (const node of visibleNodes) {
+      const element = nextById.get(node.id);
+      if (element) this.applyRelationships(element, node, nextById);
+    }
     const childOffsets = new Map<HTMLElement, number>();
 
     for (const node of visibleNodes) {
@@ -256,6 +261,7 @@ export class AccessibilityTreeMounter {
         this.presenting ||
         !model?.actionTarget ||
         model.isEnabled === false ||
+        (model.properties?.readOnly === true && request.action !== "focus") ||
         !model.actions?.includes(request.action)
       )
         return;
@@ -274,6 +280,16 @@ export class AccessibilityTreeMounter {
     element.addEventListener("keydown", (event) => {
       const model = current();
       if (!model || event.key === "Tab" || event.key === "Escape") return;
+      // WebKit treats Backspace in a read-only editor as browser navigation.
+      // Keep review inside the application while allowing selection/copy keys.
+      if (
+        model.properties?.readOnly === true &&
+        (event.key === "Backspace" || event.key === "Delete")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       // Native editing owns text and clipboard keys. Submit still follows the
       // existing focused runtime keyboard path for single-line fields.
       if (tag !== "div" && event.key === "Enter" && model.role !== "textEditor")
@@ -372,7 +388,17 @@ export class AccessibilityTreeMounter {
     // Swift focus frame leaves rapid Tab+edit input aimed at the old control.
     element.tabIndex = this.isTabStop(node) ? 0 : -1;
 
+    const properties = node.properties;
     const role = roleMapping(node.role);
+    if (properties?.headingLevel !== undefined) {
+      role.role = "heading";
+      role.level = properties.headingLevel;
+    } else if (properties?.textKind !== undefined) {
+      role.role =
+        properties.textKind === "quotation"
+          ? "blockquote"
+          : properties.textKind;
+    }
     // A password input must retain its native secure-field semantics.
     setOrRemoveAttribute(
       element,
@@ -384,10 +410,35 @@ export class AccessibilityTreeMounter {
     setOrRemoveAttribute(
       element,
       "aria-level",
-      role.level !== undefined ? String(role.level) : undefined,
+      role.level !== undefined
+        ? String(role.level)
+        : properties?.level?.toString(),
     );
-    setOrRemoveAttribute(element, "aria-label", node.label || undefined);
-    setOrRemoveAttribute(element, "aria-description", node.hint || undefined);
+    const structuredText = properties?.textKind !== undefined;
+    setOrRemoveAttribute(
+      element,
+      "aria-label",
+      structuredText ? undefined : node.label || undefined,
+    );
+    // Reuse the element across updates without disturbing hierarchy or focus.
+    const text = this.readingText.get(element);
+    if (structuredText) {
+      if (text) text.textContent = node.label ?? "";
+      else {
+        const content = document.createTextNode(node.label ?? "");
+        this.readingText.set(element, content);
+        element.prepend(content);
+      }
+    } else if (text) {
+      text.remove();
+      this.readingText.delete(element);
+    }
+    setOrRemoveAttribute(
+      element,
+      "aria-description",
+      properties?.description ?? (node.hint || undefined),
+    );
+    setOrRemoveAttribute(element, "lang", properties?.language);
     setOrRemoveAttribute(element, "aria-live", node.liveRegion || undefined);
     if (node.isFocused) {
       element.dataset.focused = "true";
@@ -410,9 +461,11 @@ export class AccessibilityTreeMounter {
     setOrRemoveAttribute(
       element,
       "aria-expanded",
-      node.role === "disclosureGroup" && node.value?.type === "boolean"
-        ? String(node.value.value)
-        : undefined,
+      properties?.expanded !== undefined
+        ? String(properties.expanded)
+        : node.role === "disclosureGroup" && node.value?.type === "boolean"
+          ? String(node.value.value)
+          : undefined,
     );
     setOrRemoveAttribute(
       element,
@@ -429,6 +482,75 @@ export class AccessibilityTreeMounter {
       "aria-valuemax",
       node.valueMax === undefined ? undefined : String(node.valueMax),
     );
+    setOrRemoveAttribute(
+      element,
+      "aria-selected",
+      properties?.selected?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-required",
+      properties?.required?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-invalid",
+      properties?.invalid?.toString(),
+    );
+    setOrRemoveAttribute(element, "aria-busy", properties?.busy?.toString());
+    setOrRemoveAttribute(
+      element,
+      "aria-readonly",
+      properties?.readOnly?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-valuetext",
+      node.role === "secureField"
+        ? undefined
+        : properties?.valueDescription?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-posinset",
+      properties?.positionInSet?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-setsize",
+      properties?.setSize?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-rowindex",
+      properties?.rowIndex?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-colindex",
+      properties?.columnIndex?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-rowcount",
+      properties?.rowCount?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-colcount",
+      properties?.columnCount?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-rowspan",
+      properties?.rowSpan?.toString(),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-colspan",
+      properties?.columnSpan?.toString(),
+    );
+    setOrRemoveAttribute(element, "aria-sort", properties?.sort?.toString());
     if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
       const input = element as HTMLInputElement | HTMLTextAreaElement;
       if (element.tagName === "INPUT") {
@@ -442,6 +564,8 @@ export class AccessibilityTreeMounter {
                 : "text";
       }
       input.disabled = node.isEnabled === false;
+      input.readOnly = properties?.readOnly === true;
+      input.required = properties?.required === true;
       setOrRemoveAttribute(
         element,
         "min",
@@ -484,6 +608,55 @@ export class AccessibilityTreeMounter {
     element.style.border = "0";
     element.style.minWidth = "0";
     element.style.minHeight = "0";
+  }
+
+  private applyRelationships(
+    element: HTMLElement,
+    node: WebHostAccessibilityNode,
+    elements: Map<string, HTMLElement>,
+  ): void {
+    const properties = node.properties;
+    const references = (ids: string[] | undefined): string | undefined => {
+      const resolved = [...new Set(ids ?? [])]
+        .filter((id) => id !== node.id && elements.has(id))
+        .map((id) => elements.get(id)!.id);
+      return resolved.length ? resolved.join(" ") : undefined;
+    };
+    setOrRemoveAttribute(
+      element,
+      "aria-labelledby",
+      references(properties?.labelledBy),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-describedby",
+      references(properties?.describedBy),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-errormessage",
+      references(properties?.errorMessage),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-controls",
+      references(properties?.controls),
+    );
+    setOrRemoveAttribute(element, "aria-owns", references(properties?.owns));
+    setOrRemoveAttribute(
+      element,
+      "aria-flowto",
+      references(properties?.flowTo),
+    );
+    setOrRemoveAttribute(
+      element,
+      "aria-activedescendant",
+      references(
+        properties?.activeDescendant === undefined
+          ? undefined
+          : [properties.activeDescendant],
+      ),
+    );
   }
 
   private announceLiveRegionChanges(
@@ -665,12 +838,7 @@ function roleMapping(role: string): RoleMapping {
 }
 
 function stableDOMId(id: string): string {
-  return Array.from(id)
-    .map((character) => {
-      if (/^[a-zA-Z0-9_-]$/.test(character)) {
-        return character;
-      }
-      return `-${character.codePointAt(0)?.toString(16) ?? "0"}-`;
-    })
-    .join("");
+  return Array.from(id, (character) =>
+    character.codePointAt(0)!.toString(16),
+  ).join("-");
 }

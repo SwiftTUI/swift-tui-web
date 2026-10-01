@@ -1513,3 +1513,119 @@ test("accessibility state and acknowledgement survive decoding with validation",
     })[0]?.type,
   ).toBe("text");
 });
+
+test("optional widget properties survive decoding and reject malformed known fields", () => {
+  const properties = {
+    selected: false,
+    expanded: true,
+    required: true,
+    invalid: true,
+    busy: false,
+    readOnly: true,
+    description: "Correct this value",
+    valueDescription: "two kilograms",
+    language: "fr",
+    headingLevel: 2,
+    level: 3,
+    positionInSet: 4,
+    setSize: -1,
+    rowIndex: 2,
+    columnIndex: 3,
+    rowCount: -1,
+    columnCount: 5,
+    rowSpan: 2,
+    columnSpan: 1,
+    textKind: "paragraph",
+    sort: "ascending",
+    labelledBy: ["label"],
+    describedBy: ["help"],
+    errorMessage: ["error"],
+    controls: ["popup"],
+    owns: ["option"],
+    flowTo: ["next"],
+    activeDescendant: "option",
+    futureProperty: { ignored: true },
+  };
+  const frame = (properties: unknown) => ({
+    version: 2,
+    width: 1,
+    height: 1,
+    styles: [null],
+    rows: [[]],
+    accessibilityTree: [
+      { id: "field", role: "textField", rect: [0, 0, 1, 1], properties },
+    ],
+  });
+  const decode = (properties: unknown) =>
+    new WebHostOutputDecoder().feed(
+      encoder.encode(`\u001esurface:${JSON.stringify(frame(properties))}\n`),
+    );
+  expect(
+    surfaceFrame(decode(properties)[0]).accessibilityTree?.[0]?.properties,
+  ).toEqual(properties);
+  expect(
+    surfaceFrame(decode(undefined)[0]).accessibilityTree?.[0]?.properties,
+  ).toBeUndefined();
+  for (const invalid of [
+    null,
+    [],
+    { selected: "true" },
+    { required: 1 },
+    { controls: [1] },
+    { activeDescendant: [] },
+    { language: 3 },
+    { headingLevel: 0 },
+    { rowSpan: -1 },
+    { rowCount: -2 },
+    { positionInSet: 1.5 },
+    { columnIndex: Number.MAX_SAFE_INTEGER + 1 },
+    { textKind: "unknown" },
+    { sort: "sideways" },
+  ]) {
+    expect(decode(invalid)[0]?.type).toBe("text");
+  }
+});
+
+test("delta semantics replace widget properties and clear an absent tree", () => {
+  const decoder = new WebHostOutputDecoder();
+  const feed = (frame: unknown) =>
+    surfaceFrame(
+      decoder.feed(
+        encoder.encode(`\u001esurface:${JSON.stringify(frame)}\n`),
+      )[0],
+    );
+  const node = { id: "field", role: "textField", rect: [0, 0, 1, 1] };
+  const initial = {
+    version: 2,
+    epoch: 1,
+    gen: 1,
+    width: 1,
+    height: 1,
+    styles: [null],
+    rows: [[]],
+    accessibilityTree: [
+      {
+        ...node,
+        properties: { required: true, invalid: true, describedBy: ["help"] },
+      },
+    ],
+  };
+  expect(feed(initial).accessibilityTree?.[0]?.properties?.invalid).toBe(true);
+  const delta = {
+    version: 3,
+    encoding: "delta",
+    epoch: 1,
+    gen: 2,
+    baselineGen: 1,
+    width: 1,
+    height: 1,
+    styles: [null],
+    deltaRows: [],
+    accessibilityTree: [node],
+  };
+  expect(feed(delta).accessibilityTree).toEqual([node]);
+  expect(
+    feed({ ...delta, gen: 3, baselineGen: 2, accessibilityTree: undefined })
+      .accessibilityTree,
+  ).toBeUndefined();
+});

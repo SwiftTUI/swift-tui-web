@@ -71,6 +71,26 @@ scene runtime; discard them when that runtime closes. See the framework's
 [accessibility contract](https://github.com/SwiftTUI/swift-tui/blob/main/docs/ACCESSIBILITY.md)
 for supported controls and rejection results.
 
+### Widget property extension
+
+Current source accepts optional `WebHostAccessibilityNode.properties` on v2
+keyframes and v3 deltas. `WebHostAccessibilityProperties` carries widget state,
+validation descriptions, language, authored paragraph/code/quotation text,
+heading/tree levels, collection/table indexes and relationships. Canvas and DOM
+use one adapter. Missing properties clear prior attributes on retained elements;
+unknown optional object keys are ignored, while malformed known fields reject
+the frame. Older producers, including 0.15.1, remain valid without the object.
+Older adapters ignore the extension, so rich semantics require matching updated
+producer and adapter sources. This is not a released 0.15.1 support claim.
+
+Relationship lists contain wire node IDs, never DOM IDs. The adapter resolves
+present, nonhidden same-scene targets and drops missing, duplicate and self
+references. DOM IDs are collision-free and scoped to each mounted tree. Read-only
+native editors retain focus but send no mutation requests. The Swift runtime
+independently rejects read-only assistive mutations. Role-appropriate properties
+remain the control author's responsibility; metadata alone does not implement
+selection, validation, popup keyboard behavior or a complete widget pattern.
+
 ## API
 
 ```ts

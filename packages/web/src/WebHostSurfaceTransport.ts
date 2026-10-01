@@ -98,7 +98,40 @@ export interface WebHostAccessibilityActionResponse {
     | "invalidValue";
 }
 
+/** Additive widget semantics. Omitted fields retain the legacy presentation. */
+export interface WebHostAccessibilityProperties {
+  selected?: boolean;
+  expanded?: boolean;
+  required?: boolean;
+  invalid?: boolean;
+  busy?: boolean;
+  readOnly?: boolean;
+  description?: string;
+  valueDescription?: string;
+  language?: string;
+  headingLevel?: number;
+  level?: number;
+  positionInSet?: number;
+  setSize?: number;
+  rowIndex?: number;
+  columnIndex?: number;
+  rowCount?: number;
+  columnCount?: number;
+  rowSpan?: number;
+  columnSpan?: number;
+  textKind?: "paragraph" | "code" | "quotation";
+  sort?: "none" | "ascending" | "descending" | "other";
+  labelledBy?: string[];
+  describedBy?: string[];
+  errorMessage?: string[];
+  controls?: string[];
+  owns?: string[];
+  flowTo?: string[];
+  activeDescendant?: string;
+}
+
 export interface WebHostAccessibilityNode {
+  properties?: WebHostAccessibilityProperties;
   /** Opaque token for one live control in this scene; absent on older runtimes. */
   actionTarget?: string;
   actions?: WebHostAccessibilityActionKind[];
@@ -1245,6 +1278,8 @@ function isWebHostAccessibilityNode(
   }
   const node = value as Partial<WebHostAccessibilityNode>;
   return (
+    (node.properties === undefined ||
+      isAccessibilityProperties(node.properties)) &&
     typeof node.id === "string" &&
     (node.parentId === undefined || typeof node.parentId === "string") &&
     isWebHostSurfaceRect(node.rect) &&
@@ -1268,6 +1303,83 @@ function isWebHostAccessibilityNode(
         value === undefined ||
         (typeof value === "number" && Number.isFinite(value)),
     )
+  );
+}
+
+function isAccessibilityProperties(
+  value: unknown,
+): value is WebHostAccessibilityProperties {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const properties = value as WebHostAccessibilityProperties;
+  return (
+    (properties.selected === undefined ||
+      typeof properties.selected === "boolean") &&
+    (properties.expanded === undefined ||
+      typeof properties.expanded === "boolean") &&
+    (properties.required === undefined ||
+      typeof properties.required === "boolean") &&
+    (properties.invalid === undefined ||
+      typeof properties.invalid === "boolean") &&
+    (properties.busy === undefined || typeof properties.busy === "boolean") &&
+    (properties.readOnly === undefined ||
+      typeof properties.readOnly === "boolean") &&
+    (properties.description === undefined ||
+      typeof properties.description === "string") &&
+    (properties.valueDescription === undefined ||
+      typeof properties.valueDescription === "string") &&
+    (properties.language === undefined ||
+      typeof properties.language === "string") &&
+    (properties.headingLevel === undefined ||
+      (Number.isSafeInteger(properties.headingLevel) &&
+        properties.headingLevel > 0)) &&
+    (properties.level === undefined ||
+      (Number.isSafeInteger(properties.level) && properties.level > 0)) &&
+    (properties.positionInSet === undefined ||
+      (Number.isSafeInteger(properties.positionInSet) &&
+        properties.positionInSet > 0)) &&
+    (properties.setSize === undefined ||
+      (Number.isSafeInteger(properties.setSize) &&
+        (properties.setSize === -1 || properties.setSize >= 0))) &&
+    (properties.rowIndex === undefined ||
+      (Number.isSafeInteger(properties.rowIndex) && properties.rowIndex > 0)) &&
+    (properties.columnIndex === undefined ||
+      (Number.isSafeInteger(properties.columnIndex) &&
+        properties.columnIndex > 0)) &&
+    (properties.rowCount === undefined ||
+      (Number.isSafeInteger(properties.rowCount) &&
+        (properties.rowCount === -1 || properties.rowCount >= 0))) &&
+    (properties.columnCount === undefined ||
+      (Number.isSafeInteger(properties.columnCount) &&
+        (properties.columnCount === -1 || properties.columnCount >= 0))) &&
+    (properties.rowSpan === undefined ||
+      (Number.isSafeInteger(properties.rowSpan) && properties.rowSpan > 0)) &&
+    (properties.columnSpan === undefined ||
+      (Number.isSafeInteger(properties.columnSpan) &&
+        properties.columnSpan > 0)) &&
+    (properties.textKind === undefined ||
+      ["paragraph", "code", "quotation"].includes(properties.textKind)) &&
+    (properties.sort === undefined ||
+      ["none", "ascending", "descending", "other"].includes(properties.sort)) &&
+    (properties.labelledBy === undefined ||
+      (Array.isArray(properties.labelledBy) &&
+        properties.labelledBy.every((id) => typeof id === "string"))) &&
+    (properties.describedBy === undefined ||
+      (Array.isArray(properties.describedBy) &&
+        properties.describedBy.every((id) => typeof id === "string"))) &&
+    (properties.errorMessage === undefined ||
+      (Array.isArray(properties.errorMessage) &&
+        properties.errorMessage.every((id) => typeof id === "string"))) &&
+    (properties.controls === undefined ||
+      (Array.isArray(properties.controls) &&
+        properties.controls.every((id) => typeof id === "string"))) &&
+    (properties.owns === undefined ||
+      (Array.isArray(properties.owns) &&
+        properties.owns.every((id) => typeof id === "string"))) &&
+    (properties.flowTo === undefined ||
+      (Array.isArray(properties.flowTo) &&
+        properties.flowTo.every((id) => typeof id === "string"))) &&
+    (properties.activeDescendant === undefined ||
+      typeof properties.activeDescendant === "string")
   );
 }
 

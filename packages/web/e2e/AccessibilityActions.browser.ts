@@ -343,3 +343,220 @@ for (const renderer of ["canvas", "dom"]) {
     await expect(button).toBeFocused();
   });
 }
+
+for (const renderer of ["canvas", "dom"]) {
+  test(`${renderer} widget properties update in place and resolve only current scene relationships`, async ({
+    page,
+  }) => {
+    await page.goto(`/health?renderer=${renderer}`);
+    await page.addScriptTag({
+      url: "/accessibility-actions.js",
+      type: "module",
+    });
+    await page.waitForFunction(() => !!window.accessibilityActions);
+    const related: WebHostAccessibilityNode[] = [
+      {
+        id: "label/é",
+        role: "group",
+        label: "Authored name",
+        rect: [0, 1, 20, 1],
+      },
+      // These IDs collided in the former DOM ID encoding.
+      {
+        id: "label-2f-é",
+        role: "group",
+        label: "Other name",
+        rect: [0, 2, 20, 1],
+      },
+      {
+        id: "help",
+        role: "group",
+        label: "Helpful description",
+        rect: [0, 3, 20, 1],
+      },
+      {
+        id: "error",
+        role: "group",
+        label: "Correct this",
+        rect: [0, 4, 20, 1],
+      },
+      {
+        id: "hidden",
+        role: "group",
+        label: "Private",
+        hidden: true,
+        rect: [0, 5, 20, 1],
+      },
+    ];
+    const field: WebHostAccessibilityNode = {
+      ...nodes[3]!,
+      properties: {
+        selected: false,
+        expanded: true,
+        required: true,
+        invalid: true,
+        busy: true,
+        readOnly: true,
+        description: "Detailed help",
+        language: "fr",
+        positionInSet: 2,
+        setSize: 5,
+        labelledBy: ["label/é"],
+        describedBy: ["help", "missing", "hidden", "text", "help"],
+        errorMessage: ["error"],
+        controls: ["help"],
+        flowTo: ["error"],
+        activeDescendant: "help",
+      },
+    };
+    await present(page, [field, ...related]);
+    const input = page.locator('[data-accessibility-id="text"]');
+    await expect(input).toHaveAccessibleName("Authored name");
+    await expect(input).toHaveAttribute("aria-selected", "false");
+    await expect(input).toHaveAttribute("aria-expanded", "true");
+    await expect(input).toHaveAttribute("aria-required", "true");
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    await expect(input).toHaveAttribute("aria-busy", "true");
+    await expect(input).toHaveAttribute("aria-readonly", "true");
+    await expect(input).toHaveAttribute("lang", "fr");
+    await expect(input).toHaveAttribute("aria-posinset", "2");
+    await expect(input).toHaveAttribute("aria-setsize", "5");
+    const helpID = await page
+      .locator('[data-accessibility-id="help"]')
+      .getAttribute("id");
+    await expect(input).toHaveAttribute("aria-describedby", helpID!);
+    const ids = await page
+      .locator("[data-accessibility-id]")
+      .evaluateAll((elements) => elements.map((e) => e.id));
+    expect(new Set(ids).size).toBe(ids.length);
+    await input.focus();
+    const url = page.url();
+    await input.press("Backspace");
+    expect(page.url()).toBe(url);
+    await input.evaluate((element) => {
+      (element as HTMLInputElement).value = "rejected";
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      (element as HTMLElement).dataset.retained = "yes";
+    });
+    expect((await records(page)).filter((r) => r.includes("setValue"))).toEqual(
+      [],
+    );
+    await present(page, [{ ...field, properties: undefined }, ...related]);
+    await expect(input).toHaveAttribute("data-retained", "yes");
+    await expect(input).toHaveAccessibleName("Name");
+    for (const name of [
+      "aria-selected",
+      "aria-expanded",
+      "aria-required",
+      "aria-invalid",
+      "aria-busy",
+      "aria-readonly",
+      "lang",
+      "aria-posinset",
+      "aria-setsize",
+      "aria-labelledby",
+      "aria-describedby",
+      "aria-errormessage",
+      "aria-controls",
+      "aria-flowto",
+      "aria-activedescendant",
+    ]) {
+      expect(await input.getAttribute(name)).toBeNull();
+    }
+    expect(await input.evaluate((e) => (e as HTMLInputElement).readOnly)).toBe(
+      false,
+    );
+    await present(page, [field]);
+    expect(await input.getAttribute("aria-describedby")).toBeNull();
+    expect(await input.getAttribute("aria-labelledby")).toBeNull();
+  });
+
+  test(`${renderer} authored reading and table structure retains one element per identity`, async ({
+    page,
+  }) => {
+    await page.goto(`/health?renderer=${renderer}`);
+    await page.addScriptTag({
+      url: "/accessibility-actions.js",
+      type: "module",
+    });
+    await page.waitForFunction(() => !!window.accessibilityActions);
+    const reading: WebHostAccessibilityNode[] = [
+      {
+        id: "title",
+        role: "group",
+        label: "Results",
+        rect: [0, 0, 20, 1],
+        properties: { headingLevel: 3 },
+      },
+      {
+        id: "paragraph",
+        role: "group",
+        label: "Bonjour le monde.",
+        rect: [0, 1, 20, 2],
+        properties: { textKind: "paragraph", language: "fr" },
+      },
+      {
+        id: "table",
+        role: "table",
+        rect: [0, 3, 20, 5],
+        properties: { rowCount: 10, columnCount: 4 },
+      },
+      {
+        id: "row",
+        parentId: "table",
+        role: "tableRow",
+        rect: [0, 3, 20, 1],
+        properties: { rowIndex: 2 },
+      },
+      {
+        id: "cell",
+        parentId: "row",
+        role: "columnHeader",
+        label: "Score",
+        rect: [0, 3, 10, 1],
+        properties: {
+          columnIndex: 3,
+          rowSpan: 2,
+          columnSpan: 1,
+          sort: "descending",
+        },
+      },
+    ];
+    await present(page, reading);
+    await expect(
+      page.getByRole("heading", { name: "Results", level: 3 }),
+    ).toHaveCount(1);
+    const paragraph = page.getByRole("paragraph");
+    await expect(paragraph).toHaveText("Bonjour le monde.");
+    expect(await paragraph.getAttribute("aria-label")).toBeNull();
+    await expect(page.getByRole("table")).toHaveAttribute(
+      "aria-rowcount",
+      "10",
+    );
+    await expect(page.getByRole("table")).toHaveAttribute("aria-colcount", "4");
+    await expect(page.getByRole("row")).toHaveAttribute("aria-rowindex", "2");
+    const cell = page.getByRole("columnheader", { name: "Score" });
+    await expect(cell).toHaveAttribute("aria-colindex", "3");
+    await expect(cell).toHaveAttribute("aria-rowspan", "2");
+    await expect(cell).toHaveAttribute("aria-colspan", "1");
+    await expect(cell).toHaveAttribute("aria-sort", "descending");
+    await present(
+      page,
+      reading.map((node) =>
+        node.id === "paragraph" ? { ...node, label: "Au revoir." } : node,
+      ),
+    );
+    await expect(paragraph).toHaveText("Au revoir.");
+    await expect(
+      page.locator('[data-accessibility-id="paragraph"]'),
+    ).toHaveCount(1);
+    await present(
+      page,
+      reading.map((node) => ({ ...node, properties: undefined })),
+    );
+    await expect(page.getByRole("paragraph")).toHaveCount(0);
+    expect(
+      await page.locator('[data-accessibility-id="paragraph"]').textContent(),
+    ).toBe("");
+  });
+}
