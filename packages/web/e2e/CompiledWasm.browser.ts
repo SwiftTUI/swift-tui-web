@@ -167,22 +167,17 @@ async function expectCount(
 }
 
 async function clickIncrement(page: Page, scene: string): Promise<void> {
-  const point = await page.evaluate((id) => {
-    const frame = window.__compiledWasm.snapshot().frames[id];
-    if (!frame) throw new Error(`Missing compiled Swift frame: ${id}`);
-    const label = `Increment ${id === "alpha" ? "Alpha" : "Beta"}`;
-    const node = frame.accessibilityTree?.find((node) => node.label === label);
-    const canvas = [
-      ...document.querySelectorAll<HTMLElement>(".webhost-scene__surface"),
-    ].find((element) => element.getBoundingClientRect().width > 0);
-    if (!node || !canvas)
-      throw new Error(`Missing compiled Swift button: ${label}`);
-    const box = canvas.getBoundingClientRect();
-    return {
-      x: box.x + ((node.rect[0] + node.rect[2] / 2) * box.width) / frame.width,
-      y:
-        box.y + ((node.rect[1] + node.rect[3] / 2) * box.height) / frame.height,
-    };
-  }, scene);
-  await page.mouse.click(point.x, point.y);
+  const label = `Increment ${scene === "alpha" ? "Alpha" : "Beta"}`;
+  const button = page.locator(".webhost-scene:visible").getByRole("button", {
+    name: label,
+    exact: true,
+  });
+  await expect(button).toBeVisible();
+  const box = await button.boundingBox();
+  if (!box) throw new Error(`Missing compiled Swift button: ${label}`);
+  // The first producer frame can precede the host's resize acknowledgement.
+  // Its grid size need not fill the surface, so scaling by surface/frame size
+  // can click another row. The semantic box uses the presenter's cell metrics.
+  // Keep a real pointer click: this journey still exercises mouse ingress.
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
