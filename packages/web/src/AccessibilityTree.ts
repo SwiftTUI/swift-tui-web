@@ -1,4 +1,8 @@
 import {
+  presentSelection,
+  selectionFocusElement,
+} from "./AccessibilitySelection.ts";
+import {
   normalizeLiveRegion,
   normalizePoliteness,
 } from "./normalizeWireTokens.ts";
@@ -132,7 +136,8 @@ export class AccessibilityTreeMounter {
       const previousModel = this.modelsById.get(node.id);
       const reusable =
         existing?.tagName.toLowerCase() === tag &&
-        previousModel?.actionTarget === node.actionTarget;
+        previousModel?.actionTarget === node.actionTarget &&
+        previousModel?.selection?.presentation === node.selection?.presentation;
       const element = reusable ? existing : this.createElement(node, tag);
       if (!reusable) {
         if (existing) this.clearEditable(existing);
@@ -196,7 +201,8 @@ export class AccessibilityTreeMounter {
     // Moving to a disabled node or outside the scene produces no newer runtime
     // focus request, but must still supersede an in-flight assistive request.
     const synchronize = focusAcknowledged
-      ? activeBeforePresentation === this.nodesById.get(pending.id)
+      ? (this.nodesById.get(pending.id)?.contains(activeBeforePresentation) ??
+        false)
       : element !== this.runtimeFocusedElement ||
         element === activeBeforePresentation;
     this.runtimeFocusedElement = element;
@@ -211,8 +217,9 @@ export class AccessibilityTreeMounter {
     ) {
       // An unchanged runtime focus is state, not a new request to take focus.
       // Repaints must let assistive navigation leave editable controls.
-      if (document.activeElement !== element)
-        element.focus?.({ preventScroll: true });
+      const focusElement = selectionFocusElement(element);
+      if (document.activeElement !== focusElement)
+        focusElement.focus?.({ preventScroll: true });
     }
     this.presenting = false;
   }
@@ -238,6 +245,11 @@ export class AccessibilityTreeMounter {
   }
 
   private elementTag(node: WebHostAccessibilityNode): string {
+    if (
+      node.selection &&
+      ["menu", "list"].includes(node.selection.presentation)
+    )
+      return "select";
     if (!node.actionTarget || !this.sendAction) return "div";
     if (node.role === "textEditor") return "textarea";
     if (["textField", "secureField", "slider", "stepper"].includes(node.role))
@@ -272,7 +284,33 @@ export class AccessibilityTreeMounter {
         this.pendingFocus = { id: node.id, requestID };
       this.sendAction?.(model.actionTarget, request, String(requestID));
     };
-    element.addEventListener("focus", () => send({ action: "focus" }));
+    element.addEventListener(node.selection ? "focusin" : "focus", () =>
+      send({ action: "focus" }),
+    );
+    if (node.selection) {
+      element.addEventListener("change", (event) => {
+        event.stopPropagation();
+        const input = event.target as HTMLInputElement | HTMLSelectElement;
+        const model = current();
+        const option = model?.selection?.options.find(
+          (option) => option.id === input.value,
+        );
+        if (
+          !option?.isEnabled ||
+          (input instanceof HTMLInputElement && !input.checked)
+        )
+          return;
+        send({ action: "setValue", value: { type: "text", value: option.id } });
+      });
+      // Native selection owns arrows, type-ahead, activation and popup dismissal.
+      // Let Tab reach the scene's synchronous traversal without forwarding a
+      // second copy of a selection key to Swift.
+      element.addEventListener("keydown", (event) => {
+        if (event.key !== "Tab") event.stopPropagation();
+      });
+      element.addEventListener("click", (event) => event.stopPropagation());
+      return element;
+    }
     element.addEventListener("click", (event) => {
       event.stopPropagation();
       send({ action: "activate" });
@@ -506,7 +544,7 @@ export class AccessibilityTreeMounter {
     setOrRemoveAttribute(
       element,
       "aria-valuetext",
-      node.role === "secureField"
+      node.role === "secureField" || node.selection
         ? undefined
         : properties?.valueDescription?.toString(),
     );
@@ -590,6 +628,19 @@ export class AccessibilityTreeMounter {
           input.value = value;
         }
       }
+    }
+
+    if (node.selection) {
+      const pending = this.pendingValues.get(node.id);
+      const synchronizeValue =
+        pending === undefined || pending <= this.acknowledgedRequestID;
+      if (synchronizeValue) this.pendingValues.delete(node.id);
+      presentSelection(
+        element,
+        node,
+        synchronizeValue,
+        this.isTabStop(node) && !!node.actions?.includes("setValue"),
+      );
     }
 
     const [x, y, width, height] = node.rect;

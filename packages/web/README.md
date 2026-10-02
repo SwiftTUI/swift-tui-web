@@ -91,6 +91,15 @@ independently rejects read-only assistive mutations. Role-appropriate properties
 remain the control author's responsibility; metadata alone does not implement
 selection, validation, popup keyboard behavior or a complete widget pattern.
 
+A matching producer may also send `selection` on a Picker node: a presentation
+and ordered options with opaque `id`, `label` and `isEnabled`. The adapter uses
+native select popups/listboxes and radio groups, retaining choices by ID and
+sending one text `setValue` command on a native change. Swift owns the selected
+value; pending values wait for acknowledgement. Removed/disabled options are
+not actionable. Native popup expansion is browser-local; it does not claim to
+mirror the terminal menu expansion. This current-source path still requires
+actual Safari/VoiceOver qualification.
+
 ## API
 
 ```ts

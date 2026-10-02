@@ -560,3 +560,112 @@ for (const renderer of ["canvas", "dom"]) {
     ).toBe("");
   });
 }
+
+for (const renderer of ["canvas", "dom"]) {
+  for (const presentation of [
+    "menu",
+    "list",
+    "radioGroup",
+    "segmented",
+  ] as const) {
+    test(`${renderer} ${presentation} picker keeps typed choices and native focus`, async ({
+      page,
+    }) => {
+      await page.goto(`/health?renderer=${renderer}`);
+      await page.addScriptTag({
+        url: "/accessibility-actions.js",
+        type: "module",
+      });
+      await page.waitForFunction(() => !!window.accessibilityActions);
+      const picker: WebHostAccessibilityNode = {
+        id: "picker",
+        actionTarget: "8:picker",
+        role: "picker",
+        label: "Mode",
+        rect: [0, 0, 24, 6],
+        actions: ["focus", "setValue"],
+        value: { type: "text", value: "one" },
+        selection: {
+          presentation,
+          options: [
+            { id: "one", label: "One", isEnabled: true },
+            { id: "two", label: "Two", isEnabled: true },
+            { id: "three", label: "Unavailable", isEnabled: false },
+          ],
+        },
+      };
+      await present(page, [
+        picker,
+        { ...nodes[0], id: "after", rect: [0, 7, 10, 1] },
+      ]);
+      const radio =
+        presentation === "radioGroup" || presentation === "segmented";
+      const control = radio
+        ? page.getByRole("radio", { name: "Two", exact: true })
+        : page.getByRole(presentation === "menu" ? "combobox" : "listbox", {
+            name: "Mode",
+          });
+      if (radio) {
+        await page.getByRole("radio", { name: "One", exact: true }).focus();
+        await page
+          .getByRole("radio", { name: "One", exact: true })
+          .press("ArrowRight");
+        await expect(control).toBeChecked();
+      } else {
+        await control.focus();
+        await control.selectOption("two");
+        await expect(control).toHaveValue("two");
+      }
+      const sent = await records(page);
+      expect(
+        sent.filter((record) => record.includes(":setValue:")),
+      ).toHaveLength(1);
+      expect(sent.find((record) => record.includes(":setValue:"))).toContain(
+        ":setValue:text:two",
+      );
+      const requestID = sent
+        .find((record) => record.includes(":setValue:"))!
+        .split(":")[1];
+      // A frame before the action acknowledgement cannot roll back native selection.
+      await present(page, [picker]);
+      if (radio) await expect(control).toBeChecked();
+      else await expect(control).toHaveValue("two");
+      picker.value = { type: "text", value: "two" };
+      picker.isFocused = true;
+      await present(page, [picker], {
+        requestID,
+        target: picker.actionTarget!,
+        result: "accepted",
+      });
+      await expect(control).toBeFocused();
+      const disabled = page.getByRole(radio ? "radio" : "option", {
+        name: "Unavailable",
+      });
+      await expect(disabled).toBeDisabled();
+      // Reorder and relabel without replacing the selected DOM choice.
+      const handle = await control.elementHandle();
+      picker.selection!.options = [
+        picker.selection!.options[1],
+        picker.selection!.options[0],
+      ];
+      await present(page, [picker]);
+      expect(await control.evaluate((node, old) => node === old, handle)).toBe(
+        true,
+      );
+      await expect(control).toBeFocused();
+      picker.selection!.options = picker.selection!.options.filter(
+        (option) => option.id !== "two",
+      );
+      picker.value = { type: "text", value: "one" };
+      await present(page, [picker]);
+      if (radio)
+        await expect(
+          page.getByRole("radio", { name: "One", exact: true }),
+        ).toBeFocused();
+      else await expect(control).toHaveValue("one");
+      expect(
+        (await records(page)).filter((record) => record.includes(":setValue:")),
+      ).toHaveLength(1);
+    });
+  }
+}

@@ -1629,3 +1629,42 @@ test("delta semantics replace widget properties and clear an absent tree", () =>
       .accessibilityTree,
   ).toBeUndefined();
 });
+
+test("picker choices retain opaque IDs and reject malformed selection metadata", () => {
+  const selection = {
+    presentation: "menu",
+    options: [
+      { id: "a", label: "Same", isEnabled: true },
+      { id: "b", label: "Same", isEnabled: false },
+    ],
+  };
+  const node = { id: "picker", role: "picker", rect: [0, 0, 10, 3], selection };
+  const decode = (selection: unknown) =>
+    new WebHostOutputDecoder().feed(
+      encoder.encode(
+        `\u001esurface:${JSON.stringify({
+          version: 2,
+          width: 10,
+          height: 3,
+          styles: [null],
+          rows: [[], [], []],
+          accessibilityTree: [{ ...node, selection }],
+        })}\n`,
+      ),
+    );
+  expect(surfaceFrame(decode(selection)[0]).accessibilityTree).toEqual([node]);
+  for (const invalid of [
+    null,
+    {},
+    { ...selection, presentation: "unknown" },
+    { ...selection, options: [selection.options[0], selection.options[0]] },
+    { ...selection, options: [{ id: "", label: "Empty", isEnabled: true }] },
+    { ...selection, options: [{ id: "a", label: 3, isEnabled: true }] },
+    { ...selection, options: [{ id: "a", label: "A", isEnabled: "true" }] },
+  ])
+    expect(decode(invalid)[0]?.type).toBe("text");
+  expect(
+    surfaceFrame(decode({ ...selection, future: true })[0])
+      .accessibilityTree?.[0].selection,
+  ).toMatchObject(selection);
+});

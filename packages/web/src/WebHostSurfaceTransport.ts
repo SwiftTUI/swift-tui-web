@@ -131,6 +131,7 @@ export interface WebHostAccessibilityProperties {
 }
 
 export interface WebHostAccessibilityNode {
+  selection?: WebHostAccessibilitySelection;
   properties?: WebHostAccessibilityProperties;
   /** Opaque token for one live control in this scene; absent on older runtimes. */
   actionTarget?: string;
@@ -151,6 +152,11 @@ export interface WebHostAccessibilityNode {
   liveRegion?: WebHostAccessibilityLiveRegion;
   cursorAnchor?: WebHostAccessibilityPoint;
   isFocused?: boolean;
+}
+
+export interface WebHostAccessibilitySelection {
+  presentation: "menu" | "list" | "radioGroup" | "segmented";
+  options: { id: string; label: string; isEnabled: boolean }[];
 }
 
 /**
@@ -1278,6 +1284,8 @@ function isWebHostAccessibilityNode(
   }
   const node = value as Partial<WebHostAccessibilityNode>;
   return (
+    (node.selection === undefined ||
+      isAccessibilitySelection(node.selection)) &&
     (node.properties === undefined ||
       isAccessibilityProperties(node.properties)) &&
     typeof node.id === "string" &&
@@ -1304,6 +1312,36 @@ function isWebHostAccessibilityNode(
         (typeof value === "number" && Number.isFinite(value)),
     )
   );
+}
+
+function isAccessibilitySelection(
+  value: unknown,
+): value is WebHostAccessibilitySelection {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const selection = value as WebHostAccessibilitySelection;
+  if (
+    !["menu", "list", "radioGroup", "segmented"].includes(
+      selection.presentation,
+    ) ||
+    !Array.isArray(selection.options) ||
+    selection.options.length > 65536
+  )
+    return false;
+  const ids = new Set<string>();
+  return selection.options.every((option) => {
+    if (
+      !option ||
+      typeof option !== "object" ||
+      typeof option.id !== "string" ||
+      option.id === "" ||
+      ids.has(option.id) ||
+      typeof option.label !== "string" ||
+      typeof option.isEnabled !== "boolean"
+    )
+      return false;
+    ids.add(option.id);
+    return true;
+  });
 }
 
 function isAccessibilityProperties(
