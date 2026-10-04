@@ -1469,6 +1469,69 @@ test("accessibility input keeps tokens and text framed and typed", () => {
   ).toBe("\u001eaccessibility:x:setValue:boolean:false\n");
 });
 
+test("editor wire carries directed UTF-16 ranges and validates optional selection", () => {
+  for (const action of ["editText", "selectText"] as const) {
+    expect(
+      decoder.decode(
+        encodeAccessibilityActionMessage(
+          "field:1",
+          {
+            action,
+            text: "a😀bc",
+            anchor: 3,
+            head: 1,
+          },
+          "42",
+        ),
+      ),
+    ).toBe(
+      `\u001eaccessibility:42:field%3A1:${action}:text:a%F0%9F%98%80bc:3:1\n`,
+    );
+  }
+  const decodeSelection = (textSelection: unknown) =>
+    new WebHostOutputDecoder().feed(
+      encoder.encode(
+        `\u001esurface:${JSON.stringify({
+          version: 2,
+          width: 1,
+          height: 1,
+          styles: [null],
+          rows: [[]],
+          accessibilityTree: [
+            {
+              id: "field",
+              role: "textField",
+              rect: [0, 0, 1, 1],
+              textSelection,
+            },
+          ],
+        })}\n`,
+      ),
+    );
+  expect(
+    surfaceFrame(decodeSelection([3, 1])[0]).accessibilityTree?.[0]
+      ?.textSelection,
+  ).toEqual([3, 1]);
+  expect(
+    surfaceFrame(decodeSelection(undefined)[0]).accessibilityTree?.[0]
+      ?.textSelection,
+  ).toBeUndefined();
+  for (const invalid of [
+    null,
+    [],
+    [0],
+    [1, 2, 3],
+    [-1, 0],
+    [0.5, 1],
+    ["0", 1],
+    [0, Number.MAX_SAFE_INTEGER + 1],
+  ]) {
+    expect(
+      decodeSelection(invalid).some((record) => record.type === "surface"),
+    ).toBe(false);
+  }
+});
+
 test("accessibility state and acknowledgement survive decoding with validation", () => {
   const node = {
     id: "control",

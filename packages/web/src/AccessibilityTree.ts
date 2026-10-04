@@ -60,6 +60,11 @@ export class AccessibilityTreeMounter {
   private pendingMenu?: { trigger: string; last: boolean };
   private pendingMenuReturn?: string;
   private appliedAssistiveFocusGeneration = -1n;
+  private readonly composing = new WeakSet<HTMLElement>();
+  private readonly textSelections = new WeakMap<
+    HTMLElement,
+    { text: string; anchor: number; head: number }
+  >();
   private readonly compositionCommits = new WeakMap<HTMLElement, string>();
 
   get hasInteractiveControls(): boolean {
@@ -564,6 +569,8 @@ export class AccessibilityTreeMounter {
     if (element.tagName === "INPUT" || element.tagName === "TEXTAREA")
       (element as HTMLInputElement).value = "";
     this.compositionCommits.delete(element);
+    this.composing.delete(element);
+    this.textSelections.delete(element);
   }
 
   private elementTag(node: WebHostAccessibilityNode): string {
@@ -670,12 +677,13 @@ export class AccessibilityTreeMounter {
         (model.isEnabled === false && !semanticFocus) ||
         (model.properties?.readOnly === true &&
           request.action !== "focus" &&
+          request.action !== "selectText" &&
           !semanticFocus) ||
         !model.actions?.includes(request.action)
       )
         return;
       const requestID = ++this.nextRequestID;
-      if (request.action === "setValue")
+      if (["setValue", "editText", "selectText"].includes(request.action))
         this.pendingValues.set(node.id, requestID);
       if (request.action === "focus")
         this.pendingFocus = { id: node.id, requestID };
@@ -888,9 +896,9 @@ export class AccessibilityTreeMounter {
       }
     });
     if (tag !== "div") {
-      let composing = false;
       element.addEventListener("blur", () => {
-        composing = false;
+        this.composing.delete(element);
+        this.textSelections.delete(element);
         this.compositionCommits.delete(element);
         if (current()?.role === "secureField")
           (element as HTMLInputElement).value = "";
@@ -907,16 +915,40 @@ export class AccessibilityTreeMounter {
               action: "setValue",
               value: { type: "number", value: number },
             });
+        } else if (model.actions?.includes("editText")) {
+          const selection = nativeTextSelection(element as HTMLInputElement);
+          this.textSelections.set(element, selection);
+          send({ action: "editText", ...selection });
         } else {
           send({ action: "setValue", value: { type: "text", value } });
         }
       };
+      element.addEventListener("selectionchange", () => {
+        const model = current();
+        if (
+          this.presenting ||
+          this.composing.has(element) ||
+          document.activeElement !== element ||
+          !model?.actions?.includes("selectText")
+        )
+          return;
+        const selection = nativeTextSelection(element as HTMLInputElement);
+        const previous = this.textSelections.get(element);
+        if (
+          previous?.text === selection.text &&
+          previous.anchor === selection.anchor &&
+          previous.head === selection.head
+        )
+          return;
+        this.textSelections.set(element, selection);
+        send({ action: "selectText", ...selection });
+      });
       element.addEventListener("compositionstart", () => {
-        composing = true;
+        this.composing.add(element);
         this.compositionCommits.delete(element);
       });
       element.addEventListener("compositionend", () => {
-        composing = false;
+        if (!this.composing.delete(element)) return;
         if (!current()) return;
         commit();
         this.compositionCommits.set(
@@ -925,7 +957,8 @@ export class AccessibilityTreeMounter {
         );
       });
       element.addEventListener("input", (event) => {
-        if (composing || (event as InputEvent).isComposing) return;
+        if (this.composing.has(element) || (event as InputEvent).isComposing)
+          return;
         const previous = this.compositionCommits.get(element);
         this.compositionCommits.delete(element);
         if (
@@ -974,11 +1007,13 @@ export class AccessibilityTreeMounter {
     if (properties?.headingLevel !== undefined) {
       role.role = "heading";
       role.level = properties.headingLevel;
-    } else if (properties?.textKind !== undefined) {
+    } else if (role.role !== "heading" && properties?.textKind !== undefined) {
       role.role =
-        properties.textKind === "quotation"
-          ? "blockquote"
-          : properties.textKind;
+        properties.textKind === "plain"
+          ? "generic"
+          : properties.textKind === "quotation"
+            ? "blockquote"
+            : properties.textKind;
     }
     // A password input must retain its native secure-field semantics.
     setOrRemoveAttribute(
@@ -995,7 +1030,8 @@ export class AccessibilityTreeMounter {
         ? String(role.level)
         : properties?.level?.toString(),
     );
-    const structuredText = properties?.textKind !== undefined;
+    const structuredText =
+      properties?.textKind !== undefined || role.role === "heading";
     setOrRemoveAttribute(
       element,
       "aria-label",
@@ -1004,8 +1040,9 @@ export class AccessibilityTreeMounter {
     // Reuse the element across updates without disturbing hierarchy or focus.
     const text = this.readingText.get(element);
     if (structuredText) {
-      if (text) text.textContent = node.label ?? "";
-      else {
+      if (text) {
+        if (text.data !== (node.label ?? "")) text.data = node.label ?? "";
+      } else {
         const content = document.createTextNode(node.label ?? "");
         this.readingText.set(element, content);
         element.prepend(content);
@@ -1183,11 +1220,37 @@ export class AccessibilityTreeMounter {
       );
       const value = node.value ? String(node.value.value) : "";
       const pending = this.pendingValues.get(node.id);
-      if (pending === undefined || pending <= this.acknowledgedRequestID) {
+      if (
+        !this.composing.has(element) &&
+        (pending === undefined || pending <= this.acknowledgedRequestID)
+      ) {
         this.pendingValues.delete(node.id);
+        const previous = nativeTextSelection(input);
         if (node.role !== "secureField" && input.value !== value) {
           this.compositionCommits.delete(element);
           input.value = value;
+        }
+        if (input.selectionStart !== null) {
+          const [anchor, head] = node.textSelection ?? [
+            previous.anchor,
+            previous.head,
+          ];
+          const boundedAnchor = Math.min(anchor, input.value.length);
+          const boundedHead = Math.min(head, input.value.length);
+          if (
+            input.selectionStart !== Math.min(boundedAnchor, boundedHead) ||
+            input.selectionEnd !== Math.max(boundedAnchor, boundedHead) ||
+            (boundedAnchor !== boundedHead &&
+              input.selectionDirection !==
+                (boundedHead < boundedAnchor ? "backward" : "forward"))
+          ) {
+            input.setSelectionRange(
+              Math.min(boundedAnchor, boundedHead),
+              Math.max(boundedAnchor, boundedHead),
+              boundedHead < boundedAnchor ? "backward" : "forward",
+            );
+          }
+          this.textSelections.set(element, nativeTextSelection(input));
         }
       }
     }
@@ -1475,4 +1538,18 @@ function stableDOMId(id: string): string {
   return Array.from(id, (character) =>
     character.codePointAt(0)!.toString(16),
   ).join("-");
+}
+
+function nativeTextSelection(input: HTMLInputElement | HTMLTextAreaElement): {
+  text: string;
+  anchor: number;
+  head: number;
+} {
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? input.value.length;
+  return {
+    text: input.value,
+    anchor: input.selectionDirection === "backward" ? end : start,
+    head: input.selectionDirection === "backward" ? start : end,
+  };
 }

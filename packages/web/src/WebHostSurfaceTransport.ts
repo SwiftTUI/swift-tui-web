@@ -64,6 +64,8 @@ export type WebHostAccessibilityActionKind =
   | "increment"
   | "decrement"
   | "setValue"
+  | "editText"
+  | "selectText"
   | "custom";
 
 export type WebHostAccessibilityValue =
@@ -72,9 +74,20 @@ export type WebHostAccessibilityValue =
   | { type: "text"; value: string };
 
 export type WebHostAccessibilityAction =
-  | { action: Exclude<WebHostAccessibilityActionKind, "setValue" | "custom"> }
+  | {
+      action: Exclude<
+        WebHostAccessibilityActionKind,
+        "setValue" | "custom" | "editText" | "selectText"
+      >;
+    }
   | { action: "setValue"; value: WebHostAccessibilityValue }
-  | { action: "custom"; name: string };
+  | { action: "custom"; name: string }
+  | {
+      action: "editText" | "selectText";
+      text: string;
+      anchor: number;
+      head: number;
+    };
 
 export function encodeAccessibilityActionMessage(
   target: string,
@@ -82,11 +95,13 @@ export function encodeAccessibilityActionMessage(
   requestID?: string,
 ): Uint8Array {
   const value =
-    request.action === "setValue"
-      ? `:${request.value.type}:${encodeURIComponent(String(request.value.value))}`
-      : request.action === "custom"
-        ? `:name:${encodeURIComponent(request.name)}`
-        : "";
+    request.action === "editText" || request.action === "selectText"
+      ? `:text:${encodeURIComponent(request.text)}:${request.anchor}:${request.head}`
+      : request.action === "setValue"
+        ? `:${request.value.type}:${encodeURIComponent(String(request.value.value))}`
+        : request.action === "custom"
+          ? `:name:${encodeURIComponent(request.name)}`
+          : "";
   return new TextEncoder().encode(
     `\u001Eaccessibility:${requestID === undefined ? "" : `${requestID}:`}${encodeURIComponent(target)}:${request.action}${value}\n`,
   );
@@ -133,7 +148,7 @@ export interface WebHostAccessibilityProperties {
   columnCount?: number;
   rowSpan?: number;
   columnSpan?: number;
-  textKind?: "paragraph" | "code" | "quotation";
+  textKind?: "plain" | "paragraph" | "code" | "quotation";
   sort?: "none" | "ascending" | "descending" | "other";
   labelledBy?: string[];
   describedBy?: string[];
@@ -149,6 +164,8 @@ export interface WebHostAccessibilityNode {
   opensLink?: boolean;
   customActions?: string[];
   selection?: WebHostAccessibilitySelection;
+  /** Directed UTF-16 selection [anchor, head]; never published for secure fields. */
+  textSelection?: [number, number];
   properties?: WebHostAccessibilityProperties;
   /** Opaque token for one live control in this scene; absent on older runtimes. */
   actionTarget?: string;
@@ -1337,6 +1354,12 @@ function isWebHostAccessibilityNode(
         new Set(node.customActions).size === node.customActions.length)) &&
     (node.selection === undefined ||
       isAccessibilitySelection(node.selection)) &&
+    (node.textSelection === undefined ||
+      (Array.isArray(node.textSelection) &&
+        node.textSelection.length === 2 &&
+        node.textSelection.every(
+          (offset) => Number.isSafeInteger(offset) && offset >= 0,
+        ))) &&
     (node.properties === undefined ||
       isAccessibilityProperties(node.properties)) &&
     typeof node.id === "string" &&
@@ -1466,7 +1489,9 @@ function isAccessibilityProperties(
       (Number.isSafeInteger(properties.columnSpan) &&
         properties.columnSpan > 0)) &&
     (properties.textKind === undefined ||
-      ["paragraph", "code", "quotation"].includes(properties.textKind)) &&
+      ["plain", "paragraph", "code", "quotation"].includes(
+        properties.textKind,
+      )) &&
     (properties.sort === undefined ||
       ["none", "ascending", "descending", "other"].includes(properties.sort)) &&
     (properties.labelledBy === undefined ||

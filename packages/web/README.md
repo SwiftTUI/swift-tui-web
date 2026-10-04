@@ -75,7 +75,7 @@ for supported controls and rejection results.
 
 Current source accepts optional `WebHostAccessibilityNode.properties` on v2
 keyframes and v3 deltas. `WebHostAccessibilityProperties` carries widget state,
-validation descriptions, language, authored paragraph/code/quotation text,
+validation descriptions, language, ordinary source text, authored paragraph/code/quotation text,
 heading/tree levels, collection/table indexes and relationships. Canvas and DOM
 use one adapter. Missing properties clear prior attributes on retained elements;
 unknown optional object keys are ignored, while malformed known fields reject
@@ -252,9 +252,20 @@ and last controls retain native browser exits. This also covers Safari's default
 policy of excluding non-text controls from its ordinary tab sequence. Without
 interactive semantic controls, Tab enters Swift input.
 Native semantic editing proxies own editing and clipboard events and send
-typed value changes. Composition sends the final committed value once; this
-does not add shared Swift pre-edit/IME support. Secure proxy values are cleared
+typed edits with directed UTF-16 selection when the producer advertises `editText`
+and `selectText`; older producers receive the existing value changes. Selection-only
+review sends the expected text and does not write the application binding. Incoming
+frames preserve local composition, pending edits and unchanged native values, so
+acknowledgements retain the browser undo history. Composition sends the final
+committed value and caret once; this does not add shared Swift pre-edit/IME support. Secure proxy values are cleared
 on blur, replacement, removal and disposal and never copied into attributes.
+Nonsecure `textSelection: [anchor, head]` snapshots update native selection in
+either direction. Secure fields omit that state. Ordinary prose, headings and
+authored paragraphs contain real text nodes; unchanged frames preserve those
+nodes and native text selections. Inline link segments retain authored order
+without duplicating a parent label. Actual screen-reader text-unit navigation
+still requires qualification with the selected browser and reader.
+
 The paint-only DOM focus ring and caret use the same presented geometry as
 the semantic bounds and do not move browser focus on resize or repaint.
 
