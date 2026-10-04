@@ -213,6 +213,9 @@ for (const renderer of ["canvas", "dom"] as const) {
       page,
     }) => {
       const result = await page.evaluate(() => {
+        // The packaged native host disables surface selection globally.
+        document.body.style.userSelect = "none";
+        document.body.style.setProperty("-webkit-user-select", "none");
         const api = window.accessibilityActions;
         const nodes: WebHostAccessibilityNode[] = [
           {

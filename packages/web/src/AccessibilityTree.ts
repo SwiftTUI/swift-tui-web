@@ -1039,6 +1039,11 @@ export class AccessibilityTreeMounter {
     );
     // Reuse the element across updates without disturbing hierarchy or focus.
     const text = this.readingText.get(element);
+    element.style.userSelect = structuredText ? "text" : "";
+    element.style.setProperty(
+      "-webkit-user-select",
+      structuredText ? "text" : "",
+    );
     if (structuredText) {
       if (text) {
         if (text.data !== (node.label ?? "")) text.data = node.label ?? "";
