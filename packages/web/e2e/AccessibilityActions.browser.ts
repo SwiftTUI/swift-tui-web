@@ -1143,6 +1143,10 @@ test("named navigation reaches a destination without changing keyboard focus", a
   page,
 }) => {
   await page.goto("/health");
+  // The packaged standalone page hides only scene titles. Its navigation must remain usable.
+  await page.addStyleTag({
+    content: ".webhost-scene__header { display:none }",
+  });
   await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
   await page.waitForFunction(() => !!window.accessibilityActions);
   const targets: WebHostAccessibilityNode[] = [

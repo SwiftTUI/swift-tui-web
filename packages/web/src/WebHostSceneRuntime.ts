@@ -304,7 +304,7 @@ export class WebHostSceneRuntime {
   private fontResult?: DomFontResult;
   private loadingFont?: HTMLElement;
   private accessibilityTree?: AccessibilityTreeMounter;
-  private readonly header: HTMLElement;
+  private readonly chrome: HTMLElement;
   private diagnosticText?: HTMLElement;
   private resizeObserver?: ResizeObserver;
   private detachMetricObservers?: () => void;
@@ -391,7 +391,9 @@ export class WebHostSceneRuntime {
     this.element.hidden = true;
 
     const header = document.createElement("div");
-    this.header = header;
+    this.chrome = document.createElement("div");
+    this.chrome.className = "webhost-scene__chrome";
+    this.chrome.append(header);
     header.className = "webhost-scene__header";
     header.textContent = options.descriptor.title ?? options.descriptor.id;
 
@@ -399,7 +401,7 @@ export class WebHostSceneRuntime {
     this.terminalMount.className = "webhost-scene__terminal";
     this.terminalMount.tabIndex = 0;
 
-    this.element.append(header, this.terminalMount);
+    this.element.append(this.chrome, this.terminalMount);
     options.mount.appendChild(this.element);
     this.applyVisibility();
   }
@@ -434,7 +436,7 @@ export class WebHostSceneRuntime {
       },
       this.onOpenHyperlink,
     );
-    this.header.append(this.accessibilityTree.navigationElement);
+    this.chrome.append(this.accessibilityTree.navigationElement);
     this.terminalMount.replaceChildren(
       this.surfaceElement as HTMLElement,
       this.accessibilityTree.element,
