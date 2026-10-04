@@ -53,6 +53,7 @@ export class InputEventEncoder {
     button: PointerButton,
     event: PointerEvent,
     geometryRevision?: number,
+    viewportRevision?: number,
   ): Uint8Array {
     return encodeMouseInputMessage(
       {
@@ -63,6 +64,7 @@ export class InputEventEncoder {
         modifiers: modifierMask(event),
       },
       geometryRevision,
+      viewportRevision,
     );
   }
 
@@ -71,6 +73,7 @@ export class InputEventEncoder {
     button: PointerButton,
     event: PointerEvent,
     geometryRevision?: number,
+    viewportRevision?: number,
   ): Uint8Array {
     return encodeMouseInputMessage(
       {
@@ -81,16 +84,19 @@ export class InputEventEncoder {
         modifiers: modifierMask(event),
       },
       geometryRevision,
+      viewportRevision,
     );
   }
 
   encodePointerCancel(
     location: CellLocation,
     geometryRevision?: number,
+    viewportRevision?: number,
   ): Uint8Array {
     return encodeMouseInputMessage(
       { kind: "cancelled", x: location.x, y: location.y },
       geometryRevision,
+      viewportRevision,
     );
   }
 
@@ -99,6 +105,7 @@ export class InputEventEncoder {
     button: PointerButton,
     event: PointerEvent,
     geometryRevision?: number,
+    viewportRevision?: number,
   ): Uint8Array {
     return encodeMouseInputMessage(
       {
@@ -109,6 +116,7 @@ export class InputEventEncoder {
         modifiers: modifierMask(event),
       },
       geometryRevision,
+      viewportRevision,
     );
   }
 
@@ -116,6 +124,7 @@ export class InputEventEncoder {
     location: CellLocation,
     event: WheelEvent,
     geometryRevision?: number,
+    viewportRevision?: number,
   ): Uint8Array {
     return encodeMouseInputMessage(
       {
@@ -127,6 +136,7 @@ export class InputEventEncoder {
         modifiers: modifierMask(event),
       },
       geometryRevision,
+      viewportRevision,
     );
   }
 

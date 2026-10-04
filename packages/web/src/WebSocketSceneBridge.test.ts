@@ -230,7 +230,7 @@ test("bridge decodes websocket output and sends queued input when the socket ope
   // The capability declaration always flushes first (queued at
   // construction), ahead of any caller-queued record.
   expect(decoder.decode(socket.sent[0])).toBe(
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true,"sharedViewport":true}\n',
   );
   expect(decoder.decode(socket.sent[1])).toBe("\u001Eresize:100:32:9:18\n");
 
@@ -480,7 +480,7 @@ test("websocket bridge sends coalesced image recovery and suppresses repeats unt
   bridge.requestImagePayloads(["png:z", "png:a", "png:z"]);
   bridge.requestImagePayloads(["png:a"]);
   expect(socket.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true,"sharedViewport":true}\n',
     '\u001Eresync:{"scope":"images","ids":["png:a","png:z"]}\n',
   ]);
 
@@ -520,7 +520,7 @@ test("websocket bridge sends coalesced image recovery and suppresses repeats unt
   bridge.requestImagePayloads(["png:a", "png:z"]);
 
   expect(socket.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true,"sharedViewport":true}\n',
     '\u001Eresync:{"scope":"images","ids":["png:a","png:z"]}\n',
     '\u001Eresync:{"scope":"images","ids":["png:a"]}\n',
   ]);
@@ -604,12 +604,12 @@ test("websocket queued send failure retains the request and preserves FIFO", () 
   socket.open();
 
   expect(socket.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true,"sharedViewport":true}\n',
   ]);
 
   bridge.sendInput(encoder.encode("\u001Ekey:return:0\n"));
   expect(socket.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
+    '\u001Ecaps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true,"sharedViewport":true}\n',
     '\u001Eresync:{"scope":"images","ids":["png:queued"]}\n',
     "\u001Ekey:return:0\n",
   ]);
@@ -648,7 +648,7 @@ test("abnormal close reconnects with the handshake ahead of queued input", async
   expect(sockets).toHaveLength(2);
   sockets[1]!.open();
   expect(sockets[1]!.sent.map((chunk) => decoder.decode(chunk))).toEqual([
-    'caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
+    'caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true,"sharedViewport":true}\n',
     decoder.decode(encodeRenderStyleControlMessage({ fontSize: 20 })),
     "resize:100:32:9:18\n",
     "key:return:0\n",
@@ -737,7 +737,7 @@ test("repeated abnormal closes keep reconnecting with fresh handshakes", async (
   expect(sockets).toHaveLength(3);
   sockets[2]!.open();
   expect(decoder.decode(sockets[2]!.sent[0])).toBe(
-    'caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n',
+    'caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true,"sharedViewport":true}\n',
   );
   // Exactly one capability declaration: each reconnect's handshake replaces
   // the previous attempt's queued one rather than stacking duplicates.

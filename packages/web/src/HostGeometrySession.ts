@@ -10,6 +10,7 @@ export class HostGeometrySession {
   private sentRevision?: number;
   private latest?: Readonly<HostGeometryRequest>;
   private presentedRevision?: number;
+  private presentedViewportRevision?: number;
   private hasPresentedFrame = false;
 
   get negotiated(): boolean {
@@ -20,6 +21,10 @@ export class HostGeometrySession {
   }
   get pointerRevision(): number | undefined {
     return this.acknowledged ? this.presentedRevision : undefined;
+  }
+
+  get pointerViewportRevision(): number | undefined {
+    return this.presentedViewportRevision;
   }
 
   request(geometry: HostGeometryRequest): void {
@@ -61,8 +66,11 @@ export class HostGeometrySession {
       !!frame &&
       !!this.latest &&
       frame.geometryRevision === this.latest.revision &&
-      frame.width === this.latest.columns &&
-      frame.height === this.latest.rows
+      (frame.viewportRevision === undefined
+        ? frame.width === this.latest.columns &&
+          frame.height === this.latest.rows
+        : frame.width <= this.latest.columns &&
+          frame.height <= this.latest.rows)
     );
   }
 
@@ -70,6 +78,7 @@ export class HostGeometrySession {
     if (!this.canPresent(frame))
       throw new Error("Presentation does not match requested geometry");
     this.presentedRevision = frame?.geometryRevision;
+    this.presentedViewportRevision = frame?.viewportRevision;
     this.hasPresentedFrame = frame !== undefined;
   }
 
@@ -80,6 +89,7 @@ export class HostGeometrySession {
     this.acknowledged = false;
     this.sentRevision = undefined;
     this.presentedRevision = undefined;
+    this.presentedViewportRevision = undefined;
     this.hasPresentedFrame = false;
   }
 }

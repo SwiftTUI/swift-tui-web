@@ -72,3 +72,23 @@ test("reconnect cannot send an old producer a prior paragraph extension", () => 
   expect(session.takeRequest()?.paragraphSpacing).toBeUndefined();
   expect(session.canPresent(frame(2))).toBe(true);
 });
+
+test("a shared viewport can constrain the requested grid and retains its independent pointer revision", () => {
+  const session = new HostGeometrySession();
+  session.observe(frame(0));
+  session.request({ ...geometry, columns: 120, rows: 40 });
+  session.takeRequest();
+  const shared = { ...frame(1), width: 80, height: 24, viewportRevision: 5 };
+  expect(session.canPresent(shared)).toBe(true);
+  expect(session.canPresent({ ...shared, width: 121 })).toBe(false);
+  expect(session.canPresent({ ...shared, geometryRevision: 2 })).toBe(false);
+  expect(session.canPresent({ ...shared, viewportRevision: undefined })).toBe(
+    false,
+  );
+  session.didPresent(shared);
+  expect(session.pointerViewportRevision).toBe(5);
+  session.didPresent({ ...shared, width: 70, viewportRevision: 6 });
+  expect(session.pointerViewportRevision).toBe(6);
+  session.resetConnection();
+  expect(session.pointerViewportRevision).toBeUndefined();
+});

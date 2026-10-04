@@ -271,6 +271,7 @@ export class WebHostSceneRuntime {
   private readonly painter: CanvasSurfacePainter | DomSurfacePainter;
   private readonly paintScheduler: SurfacePaintScheduler;
   private readonly inputEncoder = new InputEventEncoder();
+  private awaitingConnectionFrame = false;
   private currentStyle: ResolvedWebHostTerminalStyle;
   private canvas?: HTMLCanvasElement;
   private canvasScale = 1;
@@ -280,6 +281,7 @@ export class WebHostSceneRuntime {
     event: PointerEvent;
     moved: boolean;
     revision?: number;
+    viewportRevision?: number;
   };
   private domFocus?: DomFocusPresentation;
   private lastDomSurfaceSize?: { width: number; height: number };
@@ -293,6 +295,21 @@ export class WebHostSceneRuntime {
   private canceledPointerId?: number;
   private capturedPointerLocation?: { x: number; y: number };
   private capturedPointerRevision?: number;
+  private capturedViewportRevision?: number;
+  private paintedGeometryRevision?: number;
+  private paintedViewportRevision?: number;
+  private get pointerRevision(): number | undefined {
+    return this.domGeometry
+      ? this.geometrySession.pointerRevision
+      : this.paintedViewportRevision !== undefined
+        ? this.paintedGeometryRevision
+        : undefined;
+  }
+  private get pointerViewportRevision(): number | undefined {
+    return this.domGeometry
+      ? this.geometrySession.pointerViewportRevision
+      : this.paintedViewportRevision;
+  }
   private disposed = false;
   private stagedFontChange = false;
   private reprojecting = false;
@@ -350,7 +367,9 @@ export class WebHostSceneRuntime {
     );
     this.domFontOptions = options.domFont;
     this.bridge = options.bridge;
-    this.onInput = options.onInput;
+    this.onInput = (chunk) => {
+      if (!this.awaitingConnectionFrame) options.onInput(chunk);
+    };
     this.onFrameDiagnostic = options.onFrameDiagnostic;
     this.onSurfacePainted = options.onSurfacePainted;
     this.synchronizeAccessibilityFocus =
@@ -456,6 +475,10 @@ export class WebHostSceneRuntime {
 
     this.bridge?.bindOutput({
       resetSurfaceSession: () => {
+        this.awaitingConnectionFrame = true;
+        this.currentFrame = undefined;
+        this.paintedGeometryRevision = undefined;
+        this.paintedViewportRevision = undefined;
         this.finishGeometryWait();
         this.domGeometry?.resetParagraphs();
         this.geometrySession.resetConnection();
@@ -719,7 +742,7 @@ export class WebHostSceneRuntime {
     if (this.domGeometry) {
       this.geometrySession.observe(frame);
       this.sendGeometryIfNeeded();
-    } else {
+    } else if (frame.viewportRevision === undefined) {
       this.currentFrame = frame;
       this.columns = Math.max(1, Math.round(frame.width));
       this.rows = Math.max(1, Math.round(frame.height));
@@ -1045,7 +1068,8 @@ export class WebHostSceneRuntime {
                 location,
                 event,
                 moved: false,
-                revision: this.geometrySession.pointerRevision,
+                revision: this.pointerRevision,
+                viewportRevision: this.pointerViewportRevision,
               }
             : undefined;
         if (this.allowsNativeTextSelection(event))
@@ -1068,7 +1092,8 @@ export class WebHostSceneRuntime {
       this.hasCapturedPointer = true;
       this.capturedPointerId = event.pointerId;
       this.capturedPointerLocation = location;
-      this.capturedPointerRevision = this.geometrySession.pointerRevision;
+      this.capturedPointerRevision = this.pointerRevision;
+      this.capturedViewportRevision = this.pointerViewportRevision;
       this.pointerDownLinkTarget =
         button === "primary" ? this.linkTarget(location) : undefined;
       this.terminalMount.focus?.({ preventScroll: true });
@@ -1078,7 +1103,8 @@ export class WebHostSceneRuntime {
           location,
           button,
           event,
-          this.geometrySession.pointerRevision,
+          this.pointerRevision,
+          this.pointerViewportRevision,
         ),
       );
       event.preventDefault();
@@ -1101,7 +1127,8 @@ export class WebHostSceneRuntime {
         if (
           press &&
           !press.moved &&
-          press.revision === this.geometrySession.pointerRevision
+          press.revision === this.pointerRevision &&
+          press.viewportRevision === this.pointerViewportRevision
         ) {
           if (this.hasSurfaceSelection())
             document.getSelection()?.removeAllRanges();
@@ -1110,7 +1137,8 @@ export class WebHostSceneRuntime {
               press.location,
               "primary",
               press.event,
-              this.geometrySession.pointerRevision,
+              this.pointerRevision,
+              this.pointerViewportRevision,
             ),
           );
           this.onInput(
@@ -1118,7 +1146,8 @@ export class WebHostSceneRuntime {
               press.location,
               "primary",
               event,
-              this.geometrySession.pointerRevision,
+              this.pointerRevision,
+              this.pointerViewportRevision,
             ),
           );
         }
@@ -1132,6 +1161,7 @@ export class WebHostSceneRuntime {
       this.capturedPointerId = undefined;
       this.capturedPointerLocation = undefined;
       this.capturedPointerRevision = undefined;
+      this.capturedViewportRevision = undefined;
       this.terminalMount.releasePointerCapture?.(event.pointerId);
       const downLinkTarget = this.pointerDownLinkTarget;
       this.pointerDownLinkTarget = undefined;
@@ -1147,7 +1177,8 @@ export class WebHostSceneRuntime {
           location,
           button,
           event,
-          this.geometrySession.pointerRevision,
+          this.pointerRevision,
+          this.pointerViewportRevision,
         ),
       );
       // A click — down and up over the same link target — opens the link,
@@ -1198,7 +1229,8 @@ export class WebHostSceneRuntime {
           location,
           this.activePointerButton,
           event,
-          this.geometrySession.pointerRevision,
+          this.pointerRevision,
+          this.pointerViewportRevision,
         ),
       );
     };
@@ -1238,7 +1270,8 @@ export class WebHostSceneRuntime {
         this.inputEncoder.encodeWheel(
           location,
           event,
-          this.geometrySession.pointerRevision,
+          this.pointerRevision,
+          this.pointerViewportRevision,
         ),
       );
       event.preventDefault();
@@ -1417,15 +1450,23 @@ export class WebHostSceneRuntime {
     const id = this.capturedPointerId;
     const location = this.capturedPointerLocation;
     const revision = this.capturedPointerRevision;
+    const viewportRevision = this.capturedViewportRevision;
     this.capturedPointerId = undefined;
     this.capturedPointerLocation = undefined;
     this.capturedPointerRevision = undefined;
+    this.capturedViewportRevision = undefined;
     this.hasCapturedPointer = false;
     this.pointerDownLinkTarget = undefined;
     if (id !== undefined) {
       this.canceledPointerId = id;
       if (location)
-        this.onInput(this.inputEncoder.encodePointerCancel(location, revision));
+        this.onInput(
+          this.inputEncoder.encodePointerCancel(
+            location,
+            revision,
+            viewportRevision,
+          ),
+        );
       if (this.terminalMount.hasPointerCapture?.(id))
         this.terminalMount.releasePointerCapture?.(id);
     }
@@ -1539,6 +1580,16 @@ export class WebHostSceneRuntime {
    * scheduler with the newest frame and everything coalesced into it.
    */
   private paint(request: SurfacePaintRequest): void {
+    if (request.frame) this.awaitingConnectionFrame = false;
+    if (this.paintedViewportRevision !== request.frame?.viewportRevision)
+      this.cancelGeometryPointer();
+    this.paintedViewportRevision = request.frame?.viewportRevision;
+    this.paintedGeometryRevision = request.frame?.geometryRevision;
+    if (!this.domGeometry && request.frame) {
+      this.currentFrame = request.frame;
+      this.columns = Math.max(1, Math.round(request.frame.width));
+      this.rows = Math.max(1, Math.round(request.frame.height));
+    }
     if (this.domGeometry?.pending) {
       const pending = this.domGeometry.pending;
       if (!this.reprojecting) this.geometrySession.didPresent(request.frame);
@@ -1755,6 +1806,7 @@ export class WebHostSceneRuntime {
   }
 
   private cellLocation(event: MouseEvent): CellLocation | undefined {
+    if (this.awaitingConnectionFrame) return undefined;
     if (
       this.domGeometry &&
       (!this.geometryMeasurable || !this.geometrySession.allowsPointer)
@@ -1764,6 +1816,7 @@ export class WebHostSceneRuntime {
   }
 
   private rawCellLocation(event: MouseEvent): CellLocation | undefined {
+    if (this.awaitingConnectionFrame) return undefined;
     if (
       this.domGeometry &&
       (!this.geometryMeasurable || !this.geometrySession.allowsPointer)

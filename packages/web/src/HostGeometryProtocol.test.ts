@@ -210,3 +210,23 @@ test("paragraph metadata is a complete snapshot in full and delta frames", () =>
       read({ ...frame, gen: 3, paragraphs: [{ id: "p", rect }] })[0]?.type,
     ).not.toBe("surface");
 });
+
+test("shared viewport mouse records preserve Canvas zero and independent DOM geometry revisions", () => {
+  const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+  for (const revision of [0, 3]) {
+    expect(
+      decode(
+        encodeMouseInputMessage(
+          { kind: "down", x: 1.5, y: 2, button: "primary" },
+          revision,
+          4,
+        ),
+      ),
+    ).toBe(`\u001emouseViewport:${revision}:4:down:1.5:2:primary:0:0:0\n`);
+  }
+  for (const revision of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    expect(() =>
+      encodeMouseInputMessage({ kind: "moved", x: 0, y: 0 }, 0, revision),
+    ).toThrow();
+  }
+});

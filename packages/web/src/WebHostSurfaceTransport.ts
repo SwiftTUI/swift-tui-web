@@ -304,6 +304,8 @@ export interface WebHostSurfaceFrame {
   sequence?: number;
   /** Captured layout revision; zero acknowledges support before a correlated layout. */
   geometryRevision?: number;
+  /** Producer-constrained common viewport; pointer input must echo this revision. */
+  viewportRevision?: number;
   width: number;
   height: number;
   styles: Array<WebHostSurfaceStyle | null>;
@@ -333,6 +335,8 @@ export interface WebHostSurfaceDeltaFrame {
   baselineGen?: number;
   sequence?: number;
   geometryRevision?: number;
+  /** Producer-constrained common viewport; pointer input must echo this revision. */
+  viewportRevision?: number;
   width: number;
   height: number;
   /**
@@ -851,6 +855,7 @@ export class WebHostOutputDecoder {
       gen: frame.gen,
       sequence: frame.sequence,
       geometryRevision: frame.geometryRevision,
+      viewportRevision: frame.viewportRevision,
       width: frame.width,
       height: frame.height,
       styles,
@@ -1037,7 +1042,7 @@ export function encodeCapabilitiesControlMessage(): Uint8Array {
   // the same release. Measured at Stage SV, the full retransmit it replaces was
   // 69.7% of late-record bytes in a style-churning epoch.
   return textEncoder.encode(
-    `${recordPrefix}caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true}\n`,
+    `${recordPrefix}caps:{"acceptsDeltaFrames":true,"styleAppend":true,"geometryRevisions":true,"sharedViewport":true}\n`,
   );
 }
 
@@ -1099,15 +1104,29 @@ export function encodePasteInputMessage(text: string): Uint8Array {
 export function encodeMouseInputMessage(
   input: WebHostMouseInput,
   geometryRevision?: number,
+  viewportRevision?: number,
 ): Uint8Array {
-  if (geometryRevision !== undefined && !isGeometryRevision(geometryRevision))
+  if (
+    viewportRevision !== undefined &&
+    (!isGeometryRevision(viewportRevision) ||
+      geometryRevision === undefined ||
+      !isGeometryRevision(geometryRevision, true))
+  )
+    throw new RangeError("Invalid shared viewport pointer revision");
+  if (
+    viewportRevision === undefined &&
+    geometryRevision !== undefined &&
+    !isGeometryRevision(geometryRevision)
+  )
     throw new RangeError("Invalid pointer geometry revision");
   return textEncoder.encode(
     recordPrefix +
       [
-        ...(geometryRevision === undefined
-          ? ["mouse"]
-          : ["mouseGeometry", geometryRevision]),
+        ...(viewportRevision !== undefined
+          ? ["mouseViewport", geometryRevision, viewportRevision]
+          : geometryRevision === undefined
+            ? ["mouse"]
+            : ["mouseGeometry", geometryRevision]),
         input.kind,
         formatCellCoordinate(input.x),
         formatCellCoordinate(input.y),
@@ -1211,6 +1230,9 @@ function hasValidAdditiveFrameFields(
     isOptionalSafeInteger(frame.gen) &&
     (frame.geometryRevision === undefined ||
       isGeometryRevision(frame.geometryRevision, true)) &&
+    (frame.viewportRevision === undefined ||
+      (isGeometryRevision(frame.viewportRevision) &&
+        frame.geometryRevision !== undefined)) &&
     (frame.links === undefined || isWebHostSurfaceLinks(frame.links)) &&
     (frame.linkTargets === undefined ||
       isWebHostSurfaceLinkTargets(frame.linkTargets)) &&

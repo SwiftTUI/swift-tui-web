@@ -4450,3 +4450,118 @@ test("Canvas sends initial user preferences to a bridge before any explicit rest
     dom.restore();
   }
 });
+
+test("shared Canvas pointers use painted viewport metadata and cancel presses on producer resize", async () => {
+  const dom = installFakeDOM();
+  const input: string[] = [];
+  try {
+    const { runtime, clock, present } = await mountBatchedRuntime({
+      dom,
+      onInput: (bytes) => input.push(decoder.decode(bytes)),
+    });
+    const pointer = (type: string, buttons: number) =>
+      runtime.terminalMount.dispatch(
+        type,
+        pointerEvent({
+          button: 0,
+          buttons,
+          clientX: 5,
+          clientY: 5,
+          pointerId: 3,
+        }),
+      );
+    present({
+      gen: 1,
+      geometryRevision: 0,
+      viewportRevision: 1,
+      rows: [[[0, "a", 1, 0]], []],
+    });
+    clock.tick();
+    pointer("pointerdown", 1);
+    expect(input.at(-1)).toStartWith("\u001EmouseViewport:0:1:down:");
+    present({
+      gen: 2,
+      geometryRevision: 0,
+      viewportRevision: 2,
+      width: 3,
+      rows: [[[0, "b", 1, 0]], []],
+    });
+    // A pending resize cannot re-label input against pixels not painted yet.
+    pointer("pointermove", 1);
+    expect(input.at(-1)).toStartWith("\u001EmouseViewport:0:1:dragged:");
+    clock.tick();
+    expect(input.at(-1)).toStartWith("\u001EmouseViewport:0:1:cancelled:");
+    pointer("pointerdown", 1);
+    expect(input.at(-1)).toStartWith("\u001EmouseViewport:0:2:down:");
+    pointer("pointerup", 0);
+    expect(input.at(-1)).toStartWith("\u001EmouseViewport:0:2:up:");
+    runtime.dispose();
+  } finally {
+    dom.restore();
+  }
+});
+
+test("reconnecting a shared Canvas blocks stale page input until the fresh frame is painted", async () => {
+  const dom = installFakeDOM();
+  try {
+    const input: string[] = [];
+    let sink: WebHostOutputSink | undefined;
+    const clock = new ManualAnimationFrameScheduler();
+    const runtime = new WebHostSceneRuntime({
+      mount: new FakeElement("div") as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {},
+      bridge: {
+        bindOutput: (next) => {
+          sink = next;
+        },
+        resize: () => {},
+        updateRenderStyle: () => {},
+        sendInput: () => {},
+        dispose: () => {},
+      },
+      onInput: (bytes) => input.push(decoder.decode(bytes)),
+      paintScheduling: clock,
+    });
+    await runtime.mount();
+    const frame = {
+      version: 2 as const,
+      epoch: 1,
+      gen: 1,
+      width: 4,
+      height: 2,
+      geometryRevision: 0,
+      viewportRevision: 1,
+      styles: [null],
+      rows: [[], []],
+    };
+    sink?.presentSurface(frame);
+    clock.tick();
+    const down = () =>
+      runtime.terminalMount.dispatch(
+        "pointerdown",
+        pointerEvent({
+          button: 0,
+          buttons: 1,
+          clientX: 3,
+          clientY: 3,
+          pointerId: 1,
+        }),
+      );
+    down();
+    expect(input.at(-1)).toStartWith("\u001EmouseViewport:0:1:down:");
+    input.length = 0;
+    sink?.resetSurfaceSession?.();
+    down();
+    expect(input).toEqual([]);
+    sink?.presentSurface({ ...frame, epoch: 2, viewportRevision: 2 });
+    down();
+    expect(input).toEqual([]);
+    clock.tick();
+    down();
+    expect(input.at(-1)).toStartWith("\u001EmouseViewport:0:2:down:");
+    runtime.dispose();
+  } finally {
+    dom.restore();
+  }
+});
