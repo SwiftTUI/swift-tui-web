@@ -465,7 +465,12 @@ export class WebHostSceneRuntime {
       this.terminalMount,
       () => this.nativePointerGesture || this.hasSurfaceSelection(),
     );
-    if (this.domSurfaceRoot) {
+    // Both painters negotiate measured CSS typography with the producer. The
+    // legacy branch remains for non-browser embedders without CSS measurement.
+    if (
+      this.domSurfaceRoot ||
+      this.terminalMount.ownerDocument?.defaultView?.getComputedStyle
+    ) {
       this.domGeometry = new DomGeometryController(this.terminalMount);
       this.paintScheduler.setHeld(true);
     }
@@ -498,7 +503,7 @@ export class WebHostSceneRuntime {
     });
 
     this.applyStyle(this.currentStyle);
-    if (this.domGeometry) this.loadDomFont(this.currentStyle);
+    if (this.domSurfaceRoot) this.loadDomFont(this.currentStyle);
     else this.bridge?.updateRenderStyle(this.currentStyle);
     this.installPointerParadigmObserver();
     this.sendPointerCapabilitiesIfChanged(coarsePrimaryPointer());
@@ -586,11 +591,11 @@ export class WebHostSceneRuntime {
   setStyle(style: WebHostTerminalStyle): void {
     if (this.disposed) return;
     const next = normalizeWebHostTerminalStyle(
-      this.domGeometry && !style.fontFamily
+      this.domSurfaceRoot && !style.fontFamily
         ? { ...style, fontFamily: DOM_FONT_FAMILY }
         : style,
     );
-    if (this.domGeometry) {
+    if (this.domSurfaceRoot) {
       this.stagedFontChange = true;
       this.loadDomFont(next);
       return;
@@ -741,6 +746,13 @@ export class WebHostSceneRuntime {
     if (this.domGeometry) {
       this.geometrySession.observe(frame);
       this.sendGeometryIfNeeded();
+      // Legacy peers have no geometry lease. Preserve their existing newest-
+      // decoded-frame hit testing while the coalesced pixels catch up.
+      if (
+        !this.geometrySession.negotiated &&
+        frame.viewportRevision === undefined
+      )
+        this.currentFrame = frame;
     } else if (frame.viewportRevision === undefined) {
       this.currentFrame = frame;
       this.columns = Math.max(1, Math.round(frame.width));
@@ -1370,7 +1382,7 @@ export class WebHostSceneRuntime {
       this.geometryMeasurable = true;
       if (snapshot.bounded && this.geometryDiagnostic !== "bounded") {
         this.writeOutput(
-          "DOM viewport exceeds the supported grid; showing a bounded viewport.\n",
+          "Viewport exceeds the supported grid; showing a bounded viewport.\n",
         );
         this.geometryDiagnostic = "bounded";
       } else if (!snapshot.bounded) this.geometryDiagnostic = undefined;
@@ -1552,8 +1564,8 @@ export class WebHostSceneRuntime {
   }
 
   private measureCells(): void {
-    if (this.domSurfaceRoot) {
-      return; // DOM geometry is measured by its controller; never request Canvas.
+    if (this.domGeometry) {
+      return; // CSS geometry is measured by the shared controller.
     }
     const canvas = this.canvas ?? document.createElement("canvas");
     const context = canvas.getContext?.("2d");
@@ -1610,8 +1622,8 @@ export class WebHostSceneRuntime {
           inset: "auto",
           left: `${snapshot.content.offsetX}px`,
           top: `${snapshot.content.offsetY}px`,
-          width: `${this.columns * snapshot.cellWidth}px`,
-          height: `${this.rows * snapshot.cellHeight}px`,
+          width: `${this.canvas ? snapshot.content.width : this.columns * snapshot.cellWidth}px`,
+          height: `${this.canvas ? snapshot.content.height : this.rows * snapshot.cellHeight}px`,
         });
       }
     }
@@ -1690,7 +1702,14 @@ export class WebHostSceneRuntime {
       cellWidth: this.cellWidth,
       cellHeight: this.cellHeight,
       pixelScale: this.canvasScale,
-      style: this.currentStyle,
+      style:
+        this.canvas && this.domGeometry?.presented
+          ? {
+              ...this.currentStyle,
+              fontSize: this.domGeometry.presented.fontSize,
+              fontFamily: this.domGeometry.presented.fontIdentity,
+            }
+          : this.currentStyle,
     };
   }
 

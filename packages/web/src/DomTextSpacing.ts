@@ -14,7 +14,19 @@ export function readDomTextSpacing(mount: HTMLElement): DomTextSpacing {
   const root =
     mount.querySelector<HTMLElement>(".webhost-scene__surface--dom") ??
     (mount.matches?.(".webhost-scene__surface--dom") ? mount : null);
-  if (!text || !root) return {};
+  if (!text || !root) {
+    const canvas = mount.querySelector<HTMLElement>(
+      "canvas.webhost-scene__surface",
+    );
+    if (!canvas) return {};
+    const computed = view.getComputedStyle(canvas);
+    const spacing: DomTextSpacing = {};
+    for (const key of ["letterSpacing", "wordSpacing", "lineHeight"] as const) {
+      const value = Number.parseFloat(computed[key]);
+      if (Number.isFinite(value) && value > 0) spacing[key] = value;
+    }
+    return spacing;
+  }
   const computed = view.getComputedStyle(text);
   const result: DomTextSpacing = {};
   for (const key of ["letterSpacing", "wordSpacing", "lineHeight"] as const) {

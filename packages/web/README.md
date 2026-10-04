@@ -445,6 +445,15 @@ Call `runtime.refreshGeometry()` after changing ancestor CSS that does not
 otherwise trigger a resize observation. Oversized mounts use the wire's bounded
 viewport (1,024 cells per axis and 65,536 total cells) with a diagnostic.
 
+Canvas measures computed `font-size`, `font-family`, `line-height`,
+`letter-spacing`, and `word-spacing` on `canvas.webhost-scene__surface`. Uniform
+user CSS overrides enlarge the painted glyphs and renegotiate the grid; the
+semantic overlay and review-focus ring use that same presented geometry. Canvas
+retains system fonts and a default 1.35 line height. The DOM packaged-font
+profile below retains its 1.5 default. These measurements preserve geometry;
+applications still need adaptable layouts and complete task validation at their
+supported widths.
+
 ### Paint scheduling
 
 Both renderers paint through `requestAnimationFrame`. Every surface frame the
@@ -456,11 +465,11 @@ into the painted frame, and their accessibility announcements are delivered in
 order with the paint. Frames are still decoded and applied in transport order;
 only the paint is deferred.
 
-Canvas updates input routing on receipt and paints its surface and ARIA sidecar
-together at the next animation frame. DOM updates input routing, text and ARIA
-bounds together with the visible frame.
+Both painters update input routing, pixels or text, and ARIA bounds together
+with the visible frame when geometry revisions are negotiated. Legacy peers
+without that capability retain newest-decoded-frame input routing.
 
-DOM hosts declare `geometryRevisions` and wait for a producer's revision-zero
+Both Canvas and DOM hosts declare `geometryRevisions` and wait for a producer's revision-zero
 acknowledgement before sending revision-bearing geometry or pointer records.
 A capable producer captures the revision before layout and echoes it on every
 full or delta frame. A resize or font change retains the old presentation until

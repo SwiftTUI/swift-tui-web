@@ -8,6 +8,7 @@ export interface DomCellMeasurement {
   advance: number;
   baseline: number;
   fontSize: number;
+  fontFamily?: string;
   spacingKey?: string;
 }
 
@@ -20,9 +21,13 @@ export class DomCellProbe {
     baseline: HTMLElement;
   }[];
   private styleKey?: string;
+  private readonly canvas?: HTMLElement;
 
   constructor(private readonly mount: HTMLElement) {
     const doc = mount.ownerDocument ?? document;
+    this.canvas =
+      mount.querySelector?.<HTMLElement>("canvas.webhost-scene__surface") ??
+      undefined;
     this.element = doc.createElement("div");
     this.element.setAttribute("aria-hidden", "true");
     Object.assign(this.element.style, {
@@ -73,7 +78,7 @@ export class DomCellProbe {
         margin: "0",
         border: "0",
         font: fontForStyle(style, { em }),
-        lineHeight: "1.5",
+        lineHeight: this.canvas ? "1.35" : "1.5",
         whiteSpace: "pre",
       });
       Object.assign(text.style, {
@@ -81,7 +86,7 @@ export class DomCellProbe {
         font: "inherit",
         // Unitless so a browser minimum size or user text-size override on
         // the glyph also enlarges its measured line box.
-        lineHeight: "1.5",
+        lineHeight: this.canvas ? "1.35" : "1.5",
         padding: "0",
         margin: "0",
         border: "0",
@@ -103,11 +108,24 @@ export class DomCellProbe {
     scaleX = 1,
     scaleY = scaleX,
   ): DomCellMeasurement | undefined {
+    const canvasCSS =
+      this.canvas &&
+      this.mount.ownerDocument?.defaultView?.getComputedStyle(this.canvas);
+    if (canvasCSS)
+      style = {
+        ...style,
+        fontSize: Number.parseFloat(canvasCSS.fontSize) || style.fontSize,
+        fontFamily: canvasCSS.fontFamily || style.fontFamily,
+      };
     this.configure(style);
     const spacing = readDomTextSpacing(this.mount);
     for (const { line, text } of this.faces) {
       line.style.lineHeight = text.style.lineHeight =
-        spacing.lineHeight === undefined ? "1.5" : `${spacing.lineHeight}px`;
+        spacing.lineHeight === undefined
+          ? this.canvas
+            ? "1.35"
+            : "1.5"
+          : `${spacing.lineHeight}px`;
       text.style.letterSpacing = `${spacing.letterSpacing ?? 0}px`;
       text.style.wordSpacing = `${spacing.wordSpacing ?? 0}px`;
     }
@@ -162,6 +180,7 @@ export class DomCellProbe {
       advance: baseAdvance,
       baseline,
       fontSize: Number.parseFloat(computed?.fontSize ?? "") || style.fontSize,
+      fontFamily: computed?.fontFamily || style.fontFamily,
       spacingKey: JSON.stringify(spacing),
     };
   }

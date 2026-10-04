@@ -66,9 +66,9 @@ for (const renderer of ["canvas", "dom"]) {
     expect(result.outline).toBe("rgb(255, 255, 255)");
     expect(result.shadow).toContain("rgb(0, 0, 0)");
     expect(result.keyboardStillOwned).toBe("true");
-    expect(
-      result.records.some((value) => value.includes('"action":"activate"')),
-    ).toBe(false);
+    expect(result.records.some((value) => value.includes(":activate"))).toBe(
+      false,
+    );
     await page.getByRole("textbox", { name: "Keyboard owner" }).focus();
     await expect(page.locator(".webhost-scene__caret")).toBeVisible();
   });

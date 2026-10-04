@@ -232,25 +232,36 @@ export class DomGeometryController {
     // not change. That raster variation must not renegotiate the app's grid.
     const prior = this.typography;
     if (
-      prior?.identity === style.fontFamily &&
+      prior?.identity === (cells.fontFamily ?? style.fontFamily) &&
       prior.cells.fontSize === cells.fontSize &&
       prior.cells.spacingKey === cells.spacingKey &&
       Math.abs(prior.cells.advance - cells.advance) <= 1 / 32 &&
       prior.cells.height === cells.height
     ) {
       cells = prior.cells;
-    } else this.typography = { identity: style.fontFamily, cells };
+    } else
+      this.typography = {
+        identity: cells.fontFamily ?? style.fontFamily,
+        cells,
+      };
     const previous = this.pending;
     const measured = makeDomGeometry(
       previous?.revision ?? 1,
-      style.fontFamily,
+      cells.fontFamily ?? style.fontFamily,
       cells,
       content,
     );
     if (!measured) return undefined;
     const next = {
       ...measured,
-      paragraphSpacing: this.paragraphSpacing(style, measured.cellHeight),
+      paragraphSpacing: this.paragraphSpacing(
+        {
+          ...style,
+          fontSize: cells.fontSize,
+          fontFamily: cells.fontFamily ?? style.fontFamily,
+        },
+        measured.cellHeight,
+      ),
     };
     // Moving the page changes the client mapping, not the producer's layout.
     const layoutChanged =
