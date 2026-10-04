@@ -86,6 +86,39 @@ async function records(page: Page) {
   return page.evaluate(() => [...window.accessibilityActions.records]);
 }
 
+test("row selection buttons expose authoritative pressed state without duplicate actions", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  const row: WebHostAccessibilityNode = {
+    id: "row-selection",
+    actionTarget: "row-lifetime",
+    role: "button",
+    label: "Select row 2",
+    rect: [0, 0, 2, 1],
+    actions: ["activate"],
+    value: { type: "boolean", value: false },
+  };
+  await present(page, [row]);
+  const button = page.getByRole("button", {
+    name: "Select row 2",
+    pressed: false,
+  });
+  await button.press("Space");
+  expect(await records(page)).toHaveLength(1);
+  expect((await records(page))[0]).toContain(":activate");
+  await present(page, [{ ...row, value: { type: "boolean", value: true } }]);
+  await expect(
+    page.getByRole("button", { name: "Select row 2", pressed: true }),
+  ).toBeFocused();
+  await present(page, [{ ...row, value: undefined }]);
+  await expect(
+    page.getByRole("button", { name: "Select row 2" }),
+  ).not.toHaveAttribute("aria-pressed");
+});
+
 test("assistive controls return typed requests and retain pending edits until acknowledgement", async ({
   page,
 }) => {

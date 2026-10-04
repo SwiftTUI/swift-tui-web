@@ -625,6 +625,13 @@ export class AccessibilityTreeMounter {
     );
     setOrRemoveAttribute(
       element,
+      "aria-pressed",
+      node.role === "button" && node.value?.type === "boolean"
+        ? String(node.value.value)
+        : undefined,
+    );
+    setOrRemoveAttribute(
+      element,
       "aria-checked",
       node.role === "toggle" && node.value?.type === "boolean"
         ? String(node.value.value)
