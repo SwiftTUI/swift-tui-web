@@ -13,6 +13,52 @@ import {
 } from "./WebHostSurfaceTransport.ts";
 import { normalizeWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
+test("Canvas adopts forced system colors and repaints when the preference changes without cell damage", () => {
+  const original = globalThis.matchMedia;
+  let forced = false;
+  globalThis.matchMedia = (() => ({ matches: forced })) as typeof matchMedia;
+  try {
+    const context = new RecordingCanvasContext();
+    const painter = new CanvasSurfacePainter();
+    painter.attach(fakeCanvas(context), () => {});
+    const frame = imageFrame();
+    frame.styles = [
+      null,
+      {
+        fg: "#ff0000",
+        bg: "#0000ff",
+        underline: { color: "#00ff00", pattern: "solid" },
+      },
+    ];
+    frame.rows = [[[0, "X", 1, 1]], []];
+    painter.paint(metrics, frame);
+    expect(context.textColors.at(-1)).toBe("#ff0000");
+    const emptyDamage = {
+      textRows: new Map(),
+      requiresFullTextRepaint: false,
+      requiresFullGraphicsReplay: false,
+    } as Parameters<typeof painter.paint>[2];
+    forced = true;
+    context.fillColors.length = 0;
+    painter.paint(metrics, frame, emptyDamage);
+    expect(context.textColors.at(-1)).toBe("CanvasText");
+    expect(context.fillColors).toContain("Canvas");
+    expect(
+      context.fillColors.every(
+        (color) => color === "Canvas" || color === "CanvasText",
+      ),
+    ).toBe(true);
+    expect(context.strokeStyle).toBe("CanvasText");
+    forced = false;
+    painter.paint(metrics, frame, emptyDamage);
+    expect(context.textColors.at(-1)).toBe("#ff0000");
+    painter.dispose();
+  } finally {
+    if (original) globalThis.matchMedia = original;
+    else Reflect.deleteProperty(globalThis, "matchMedia");
+  }
+});
+
 test("transient image decode failures retry on later paints up to three total attempts", async () => {
   const context = new RecordingCanvasContext();
   const misses: string[][] = [];
@@ -469,11 +515,17 @@ class RecordingCanvasContext {
   globalAlpha = 1;
   readonly drawnImages: CanvasImageSource[] = [];
   readonly drawnImageOpacities: number[] = [];
+  readonly textColors: (string | CanvasGradient | CanvasPattern)[] = [];
+  readonly fillColors: (string | CanvasGradient | CanvasPattern)[] = [];
 
   setTransform(): void {}
   clearRect(): void {}
-  fillRect(): void {}
-  fillText(): void {}
+  fillRect(): void {
+    this.fillColors.push(this.fillStyle);
+  }
+  fillText(): void {
+    this.textColors.push(this.fillStyle);
+  }
   save(): void {}
   beginPath(): void {}
   rect(): void {}

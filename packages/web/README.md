@@ -351,8 +351,12 @@ producer-selected PNG frames and follows WASI suspension and live reduced
 motion. `style.reduceMotion` overrides the browser media-query preference;
 explicit Swift runtime reduced motion remains authoritative.
 
-Forced colors use system Canvas/CanvasText colors for text, geometric glyphs
-and each decoration, with full ink opacity. Media-query changes invalidate
+Both Canvas and DOM use system Canvas/CanvasText colors for text, geometric
+glyphs and decorations in forced-color mode. Canvas also repaints on a mode
+change with no cell damage and preserves reverse-video selection. DOM uses
+full ink opacity; Canvas retains producer opacity, including hidden content.
+Images retain their content and need authored nonvisual alternatives.
+Media-query changes invalidate
 presentation and update the producer's motion preference. Windows High Contrast
 and physical-device qualification are separate from browser emulation.
 

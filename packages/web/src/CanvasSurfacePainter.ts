@@ -122,6 +122,7 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
   private canvas?: HTMLCanvasElement;
   private requestRedraw: () => void = () => {};
   private lastEpoch?: number;
+  private forcedColors = false;
   private readonly pendingImagePayloadMissIds = new Set<string>();
   private imagePayloadMissScheduled = false;
 
@@ -211,9 +212,14 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     }
     this.trimDecodedImages();
 
-    const dirtyRegion = frame
-      ? this.dirtyRegionForDamage(damage, frame, metrics)
-      : undefined;
+    const forcedColors =
+      globalThis.matchMedia?.("(forced-colors: active)").matches ?? false;
+    const colorsChanged = forcedColors !== this.forcedColors;
+    this.forcedColors = forcedColors;
+    const dirtyRegion =
+      frame && !colorsChanged
+        ? this.dirtyRegionForDamage(damage, frame, metrics)
+        : undefined;
     const recoveredPayloadIds = new Set(recoveredImagePayloadIds);
     if (dirtyRegion?.rects.length === 0) {
       this.prepareImages(frame?.images ?? [], recoveredPayloadIds);
@@ -225,7 +231,9 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     context.setTransform(scale, 0, 0, scale, 0, 0);
     context.textBaseline = "alphabetic";
 
-    context.fillStyle = webTUITerminalBackgroundColor(metrics.style);
+    context.fillStyle = forcedColors
+      ? "Canvas"
+      : webTUITerminalBackgroundColor(metrics.style);
     if (dirtyRegion) {
       for (const rect of dirtyRegion.rects) {
         context.clearRect(rect.x, rect.y, rect.width, rect.height);
@@ -666,8 +674,17 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     const rectX = x * metrics.cellWidth;
     const rectY = y * metrics.cellHeight;
     const width = Math.max(1, span) * metrics.cellWidth;
-    const background = resolvedSurfaceBackground(style, metrics.style);
-    const foreground = resolvedSurfaceForeground(style, metrics.style);
+    const reversed = !!((style?.em ?? 0) & 16);
+    const background = this.forcedColors
+      ? reversed
+        ? "CanvasText"
+        : "Canvas"
+      : resolvedSurfaceBackground(style, metrics.style);
+    const foreground = this.forcedColors
+      ? reversed
+        ? "Canvas"
+        : "CanvasText"
+      : resolvedSurfaceForeground(style, metrics.style);
     const opacity = style?.opacity ?? 1;
 
     if (background) {
@@ -798,8 +815,12 @@ export class CanvasSurfacePainter implements WebHostSurfacePainter {
     if (!line) {
       return;
     }
-    context.strokeStyle = line.color ?? fallbackColor;
-    context.fillStyle = line.color ?? fallbackColor;
+    context.strokeStyle = this.forcedColors
+      ? fallbackColor
+      : (line.color ?? fallbackColor);
+    context.fillStyle = this.forcedColors
+      ? fallbackColor
+      : (line.color ?? fallbackColor);
     const lineY =
       placement === "underline"
         ? y + metrics.cellHeight - 2
