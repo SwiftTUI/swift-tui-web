@@ -33,6 +33,9 @@ const runtime = new WebHostSceneRuntime({
   style: {},
   bridge,
   onInput: (chunk) => bridge.sendInput(chunk),
+  onOpenHyperlink: new URLSearchParams(location.search).has("capture-links")
+    ? (url) => records.push(`host-link:${url}`)
+    : undefined,
   paintScheduling: "synchronous",
   renderer:
     new URLSearchParams(location.search).get("renderer") === "dom"

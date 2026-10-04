@@ -819,7 +819,10 @@ for (const renderer of ["canvas", "dom"]) {
       role: "group",
       label: "Full name",
       rect: [1, 3, 20, 1],
-      properties: { valueDescription: "Ada Lovelace" },
+      properties: {
+        valueDescription: "Ada Lovelace",
+        description: "Profile owner",
+      },
     };
     await present(page, [link, pair]);
     const guide = page.getByRole("link", { name: "Guide", exact: true });
@@ -840,7 +843,10 @@ for (const renderer of ["canvas", "dom"]) {
       ),
     ).toEqual([]);
     const name = page.getByRole("group", { name: "Full name", exact: true });
-    await expect(name).toHaveAttribute("aria-description", "Ada Lovelace");
+    await expect(name).toHaveAttribute(
+      "aria-description",
+      "Ada Lovelace; Profile owner",
+    );
     await expect(name).not.toHaveAttribute("aria-valuetext");
     await present(page, [{ ...link, isEnabled: false }]);
     await expect(guide).not.toHaveAttribute("href");
@@ -852,6 +858,35 @@ for (const renderer of ["canvas", "dom"]) {
       { ...link, value: { type: "text", value: "javascript:alert(1)" } },
     ]);
     await expect(guide).not.toHaveAttribute("href");
+    await page
+      .context()
+      .route("https://example.com/guide", (route) =>
+        route.fulfill({ body: "Guide" }),
+      );
+    await present(page, [{ ...link, opensLink: true }]);
+    const opened = page.waitForEvent("popup");
+    await guide.press("Enter");
+    const popup = await opened;
+    await popup.waitForLoadState();
+    expect(popup.url()).toBe("https://example.com/guide");
+    await popup.close();
+    expect(
+      (await records(page)).filter((record) => record.endsWith(":activate")),
+    ).toHaveLength(2);
+    await page.goto(`/health?renderer=${renderer}&capture-links=1`);
+    await page.addScriptTag({
+      url: "/accessibility-actions.js",
+      type: "module",
+    });
+    await page.waitForFunction(() => !!window.accessibilityActions);
+    await present(page, [{ ...link, opensLink: true }]);
+    await guide.press("Enter");
+    expect(
+      (await records(page)).filter((record) => record.startsWith("host-link:")),
+    ).toEqual(["host-link:https://example.com/guide"]);
+    expect(
+      (await records(page)).filter((record) => record.endsWith(":activate")),
+    ).toHaveLength(0);
   });
 
   test(`${renderer} custom adjustments and named actions preserve focus and retire removed operations`, async ({

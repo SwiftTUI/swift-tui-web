@@ -16,7 +16,8 @@ A SwiftTUI app compiles to `wasm32-wasi` and streams a structured raster surface
 engine and mounts a real ARIA accessibility tree.
 The ARIA tree presents reading order, names, roles, hidden state, announcements
 and focus. Link destinations use native anchors for HTTP, HTTPS, mail and
-telephone URLs while activation follows the Swift action route once. Other
+telephone URLs. Default links open in the browser or configured host callback;
+custom Swift callbacks use the action route once. Other
 schemes have no executable browser URL. Text values on non-range roles use
 accessible descriptions; numeric range controls retain `aria-valuetext`.
 With the typed action contract, assistive focus, activation,

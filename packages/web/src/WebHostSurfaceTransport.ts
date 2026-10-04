@@ -135,6 +135,8 @@ export interface WebHostAccessibilityProperties {
 }
 
 export interface WebHostAccessibilityNode {
+  /** The primitive's default link opener may be handled by this browser. */
+  opensLink?: boolean;
   customActions?: string[];
   selection?: WebHostAccessibilitySelection;
   properties?: WebHostAccessibilityProperties;
@@ -1295,6 +1297,7 @@ function isWebHostAccessibilityNode(
   }
   const node = value as Partial<WebHostAccessibilityNode>;
   return (
+    (node.opensLink === undefined || typeof node.opensLink === "boolean") &&
     (node.customActions === undefined ||
       (Array.isArray(node.customActions) &&
         node.customActions.length <= 65536 &&

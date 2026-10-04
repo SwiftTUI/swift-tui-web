@@ -430,6 +430,7 @@ export class WebHostSceneRuntime {
           encodeAccessibilityActionMessage(target, request, requestID),
         );
       },
+      this.onOpenHyperlink,
     );
     this.terminalMount.replaceChildren(
       this.surfaceElement as HTMLElement,

@@ -84,6 +84,7 @@ export class AccessibilityTreeMounter {
       request: WebHostAccessibilityAction,
       requestID: string,
     ) => void,
+    private readonly openLink?: (url: string) => void,
   ) {
     this.element = document.createElement("div");
     this.element.className = "webhost-scene__accessibility-tree";
@@ -397,8 +398,23 @@ export class AccessibilityTreeMounter {
       return element;
     }
     element.addEventListener("click", (event) => {
-      if (tag === "a") event.preventDefault();
       event.stopPropagation();
+      const model = current();
+      if (tag === "a") {
+        if (
+          model?.opensLink &&
+          model.isEnabled !== false &&
+          model.properties?.readOnly !== true
+        ) {
+          if (this.openLink && model.value?.type === "text") {
+            event.preventDefault();
+            this.openLink(model.value.value);
+            return;
+          }
+          if (element.hasAttribute("href")) return;
+        }
+        event.preventDefault();
+      }
       send({ action: "activate" });
     });
     if (tag === "a") {
@@ -413,7 +429,7 @@ export class AccessibilityTreeMounter {
         event.stopPropagation();
         if (!element.hasAttribute("href")) {
           event.preventDefault();
-          send({ action: "activate" });
+          element.click();
         }
         return;
       }
@@ -525,6 +541,8 @@ export class AccessibilityTreeMounter {
     // Swift focus frame leaves rapid Tab+edit input aimed at the old control.
     element.tabIndex = this.isTabStop(node) ? 0 : -1;
     if (element.tagName === "A") {
+      element.setAttribute("target", "_blank");
+      element.setAttribute("rel", "noopener noreferrer");
       const destination =
         node.value?.type === "text" ? node.value.value : undefined;
       setOrRemoveAttribute(
@@ -583,16 +601,14 @@ export class AccessibilityTreeMounter {
     setOrRemoveAttribute(
       element,
       "aria-description",
-      properties?.description ??
-        ([
-          !supportsValueText(node.role) && node.role !== "secureField"
-            ? properties?.valueDescription
-            : undefined,
-          node.hint,
-        ]
-          .filter(Boolean)
-          .join("; ") ||
-          undefined),
+      [
+        !supportsValueText(node.role) && node.role !== "secureField"
+          ? properties?.valueDescription
+          : undefined,
+        properties?.description ?? node.hint,
+      ]
+        .filter(Boolean)
+        .join("; ") || undefined,
     );
     setOrRemoveAttribute(element, "lang", properties?.language);
     setOrRemoveAttribute(element, "aria-live", node.liveRegion || undefined);
