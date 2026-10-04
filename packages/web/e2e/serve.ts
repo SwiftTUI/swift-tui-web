@@ -29,6 +29,7 @@ for (const [entry, output] of [
   ["font-qualification.fixture.ts", "font-qualification.js"],
   ["dom-performance.fixture.ts", "dom-performance.js"],
   ["accessibility-actions.fixture.ts", "accessibility-actions.js"],
+  ["accessibility-preferences.fixture.ts", "accessibility-preferences.js"],
   ["compiled-wasm-worker.ts", "compiled-wasm-worker.js"],
 ] as const) {
   const result = await Bun.build({
@@ -133,6 +134,10 @@ const server = Bun.serve({
       "/accessibility-actions.js": join(
         outputDirectory,
         "accessibility-actions.js",
+      ),
+      "/accessibility-preferences.js": join(
+        outputDirectory,
+        "accessibility-preferences.js",
       ),
       "/compiled-wasm.html": join(e2eDirectory, "compiled-wasm.html"),
       "/compiled-wasm.js": join(outputDirectory, "compiled-wasm.js"),

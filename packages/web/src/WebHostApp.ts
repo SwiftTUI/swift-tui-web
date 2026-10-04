@@ -2,6 +2,10 @@ import { DOM_FONT_FAMILY, type DomFontOptions } from "./DomFontResources.ts";
 import type { WebHostPaintScheduling } from "./SurfacePaintScheduler.ts";
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
 import {
+  createWebHostAccessibilitySettings,
+  readWebHostAccessibilityPreferences,
+} from "./WebHostAccessibilitySettings.ts";
+import {
   loadWebHostSceneManifest,
   normalizeWebHostSceneManifest,
   type WebHostSceneDescriptor,
@@ -102,6 +106,8 @@ export interface WebHostAppOptions {
    * runtime as `paintScheduling`. See {@link WebHostPaintScheduling}.
    */
   paintScheduling?: WebHostPaintScheduling;
+  /** Native preference controls, enabled by default. Disable only when the embedding supplies its own. */
+  accessibilitySettings?: boolean;
 }
 
 export interface WebHostAppController {
@@ -139,6 +145,7 @@ export async function createWebHostApp(
     domFont: options.domFont,
     sceneFrame: options.sceneFrame,
     paintScheduling: options.paintScheduling,
+    accessibilitySettings: options.accessibilitySettings,
   });
   await controller.initialize();
   return controller;
@@ -165,6 +172,9 @@ class InternalWebHostAppController implements WebHostAppController {
   private readonly visibilityDocument?: WebHostVisibilityDocument;
   private detachVisibilityListener?: () => void;
   private disposed = false;
+  private accessibilitySettings?: ReturnType<
+    typeof createWebHostAccessibilitySettings
+  >;
 
   constructor(options: {
     mount: HTMLElement;
@@ -182,12 +192,18 @@ class InternalWebHostAppController implements WebHostAppController {
     domFont?: DomFontOptions;
     sceneFrame?: WebHostSceneFrameMode;
     paintScheduling?: WebHostPaintScheduling;
+    accessibilitySettings?: boolean;
   }) {
     this.mount = options.mount;
+    const settingsEnabled = options.accessibilitySettings ?? true;
+    const initialStyle = {
+      ...options.style,
+      ...(settingsEnabled ? readWebHostAccessibilityPreferences() : {}),
+    };
     this.style = normalizeWebHostTerminalStyle(
-      options.renderer === "dom" && !options.style?.fontFamily
-        ? { ...options.style, fontFamily: DOM_FONT_FAMILY }
-        : (options.style ?? {}),
+      options.renderer === "dom" && !initialStyle.fontFamily
+        ? { ...initialStyle, fontFamily: DOM_FONT_FAMILY }
+        : initialStyle,
     );
     this.domFont = options.domFont;
     this.environment = options.environment;
@@ -227,7 +243,28 @@ class InternalWebHostAppController implements WebHostAppController {
     } else {
       this.sceneRoot.style.display = "block";
     }
-    this.mount.replaceChildren(this.sceneRoot);
+    const document = this.mount.ownerDocument;
+    if (settingsEnabled && document) {
+      this.accessibilitySettings = createWebHostAccessibilitySettings(
+        document,
+        this.style,
+        (preferences) => this.setStyle(preferences),
+      );
+      const appRoot = document.createElement("div");
+      appRoot.className = "webhost-app";
+      Object.assign(appRoot.style, {
+        display: "flex",
+        flexDirection: "column",
+        width: "100%",
+        height: "100%",
+        minHeight: "0",
+      });
+      this.sceneRoot.style.flex = "1 1 auto";
+      appRoot.append(this.accessibilitySettings.element, this.sceneRoot);
+      this.mount.replaceChildren(appRoot);
+    } else {
+      this.mount.replaceChildren(this.sceneRoot);
+    }
     this.applyHostFrameStyle();
   }
 
@@ -258,6 +295,7 @@ class InternalWebHostAppController implements WebHostAppController {
     if (this.disposed) return;
     const merged = mergeWebHostTerminalStyle(this.style, style);
     this.style = merged;
+    this.accessibilitySettings?.update(this.style);
 
     for (const runtime of this.runtimes.values()) {
       runtime.setStyle(this.style);

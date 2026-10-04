@@ -616,3 +616,27 @@ Adjustment-only steppers retain spinbutton semantics without accepting arbitrary
 text input. Disabled/read-only state, removal and authoritative values remain
 owned by the producer. This adapter behavior is not a screen-reader acceptance
 claim; qualify the actual application and reader combination.
+
+
+## Accessibility preferences
+
+`createWebHostApp` includes an **Accessibility settings** disclosure with native
+selects and a **Use system settings** reset. Choices apply to active, new and
+retained scenes, and survive reload/reconnect in the same tab and origin through
+`sessionStorage`. Closing that tab ends the persistence scope. Unavailable storage
+falls back to in-memory choices. Connection credentials are never stored.
+Embedders with their own accessible settings may use `accessibilitySettings: false`.
+
+`WebHostTerminalStyle` accepts `reduceMotion`, `contrast` (`standard` or `increased`),
+`differentiateWithoutColor`, `reduceTransparency` and `colorProfile`. An explicit
+boolean `false` overrides detection. Setting a field to `undefined` returns it to
+automatic detection. Stored user choices override initial host style options;
+subsequent `app.setStyle` calls update the controls and every retained scene.
+
+Automatic detection watches `prefers-reduced-motion`, `prefers-contrast`,
+`prefers-reduced-transparency` and `forced-colors` live. Forced colors requests
+increased contrast and differentiation without hue. Browsers that do not expose
+a preference leave it unspecified. No screen-reader detection is used. Swift
+receives the choices over both style transports; explicit runtime/CLI choices
+have precedence over browser detection, and authored subtree overrides apply
+locally. Color-profile propagation alone is not a whole-app contrast or WCAG claim.

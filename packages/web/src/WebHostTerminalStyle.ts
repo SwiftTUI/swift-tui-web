@@ -1,3 +1,18 @@
+export type WebHostAccessibilityColorProfile =
+  | "standard"
+  | "monochrome"
+  | "protanopia"
+  | "deuteranopia"
+  | "tritanopia";
+
+export interface WebHostAccessibilityPreferences {
+  reduceMotion?: boolean;
+  contrast?: "standard" | "increased";
+  differentiateWithoutColor?: boolean;
+  reduceTransparency?: boolean;
+  colorProfile?: WebHostAccessibilityColorProfile;
+}
+
 export type WebHostTerminalCursorStyle = "block" | "bar" | "underline";
 
 export interface WebHostANSIColors {
@@ -45,7 +60,7 @@ export interface WebHostTerminalTheme {
   muted?: string;
 }
 
-export interface WebHostTerminalStyle {
+export interface WebHostTerminalStyle extends WebHostAccessibilityPreferences {
   /** Defaults to the live browser preference; true also reduces producer motion. */
   reduceMotion?: boolean;
   fontSize?: number;
@@ -66,7 +81,8 @@ export interface ResolvedWebHostTerminalPalette {
   ansi: Required<WebHostANSIColors>;
 }
 
-export interface ResolvedWebHostTerminalStyle {
+export interface ResolvedWebHostTerminalStyle
+  extends WebHostAccessibilityPreferences {
   reduceMotion?: boolean;
   fontSize: number;
   fontFamily: string;
@@ -80,6 +96,10 @@ export interface ResolvedWebHostTerminalStyle {
 export interface WebHostTerminalRenderStyle {
   /** String-valued extension remains parseable by legacy Swift style codecs. */
   reduceMotion?: "true" | "false";
+  contrast?: "standard" | "increased";
+  differentiateWithoutColor?: "true" | "false";
+  reduceTransparency?: "true" | "false";
+  colorProfile?: WebHostAccessibilityColorProfile;
   appearance: WebHostTerminalAppearance;
   theme?: WebHostTerminalTheme;
 }
@@ -155,6 +175,16 @@ export function normalizeWebHostTerminalStyle(
     ...(style.reduceMotion === undefined
       ? {}
       : { reduceMotion: style.reduceMotion }),
+    ...(style.contrast === undefined ? {} : { contrast: style.contrast }),
+    ...(style.differentiateWithoutColor === undefined
+      ? {}
+      : { differentiateWithoutColor: style.differentiateWithoutColor }),
+    ...(style.reduceTransparency === undefined
+      ? {}
+      : { reduceTransparency: style.reduceTransparency }),
+    ...(style.colorProfile === undefined
+      ? {}
+      : { colorProfile: style.colorProfile }),
     palette,
     theme,
   };
@@ -175,31 +205,76 @@ export function mergeWebHostTerminalStyle(
   });
 }
 
+/** Explicit user choices override detection. No reader-presence heuristic is used. */
+export function resolveWebHostAccessibilityPreferences(
+  style: WebHostAccessibilityPreferences,
+): WebHostAccessibilityPreferences {
+  const media = (query: string) => globalThis.matchMedia?.(query).matches;
+  const forced = media("(forced-colors: active)");
+  const contrast =
+    media("(prefers-contrast: more)") || forced
+      ? "increased"
+      : media("(prefers-contrast: less)")
+        ? "standard"
+        : undefined;
+  return {
+    reduceMotion:
+      style.reduceMotion ?? media("(prefers-reduced-motion: reduce)"),
+    contrast: style.contrast ?? contrast,
+    differentiateWithoutColor:
+      style.differentiateWithoutColor ?? (forced ? true : undefined),
+    reduceTransparency:
+      style.reduceTransparency ??
+      media("(prefers-reduced-transparency: reduce)"),
+    colorProfile: style.colorProfile,
+  };
+}
+
 export function resolveWebHostTerminalRenderStyle(
   style: WebHostTerminalStyle,
 ): WebHostTerminalRenderStyle {
   const normalized = normalizeWebHostTerminalStyle(style);
-  const reduceMotion =
-    normalized.reduceMotion ??
-    globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const preferences = resolveWebHostAccessibilityPreferences(normalized);
+  const reduceMotion = preferences.reduceMotion;
   return {
     ...(reduceMotion === undefined
       ? {}
       : {
           reduceMotion: reduceMotion ? ("true" as const) : ("false" as const),
         }),
+    ...(preferences.contrast === undefined
+      ? {}
+      : { contrast: preferences.contrast }),
+    ...(preferences.differentiateWithoutColor === undefined
+      ? {}
+      : {
+          differentiateWithoutColor: preferences.differentiateWithoutColor
+            ? ("true" as const)
+            : ("false" as const),
+        }),
+    ...(preferences.reduceTransparency === undefined
+      ? {}
+      : {
+          reduceTransparency: preferences.reduceTransparency
+            ? ("true" as const)
+            : ("false" as const),
+        }),
+    ...(preferences.colorProfile === undefined
+      ? {}
+      : { colorProfile: preferences.colorProfile }),
     appearance: {
       foregroundColor: normalized.theme.foreground,
       backgroundColor: normalized.theme.background,
       tintColor: normalized.theme.tint,
       palette: paletteToIndexedMap(normalized.palette.ansi),
       colorSchemeContrast:
-        contrastRatio(
+        preferences.contrast ??
+        (contrastRatio(
           normalized.theme.foreground,
           normalized.theme.background,
         ) >= 7
           ? "increased"
-          : "standard",
+          : "standard"),
       source: "override",
     },
     theme: { ...normalized.theme },
@@ -231,7 +306,12 @@ export function webTUITerminalBackgroundColor(
   style: WebHostTerminalStyle,
 ): string {
   const normalized = normalizeWebHostTerminalStyle(style);
-  return hexToRgba(normalized.theme.background, normalized.backgroundOpacity);
+  return hexToRgba(
+    normalized.theme.background,
+    resolveWebHostAccessibilityPreferences(normalized).reduceTransparency
+      ? 1
+      : normalized.backgroundOpacity,
+  );
 }
 
 export function applyWebHostTerminalStyle(
@@ -241,10 +321,7 @@ export function applyWebHostTerminalStyle(
   const normalized = normalizeWebHostTerminalStyle(style);
   element.style.fontFamily = normalized.fontFamily;
   element.style.fontSize = `${normalized.fontSize}px`;
-  element.style.background = hexToRgba(
-    normalized.theme.background,
-    normalized.backgroundOpacity,
-  );
+  element.style.background = webTUITerminalBackgroundColor(normalized);
   element.style.color = normalized.theme.foreground;
 }
 

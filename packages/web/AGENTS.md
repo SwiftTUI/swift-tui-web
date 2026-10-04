@@ -49,7 +49,8 @@ root. This gate installs frozen dependencies, tests, and runs both builds.
   declared in `package.json`. If you add modules, keep `exports` synchronized.
 - Scene switching is controller-managed and retains existing scene runtimes.
 - The host owns terminal styling through `WebHostTerminalStyle` with one active
-  palette and theme pair. The library has no built-in mode switcher.
+  palette and theme pair. The app supplies accessible preference controls by default;
+  see the README for override precedence and persistence scope.
 
 ## Conventions
 

@@ -12,6 +12,7 @@ export type {
   WebHostPaintStatistics,
 } from "./src/SurfacePaintScheduler.ts";
 export * from "./src/SurfaceRenderer.ts";
+export { readWebHostAccessibilityPreferences } from "./src/WebHostAccessibilitySettings.ts";
 export * from "./src/WebHostApp.ts";
 export * from "./src/WebHostSceneManifest.ts";
 export * from "./src/WebHostSceneRuntime.ts";

@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import {
   decodeWebHostTerminalRenderStyleBase64,
   encodeWebHostTerminalRenderStyleBase64,
+  mergeWebHostTerminalStyle,
   normalizeWebHostTerminalStyle,
+  resolveWebHostAccessibilityPreferences,
   resolveWebHostTerminalRenderStyle,
   webTUITerminalBackgroundColor,
 } from "./WebHostTerminalStyle.ts";
@@ -138,3 +140,60 @@ function readTransportFixture(name: string): string {
     "utf8",
   ).trim();
 }
+
+test("live detection fills unspecified preferences and explicit false wins", () => {
+  const original = globalThis.matchMedia;
+  let enabled = true;
+  globalThis.matchMedia = ((query: string) => ({
+    matches: enabled && query !== "(prefers-contrast: less)",
+    media: query,
+  })) as typeof matchMedia;
+  try {
+    const detected = resolveWebHostAccessibilityPreferences({});
+    expect(detected).toMatchObject({
+      reduceMotion: true,
+      contrast: "increased",
+      differentiateWithoutColor: true,
+      reduceTransparency: true,
+    });
+    const explicit = {
+      reduceMotion: false,
+      contrast: "standard" as const,
+      differentiateWithoutColor: false,
+      reduceTransparency: false,
+      colorProfile: "monochrome" as const,
+    };
+    expect(resolveWebHostAccessibilityPreferences(explicit)).toEqual(explicit);
+    const encoded = resolveWebHostTerminalRenderStyle(explicit);
+    expect(encoded).toMatchObject({
+      reduceMotion: "false",
+      contrast: "standard",
+      differentiateWithoutColor: "false",
+      reduceTransparency: "false",
+      colorProfile: "monochrome",
+    });
+    const automatic = mergeWebHostTerminalStyle(explicit, {
+      reduceMotion: undefined,
+      contrast: undefined,
+      differentiateWithoutColor: undefined,
+      reduceTransparency: undefined,
+      colorProfile: undefined,
+    });
+    expect(resolveWebHostAccessibilityPreferences(automatic).reduceMotion).toBe(
+      true,
+    );
+    expect(
+      webTUITerminalBackgroundColor({ backgroundOpacity: 0.25 }),
+    ).toEndWith(", 1)");
+    enabled = false;
+    expect(resolveWebHostAccessibilityPreferences(automatic).reduceMotion).toBe(
+      false,
+    );
+    expect(
+      webTUITerminalBackgroundColor({ backgroundOpacity: 0.25 }),
+    ).toEndWith(", 0.25)");
+  } finally {
+    if (original) globalThis.matchMedia = original;
+    else Reflect.deleteProperty(globalThis, "matchMedia");
+  }
+});

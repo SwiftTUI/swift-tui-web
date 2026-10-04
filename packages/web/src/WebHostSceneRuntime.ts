@@ -929,10 +929,14 @@ export class WebHostSceneRuntime {
       "(forced-colors: active)",
       "(prefers-color-scheme: dark)",
       "(prefers-reduced-motion: reduce)",
+      "(prefers-reduced-transparency: reduce)",
+      "(prefers-contrast: more)",
+      "(prefers-contrast: less)",
     ]
       .map((query) => globalThis.matchMedia?.(query))
       .filter((query): query is MediaQueryList => query !== undefined);
     const preferenceChanged = () => {
+      this.applyStyle(this.currentStyle);
       this.bridge?.updateRenderStyle?.(this.currentStyle);
       refresh();
       this.paintScheduler.requestRepaint();
