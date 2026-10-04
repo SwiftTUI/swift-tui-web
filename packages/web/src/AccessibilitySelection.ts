@@ -33,6 +33,9 @@ export function presentSelection(
     element.disabled = !enabled;
     element.tabIndex = enabled ? 0 : -1;
     element.required = node.properties?.required === true;
+    // Native activation must not fall through to the terminal menu trigger.
+    // The producer supplies the placed trigger bounds for menu controls.
+    element.style.pointerEvents = "auto";
     // Native select supplies its own combobox/listbox and popup semantics.
     element.removeAttribute("role");
   } else {

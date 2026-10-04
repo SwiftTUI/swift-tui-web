@@ -847,3 +847,51 @@ for (const renderer of ["canvas", "dom"]) {
     ).toHaveCount(0);
   });
 }
+
+for (const renderer of ["canvas", "dom"]) {
+  test(`${renderer} native menu pointer activation cannot expand the terminal menu`, async ({
+    page,
+  }) => {
+    await page.goto(`/health?renderer=${renderer}`);
+    await page.addScriptTag({
+      url: "/accessibility-actions.js",
+      type: "module",
+    });
+    await page.waitForFunction(() => !!window.accessibilityActions);
+    await present(page, [
+      {
+        id: "menu",
+        actionTarget: "1:menu",
+        role: "picker",
+        label: "Menu mode",
+        rect: [2, 2, 18, 1],
+        actions: ["focus", "setValue"],
+        value: { type: "text", value: "first" },
+        selection: {
+          presentation: "menu",
+          options: [
+            { id: "first", label: "First", isEnabled: true },
+            { id: "second", label: "Second", isEnabled: true },
+          ],
+        },
+      },
+    ]);
+    const menu = page.getByRole("combobox", { name: "Menu mode", exact: true });
+    const before = await menu.boundingBox();
+    await menu.click();
+    await menu.press("Escape");
+    expect(await menu.boundingBox()).toEqual(before);
+    expect(
+      (await records(page)).every((record) => record.endsWith(":focus")),
+    ).toBe(true);
+    expect(
+      await page.evaluate(() =>
+        window.accessibilityActions.inputRecords.filter(
+          (record) =>
+            record.startsWith("\u001epointer:") || !record.startsWith("\u001e"),
+        ),
+      ),
+    ).toEqual([]);
+    await expect(menu).toHaveValue("first");
+  });
+}
