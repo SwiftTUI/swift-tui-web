@@ -79,6 +79,19 @@ export function presentSelection(
       radio.style.height = horizontal
         ? "100%"
         : `${100 / selection.options.length}%`;
+      if (option.rect) {
+        const [x, y, width, height] = option.rect;
+        const [ownerX, ownerY, ownerWidth, ownerHeight] = node.rect;
+        radio.style.left = `${((x - ownerX) * 100) / Math.max(1, ownerWidth)}%`;
+        radio.style.top = `${((y - ownerY) * 100) / Math.max(1, ownerHeight)}%`;
+        radio.style.width = `${(width * 100) / Math.max(1, ownerWidth)}%`;
+        radio.style.height = `${(height * 100) / Math.max(1, ownerHeight)}%`;
+      }
+      // VoiceOver may activate by hit-testing the exposed bounds. Known route
+      // geometry lets that press reach the native input and its typed change,
+      // rather than falling through to text selection or the raster surface.
+      radio.style.pointerEvents = option.rect ? "auto" : "none";
+      radio.style.boxSizing = "border-box";
       radio.style.margin = "0";
     }
     if (element.children[index] !== child)

@@ -9,6 +9,7 @@ declare global {
   interface Window {
     accessibilityActions: {
       records: string[];
+      inputRecords: string[];
       geometry: import("../dist/index.js").WebHostSceneRuntime["geometrySnapshot"];
       dispose(): void;
       metrics: { cellWidth: number; cellHeight: number };
@@ -666,6 +667,130 @@ for (const renderer of ["canvas", "dom"]) {
       expect(
         (await records(page)).filter((record) => record.includes(":setValue:")),
       ).toHaveLength(1);
+    });
+  }
+}
+
+for (const renderer of ["canvas", "dom"]) {
+  for (const presentation of ["radioGroup", "segmented"] as const) {
+    test(`${renderer} ${presentation} options use placed bounds and own pointer activation`, async ({
+      page,
+    }) => {
+      await page.goto(`/health?renderer=${renderer}`);
+      await page.addScriptTag({
+        url: "/accessibility-actions.js",
+        type: "module",
+      });
+      await page.waitForFunction(() => !!window.accessibilityActions);
+      const picker: WebHostAccessibilityNode = {
+        id: "placed-picker",
+        parentId: "container",
+        actionTarget: "9:placed-picker",
+        role: "picker",
+        label: "Placed choices",
+        rect: [5, 2, 24, 7],
+        actions: ["focus", "setValue"],
+        value: { type: "text", value: "first" },
+        selection: {
+          presentation,
+          options: [
+            {
+              id: "first",
+              label: "First",
+              isEnabled: true,
+              rect: [6, 4, 4, 1],
+            },
+            {
+              id: "second",
+              label: "Second",
+              isEnabled: true,
+              rect:
+                presentation === "radioGroup" ? [6, 5, 20, 1] : [11, 4, 15, 1],
+            },
+            {
+              id: "disabled",
+              label: "Unavailable",
+              isEnabled: false,
+              rect: [6, 6, 20, 1],
+            },
+          ],
+        },
+      };
+      const container: WebHostAccessibilityNode = {
+        id: "container",
+        role: "group",
+        rect: [3, 1, 30, 10],
+      };
+      await present(page, [container, picker]);
+      const owner = page.getByRole("radiogroup", { name: "Placed choices" });
+      const first = page.getByRole("radio", { name: "First", exact: true });
+      const second = page.getByRole("radio", { name: "Second", exact: true });
+      const assertBounds = async () => {
+        const ownerBox = (await owner.boundingBox())!;
+        for (const option of picker.selection!.options) {
+          const box = (await page
+            .getByRole("radio", { name: option.label, exact: true })
+            .boundingBox())!;
+          const [x, y, width, height] = option.rect!;
+          expect(box.x).toBeCloseTo(
+            ownerBox.x +
+              ((x - picker.rect[0]) * ownerBox.width) / picker.rect[2],
+            0,
+          );
+          expect(box.y).toBeCloseTo(
+            ownerBox.y +
+              ((y - picker.rect[1]) * ownerBox.height) / picker.rect[3],
+            0,
+          );
+          expect(box.width).toBeCloseTo(
+            (width * ownerBox.width) / picker.rect[2],
+            0,
+          );
+          expect(box.height).toBeCloseTo(
+            (height * ownerBox.height) / picker.rect[3],
+            0,
+          );
+        }
+      };
+      await assertBounds();
+      await second.click();
+      await expect(second).toBeChecked();
+      expect(
+        (await records(page)).filter((r) => r.includes(":setValue:")),
+      ).toHaveLength(1);
+      await second.click();
+      expect(
+        (await records(page)).filter((r) => r.includes(":setValue:")),
+      ).toHaveLength(1);
+      const unavailable = (await page
+        .getByRole("radio", { name: "Unavailable" })
+        .boundingBox())!;
+      await page.mouse.click(
+        unavailable.x + unavailable.width / 2,
+        unavailable.y + unavailable.height / 2,
+      );
+      await expect(second).toBeChecked();
+      expect(
+        (await records(page)).filter((r) => r.includes(":setValue:")),
+      ).toHaveLength(1);
+      expect(
+        await page.evaluate(() =>
+          window.accessibilityActions.inputRecords.filter((r) =>
+            r.startsWith("\u001epointer:"),
+          ),
+        ),
+      ).toEqual([]);
+      // A later layout moves the same choices. Bounds must not be cached by ID.
+      picker.rect[1]++;
+      for (const option of picker.selection!.options) option.rect![1]++;
+      await present(page, [container, picker]);
+      await assertBounds();
+      await first.focus();
+      await first.press("Space");
+      await expect(first).toBeChecked();
+      expect(
+        (await records(page)).filter((r) => r.includes(":setValue:")),
+      ).toHaveLength(2);
     });
   }
 }

@@ -92,6 +92,10 @@ export class AccessibilityTreeMounter {
     this.element.style.inset = "0";
     this.element.style.opacity = "0";
     this.element.style.pointerEvents = "none";
+    // Native controls opt into pointer input over their placed routes. Keep
+    // them above the DOM painter's text/image layers, which otherwise steal
+    // assistive activation; the rest of the overlay remains hit-transparent.
+    this.element.style.zIndex = "3";
 
     this.announcerElement = document.createElement("div");
     this.announcerElement.className = "webhost-scene__accessibility-announcer";
@@ -288,6 +292,10 @@ export class AccessibilityTreeMounter {
       send({ action: "focus" }),
     );
     if (node.selection) {
+      // A native option press must not also enter the surface pointer route,
+      // which would steal focus and prevent the input's default activation.
+      for (const type of ["pointerdown", "pointerup", "pointermove"])
+        element.addEventListener(type, (event) => event.stopPropagation());
       element.addEventListener("change", (event) => {
         event.stopPropagation();
         const input = event.target as HTMLInputElement | HTMLSelectElement;

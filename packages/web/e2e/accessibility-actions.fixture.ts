@@ -10,6 +10,7 @@ const mount = document.createElement("div");
 mount.style.cssText = "width:640px;height:400px";
 document.body.appendChild(mount);
 const records: string[] = [];
+const inputRecords: string[] = [];
 const bridge = new BrowserWASIBridge({
   sceneId: "actions",
   columns: 40,
@@ -21,6 +22,7 @@ bridge.subscribeResize((_columns, _rows, cellWidth, cellHeight) => {
 });
 bridge.stdin.subscribe((chunk) => {
   for (const record of new TextDecoder().decode(chunk).split("\n")) {
+    if (record) inputRecords.push(record);
     if (record.startsWith("\u001eaccessibility:"))
       records.push(record.slice(1));
   }
@@ -46,6 +48,7 @@ await new Promise<void>((resolve) =>
 let sequence = 0;
 const api = {
   records,
+  inputRecords,
   get geometry() {
     return runtime.geometrySnapshot;
   },

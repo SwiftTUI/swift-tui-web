@@ -156,7 +156,13 @@ export interface WebHostAccessibilityNode {
 
 export interface WebHostAccessibilitySelection {
   presentation: "menu" | "list" | "radioGroup" | "segmented";
-  options: { id: string; label: string; isEnabled: boolean }[];
+  options: {
+    id: string;
+    label: string;
+    isEnabled: boolean;
+    /** Visible option route in scene cells; absent on older producers. */
+    rect?: WebHostSurfaceRect;
+  }[];
 }
 
 /**
@@ -1336,7 +1342,12 @@ function isAccessibilitySelection(
       option.id === "" ||
       ids.has(option.id) ||
       typeof option.label !== "string" ||
-      typeof option.isEnabled !== "boolean"
+      typeof option.isEnabled !== "boolean" ||
+      (option.rect !== undefined &&
+        (!isWebHostSurfaceRect(option.rect) ||
+          !option.rect.every(Number.isFinite) ||
+          option.rect[2] <= 0 ||
+          option.rect[3] <= 0))
     )
       return false;
     ids.add(option.id);

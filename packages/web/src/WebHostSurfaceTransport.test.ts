@@ -1634,7 +1634,7 @@ test("picker choices retain opaque IDs and reject malformed selection metadata",
   const selection = {
     presentation: "menu",
     options: [
-      { id: "a", label: "Same", isEnabled: true },
+      { id: "a", label: "Same", isEnabled: true, rect: [1, 2, 8, 1] },
       { id: "b", label: "Same", isEnabled: false },
     ],
   };
@@ -1661,6 +1661,15 @@ test("picker choices retain opaque IDs and reject malformed selection metadata",
     { ...selection, options: [{ id: "", label: "Empty", isEnabled: true }] },
     { ...selection, options: [{ id: "a", label: 3, isEnabled: true }] },
     { ...selection, options: [{ id: "a", label: "A", isEnabled: "true" }] },
+    ...[
+      [0, 0, 1],
+      [0, 0, 0, 1],
+      [0, 0, 1, -1],
+      [0, 0, null, 1],
+    ].map((rect) => ({
+      ...selection,
+      options: [{ id: "a", label: "A", isEnabled: true, rect }],
+    })),
   ])
     expect(decode(invalid)[0]?.type).toBe("text");
   expect(

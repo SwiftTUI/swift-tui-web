@@ -100,6 +100,13 @@ not actionable. Native popup expansion is browser-local; it does not claim to
 mirror the terminal menu expansion. This current-source path still requires
 actual Safari/VoiceOver qualification.
 
+Radio and segmented options may include a scene-cell `rect` for their rendered
+option route. The adapter uses it for the native input's bounds, excluding the
+control's title, padding and borders. Native presses on these inputs send the
+typed selection change without also entering the surface pointer handler.
+Older producers without option rectangles retain approximate outline placement;
+custom styles need `option.route` to supply precise bounds.
+
 ## API
 
 ```ts
