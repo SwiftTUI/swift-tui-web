@@ -266,8 +266,12 @@ nodes and native text selections. Inline link segments retain authored order
 without duplicating a parent label. Actual screen-reader text-unit navigation
 still requires qualification with the selected browser and reader.
 
-The paint-only DOM focus ring and caret use the same presented geometry as
-the semantic bounds and do not move browser focus on resize or repaint.
+The paint-only focus ring and caret in both presenters use the same presented
+geometry as the semantic bounds. The ring follows browser review focus without
+moving the application's keyboard focus; the caret stays with its keyboard
+editor. Adjacent black/white bands keep the ring visible over contrasting cell
+backgrounds; forced colors use `CanvasText`/`Canvas`. Resize and repaint do not
+move browser focus. Native text selection temporarily suppresses the overlay.
 
 ### Experimental DOM quickstart
 

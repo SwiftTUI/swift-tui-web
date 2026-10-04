@@ -461,11 +461,10 @@ export class WebHostSceneRuntime {
       this.accessibilityTree.element,
       this.accessibilityTree.announcerElement,
     );
-    if (this.domSurfaceRoot)
-      this.domFocus = new DomFocusPresentation(
-        this.terminalMount,
-        () => this.nativePointerGesture || this.hasSurfaceSelection(),
-      );
+    this.domFocus = new DomFocusPresentation(
+      this.terminalMount,
+      () => this.nativePointerGesture || this.hasSurfaceSelection(),
+    );
     if (this.domSurfaceRoot) {
       this.domGeometry = new DomGeometryController(this.terminalMount);
       this.paintScheduler.setHeld(true);

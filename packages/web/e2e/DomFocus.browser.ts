@@ -1,6 +1,79 @@
 import { expect, test } from "@playwright/test";
 import type {} from "./AccessibilityActions.browser.ts";
 
+for (const renderer of ["canvas", "dom"]) {
+  test(`${renderer}: visible two-tone focus follows browser review without waiting for keyboard focus`, async ({
+    page,
+  }) => {
+    await page.goto(`/health?renderer=${renderer}`);
+    await page.addScriptTag({
+      url: "/accessibility-actions.js",
+      type: "module",
+    });
+    await page.waitForFunction(() => !!window.accessibilityActions);
+    await page.evaluate(() =>
+      window.accessibilityActions.present([
+        {
+          id: "keyboard",
+          actionTarget: "keyboard",
+          role: "textField",
+          label: "Keyboard owner",
+          rect: [1, 1, 10, 1],
+          isFocused: true,
+          cursorAnchor: [3, 1],
+          actions: ["focus", "setValue"],
+          value: { type: "text", value: "abc" },
+        },
+        {
+          id: "review",
+          actionTarget: "review",
+          role: "button",
+          label: "Review target",
+          rect: [2, 4, 12, 2],
+          isFocused: false,
+          actions: ["activate"],
+        },
+      ]),
+    );
+    await page.getByRole("button", { name: "Review target" }).focus();
+    await expect(page.locator(".webhost-scene__focus-layer")).toBeVisible();
+    await expect(page.locator(".webhost-scene__caret")).toBeHidden();
+    const result = await page.evaluate(() => {
+      const ring = document.querySelector<HTMLElement>(
+        ".webhost-scene__focus-ring",
+      )!;
+      const review = document.querySelector<HTMLElement>(
+        '[data-accessibility-id="review"]',
+      )!;
+      const box = (element: HTMLElement) => {
+        const r = element.getBoundingClientRect();
+        return [r.x, r.y, r.width, r.height];
+      };
+      return {
+        ring: box(ring),
+        target: box(review),
+        outline: ring.style.outlineColor,
+        shadow: ring.style.boxShadow,
+        keyboardStillOwned: document
+          .querySelector('[data-accessibility-id="keyboard"]')
+          ?.getAttribute("data-focused"),
+        records: window.accessibilityActions.records,
+      };
+    });
+    result.ring.forEach((value, i) => {
+      expect(Math.abs(value - result.target[i]!)).toBeLessThanOrEqual(0.5);
+    });
+    expect(result.outline).toBe("rgb(255, 255, 255)");
+    expect(result.shadow).toContain("rgb(0, 0, 0)");
+    expect(result.keyboardStillOwned).toBe("true");
+    expect(
+      result.records.some((value) => value.includes('"action":"activate"')),
+    ).toBe(false);
+    await page.getByRole("textbox", { name: "Keyboard owner" }).focus();
+    await expect(page.locator(".webhost-scene__caret")).toBeVisible();
+  });
+}
+
 test("caret and visible focus share semantic geometry across zoom without moving browser focus", async ({
   page,
 }) => {
