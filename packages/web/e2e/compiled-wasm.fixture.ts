@@ -238,7 +238,10 @@ const api = {
               const text = new TextDecoder().decode(chunk);
               // Input observations are diagnostics, not an editable-value log.
               sentInputs.push(
-                text.replace(/(:setValue:text:)[^\n]*/g, "$1<redacted>"),
+                text.replace(
+                  /(:(?:setValue|editText|selectText):text:)[^\n]*/g,
+                  "$1<redacted>",
+                ),
               );
               if (sentInputs.length > 256) sentInputs.shift();
               const revision = /^geometry:(\d+):/.exec(text.slice(1))?.[1];
