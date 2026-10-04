@@ -172,6 +172,7 @@ class InternalWebHostAppController implements WebHostAppController {
   private readonly visibilityDocument?: WebHostVisibilityDocument;
   private detachVisibilityListener?: () => void;
   private disposed = false;
+  private sceneNavigation?: HTMLSelectElement;
   private accessibilitySettings?: ReturnType<
     typeof createWebHostAccessibilitySettings
   >;
@@ -244,12 +245,7 @@ class InternalWebHostAppController implements WebHostAppController {
       this.sceneRoot.style.display = "block";
     }
     const document = this.mount.ownerDocument;
-    if (settingsEnabled && document) {
-      this.accessibilitySettings = createWebHostAccessibilitySettings(
-        document,
-        this.style,
-        (preferences) => this.setStyle(preferences),
-      );
+    if (document && (settingsEnabled || this.scenes.length > 1)) {
       const appRoot = document.createElement("div");
       appRoot.className = "webhost-app";
       Object.assign(appRoot.style, {
@@ -259,8 +255,47 @@ class InternalWebHostAppController implements WebHostAppController {
         height: "100%",
         minHeight: "0",
       });
+      if (this.scenes.length > 1) {
+        const label = document.createElement("label");
+        label.textContent = "Scene ";
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "Scene");
+        for (const scene of this.scenes) {
+          const option = document.createElement("option");
+          option.value = scene.id;
+          option.textContent = scene.title ?? scene.id;
+          select.append(option);
+        }
+        select.value = this.selectedSceneId;
+        const status = document.createElement("span");
+        status.setAttribute("role", "status");
+        select.addEventListener("change", async () => {
+          select.disabled = true;
+          status.textContent = "";
+          try {
+            await this.switchScene(select.value);
+          } catch {
+            status.textContent =
+              "Unable to open this scene. Try selecting it again.";
+          } finally {
+            select.disabled = false;
+            select.focus({ preventScroll: true });
+          }
+        });
+        this.sceneNavigation = select;
+        label.append(select, status);
+        appRoot.append(label);
+      }
+      if (settingsEnabled) {
+        this.accessibilitySettings = createWebHostAccessibilitySettings(
+          document,
+          this.style,
+          (preferences) => this.setStyle(preferences),
+        );
+        appRoot.append(this.accessibilitySettings.element);
+      }
       this.sceneRoot.style.flex = "1 1 auto";
-      appRoot.append(this.accessibilitySettings.element, this.sceneRoot);
+      appRoot.append(this.sceneRoot);
       this.mount.replaceChildren(appRoot);
     } else {
       this.mount.replaceChildren(this.sceneRoot);
@@ -289,6 +324,7 @@ class InternalWebHostAppController implements WebHostAppController {
     if (this.disposed) return;
     runtime.setVisible(true);
     this.selectedSceneId = id;
+    if (this.sceneNavigation) this.sceneNavigation.value = id;
   }
 
   setStyle(style: WebHostTerminalStyle): void {
