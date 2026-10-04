@@ -61,10 +61,15 @@ for (const renderer of ["canvas", "dom"] as const) {
     });
     await page.mouse.click(optionPoint.x, optionPoint.y);
     await expect.poll(() => text(page, "controls")).toContain("Choice 1");
-    const disclosure = page.getByRole("region", {
-      name: "Details",
-      exact: true,
-    });
+    // The released producer uses the legacy region trigger. Current producers
+    // expose a button controlling a separate content region (STUI-659).
+    const disclosure = page.getByRole(
+      process.env.SWIFTTUI_DOM_CURRENT_PRODUCER === "1" ? "button" : "region",
+      {
+        name: "Details",
+        exact: true,
+      },
+    );
     await disclosure.press("Enter");
     await expect
       .poll(() => text(page, "controls"))
