@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type {
   WebHostAccessibilityActionResponse,
   WebHostAccessibilityAnnouncement,
+  WebHostAccessibilityFocusPresentation,
   WebHostAccessibilityNode,
 } from "../dist/index.js";
 
@@ -17,6 +18,7 @@ declare global {
         nodes: WebHostAccessibilityNode[],
         response?: WebHostAccessibilityActionResponse,
         announcements?: WebHostAccessibilityAnnouncement[],
+        focusRequest?: WebHostAccessibilityFocusPresentation,
       ): void;
     };
   }
@@ -1061,3 +1063,123 @@ for (const renderer of ["canvas", "dom"]) {
     await expect(menu).toHaveValue("first");
   });
 }
+
+test("app assistive focus is applied once and remains separate from keyboard focus", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  const targets: WebHostAccessibilityNode[] = [
+    { ...nodes[0], isFocused: true },
+    {
+      id: "heading",
+      role: "group",
+      label: "Chapter",
+      rect: [0, 2, 10, 1],
+      actionTarget: "2:heading",
+      actions: ["accessibilityFocus", "accessibilityBlur"],
+      properties: { headingLevel: 2 },
+    },
+    {
+      id: "disabled",
+      role: "button",
+      label: "Disabled review target",
+      rect: [0, 3, 10, 1],
+      actionTarget: "3:disabled",
+      isEnabled: false,
+      actions: ["focus", "activate", "accessibilityFocus", "accessibilityBlur"],
+    },
+  ];
+  await present(page, targets);
+  await expect(
+    page.getByRole("button", { name: "Increment", exact: true }),
+  ).toBeFocused();
+  await page.evaluate(
+    (targets) =>
+      window.accessibilityActions.present(targets, undefined, undefined, {
+        generation: "1",
+        target: "2:heading",
+      }),
+    targets,
+  );
+  await expect(page.getByRole("heading", { name: "Chapter" })).toBeFocused();
+  expect(await records(page)).toHaveLength(0);
+  await present(page, targets);
+  await expect(page.getByRole("heading", { name: "Chapter" })).toBeFocused();
+
+  await page.getByRole("button", { name: "Disabled review target" }).focus();
+  expect(
+    (await records(page)).map((record) => record.split(":").at(-1)),
+  ).toEqual(["accessibilityBlur", "accessibilityFocus"]);
+  await page.evaluate(
+    (targets) =>
+      window.accessibilityActions.present(targets, undefined, undefined, {
+        generation: "1",
+        target: "2:heading",
+      }),
+    targets,
+  );
+  await expect(
+    page.getByRole("button", { name: "Disabled review target" }),
+  ).toBeFocused();
+  await page.evaluate(
+    (targets) =>
+      window.accessibilityActions.present(targets, undefined, undefined, {
+        generation: "2",
+      }),
+    targets,
+  );
+  await expect(
+    page.getByRole("button", { name: "Disabled review target" }),
+  ).not.toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "Increment", exact: true }),
+  ).not.toBeFocused();
+  expect(await records(page)).toHaveLength(2);
+});
+
+test("named navigation reaches a destination without changing keyboard focus", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  const targets: WebHostAccessibilityNode[] = [
+    { ...nodes[0], isFocused: true },
+    ...["North", "South"].map(
+      (label, index): WebHostAccessibilityNode => ({
+        id: label,
+        role: "group",
+        label,
+        rect: [0, index + 2, 10, 1],
+        actionTarget: `2:${label}`,
+        navigationCategories: ["Regions"],
+        actions: ["accessibilityFocus", "accessibilityBlur"],
+      }),
+    ),
+  ];
+  await present(page, targets);
+  await page.getByText("Navigate content", { exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Content group" })
+    .selectOption("Regions");
+  await page
+    .getByRole("combobox", { name: "Destination" })
+    .selectOption("South");
+  await page.getByRole("button", { name: "Go to content" }).click();
+  await expect(
+    page.getByRole("group", { name: "South", exact: true }),
+  ).toBeFocused();
+  expect(
+    (await records(page)).map((record) => record.split(":").at(-1)),
+  ).toEqual(["accessibilityFocus"]);
+  await present(page, targets);
+  await expect(
+    page.getByRole("group", { name: "South", exact: true }),
+  ).toBeFocused();
+  await present(page, [targets[0]]);
+  await expect(
+    page.getByText("Navigate content", { exact: true }),
+  ).toBeHidden();
+});

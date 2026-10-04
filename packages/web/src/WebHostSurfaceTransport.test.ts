@@ -1686,3 +1686,63 @@ test("picker choices retain opaque IDs and reject malformed selection metadata",
       .accessibilityTree?.[0].selection,
   ).toMatchObject(selection);
 });
+
+test("assistive focus requests round-trip full and delta frames with lossless generations", () => {
+  const request = { generation: "18446744073709551615", target: "9:heading#2" };
+  const base = {
+    version: 2,
+    sequence: 1,
+    width: 1,
+    height: 1,
+    styles: [null],
+    rows: [[]],
+    accessibilityFocusRequest: request,
+  };
+  const decode = (value: unknown) =>
+    new WebHostOutputDecoder().feed(
+      encoder.encode(`\u001esurface:${JSON.stringify(value)}\n`),
+    );
+  expect(surfaceFrame(decode(base)[0]).accessibilityFocusRequest).toEqual(
+    request,
+  );
+  for (const generation of [
+    "-1",
+    "1.2",
+    "01",
+    "18446744073709551616",
+    1,
+    null,
+  ]) {
+    expect(
+      decode({ ...base, accessibilityFocusRequest: { generation } }).some(
+        (record) => record.type === "surface",
+      ),
+    ).toBe(false);
+  }
+  const stream = new WebHostOutputDecoder();
+  stream.feed(encoder.encode(`\u001esurface:${JSON.stringify(base)}\n`));
+  const next = stream.feed(
+    encoder.encode(
+      `\u001esurface:${JSON.stringify({
+        version: 3,
+        encoding: "delta",
+        sequence: 2,
+        width: 1,
+        height: 1,
+        styles: [null],
+        deltaRows: [],
+        accessibilityFocusRequest: { generation: "2" },
+      })}\n`,
+    ),
+  );
+  expect(surfaceFrame(next[0]).accessibilityFocusRequest).toEqual({
+    generation: "2",
+  });
+  for (const action of ["accessibilityFocus", "accessibilityBlur"] as const) {
+    expect(
+      decoder.decode(
+        encodeAccessibilityActionMessage("9:heading#2", { action }, "3"),
+      ),
+    ).toBe(`\u001eaccessibility:3:9%3Aheading%232:${action}\n`);
+  }
+});

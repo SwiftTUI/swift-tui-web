@@ -304,6 +304,7 @@ export class WebHostSceneRuntime {
   private fontResult?: DomFontResult;
   private loadingFont?: HTMLElement;
   private accessibilityTree?: AccessibilityTreeMounter;
+  private readonly header: HTMLElement;
   private diagnosticText?: HTMLElement;
   private resizeObserver?: ResizeObserver;
   private detachMetricObservers?: () => void;
@@ -390,6 +391,7 @@ export class WebHostSceneRuntime {
     this.element.hidden = true;
 
     const header = document.createElement("div");
+    this.header = header;
     header.className = "webhost-scene__header";
     header.textContent = options.descriptor.title ?? options.descriptor.id;
 
@@ -432,6 +434,7 @@ export class WebHostSceneRuntime {
       },
       this.onOpenHyperlink,
     );
+    this.header.append(this.accessibilityTree.navigationElement);
     this.terminalMount.replaceChildren(
       this.surfaceElement as HTMLElement,
       this.accessibilityTree.element,
@@ -1623,6 +1626,7 @@ export class WebHostSceneRuntime {
           !this.nativePointerGesture &&
           !this.hasSurfaceSelection(),
         actionResponse: frame.accessibilityActionResponse,
+        focusRequest: frame.accessibilityFocusRequest,
       },
     );
   }

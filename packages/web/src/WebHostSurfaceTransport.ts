@@ -58,6 +58,8 @@ export type WebHostAccessibilityLiveRegion = string;
 
 export type WebHostAccessibilityActionKind =
   | "focus"
+  | "accessibilityFocus"
+  | "accessibilityBlur"
   | "activate"
   | "increment"
   | "decrement"
@@ -88,6 +90,12 @@ export function encodeAccessibilityActionMessage(
   return new TextEncoder().encode(
     `\u001Eaccessibility:${requestID === undefined ? "" : `${requestID}:`}${encodeURIComponent(target)}:${request.action}${value}\n`,
   );
+}
+
+/** An app-origin semantic focus request, applied once per session generation. */
+export interface WebHostAccessibilityFocusPresentation {
+  generation: string;
+  target?: string;
 }
 
 export interface WebHostAccessibilityActionResponse {
@@ -159,6 +167,8 @@ export interface WebHostAccessibilityNode {
   liveRegion?: WebHostAccessibilityLiveRegion;
   cursorAnchor?: WebHostAccessibilityPoint;
   isFocused?: boolean;
+  isAccessibilityFocused?: boolean;
+  navigationCategories?: string[];
 }
 
 export interface WebHostAccessibilitySelection {
@@ -283,6 +293,7 @@ export interface WebHostSurfaceFrame {
   damage?: WebHostSurfaceDamage;
   accessibilityTree?: WebHostAccessibilityNode[];
   accessibilityActionResponse?: WebHostAccessibilityActionResponse;
+  accessibilityFocusRequest?: WebHostAccessibilityFocusPresentation;
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
   scrollRegions?: WebHostScrollRegion[];
   paragraphs?: WebHostParagraph[];
@@ -323,6 +334,7 @@ export interface WebHostSurfaceDeltaFrame {
   damage?: WebHostSurfaceDamage;
   accessibilityTree?: WebHostAccessibilityNode[];
   accessibilityActionResponse?: WebHostAccessibilityActionResponse;
+  accessibilityFocusRequest?: WebHostAccessibilityFocusPresentation;
   accessibilityAnnouncements?: WebHostAccessibilityAnnouncement[];
   scrollRegions?: WebHostScrollRegion[];
   paragraphs?: WebHostParagraph[];
@@ -828,6 +840,7 @@ export class WebHostOutputDecoder {
       damage: frame.damage,
       accessibilityTree: frame.accessibilityTree,
       accessibilityActionResponse: frame.accessibilityActionResponse,
+      accessibilityFocusRequest: frame.accessibilityFocusRequest,
       accessibilityAnnouncements: frame.accessibilityAnnouncements,
       scrollRegions: frame.scrollRegions,
       paragraphs: frame.paragraphs,
@@ -1173,6 +1186,8 @@ function hasValidAdditiveFrameFields(
   frame: Partial<WebHostSurfaceFrame> | Partial<WebHostSurfaceDeltaFrame>,
 ): boolean {
   return (
+    (frame.accessibilityFocusRequest === undefined ||
+      isAccessibilityFocusPresentation(frame.accessibilityFocusRequest)) &&
     isOptionalSafeInteger(frame.epoch) &&
     isOptionalSafeInteger(frame.gen) &&
     (frame.geometryRevision === undefined ||
@@ -1188,6 +1203,19 @@ function hasValidAdditiveFrameFields(
     (frame.preferredGridHeight === undefined ||
       (Number.isSafeInteger(frame.preferredGridHeight) &&
         frame.preferredGridHeight >= 0))
+  );
+}
+
+function isAccessibilityFocusPresentation(
+  value: unknown,
+): value is WebHostAccessibilityFocusPresentation {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const request = value as Partial<WebHostAccessibilityFocusPresentation>;
+  return (
+    typeof request.generation === "string" &&
+    /^(0|[1-9][0-9]{0,19})$/.test(request.generation) &&
+    BigInt(request.generation) <= 18446744073709551615n &&
+    (request.target === undefined || typeof request.target === "string")
   );
 }
 
@@ -1320,6 +1348,16 @@ function isWebHostAccessibilityNode(
     (node.cursorAnchor === undefined ||
       isWebHostAccessibilityPoint(node.cursorAnchor)) &&
     (node.isFocused === undefined || typeof node.isFocused === "boolean") &&
+    (node.isAccessibilityFocused === undefined ||
+      typeof node.isAccessibilityFocused === "boolean") &&
+    (node.navigationCategories === undefined ||
+      (Array.isArray(node.navigationCategories) &&
+        node.navigationCategories.length <= 65536 &&
+        node.navigationCategories.every(
+          (name) => typeof name === "string" && name.trim().length > 0,
+        ) &&
+        new Set(node.navigationCategories).size ===
+          node.navigationCategories.length)) &&
     (node.actionTarget === undefined ||
       typeof node.actionTarget === "string") &&
     (node.actions === undefined ||

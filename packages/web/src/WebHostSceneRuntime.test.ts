@@ -3828,6 +3828,10 @@ class FakeElement {
   >();
   private readonly attributes = new Map<string, string>();
 
+  value = "";
+  get options(): FakeElement[] {
+    return this.children.filter((child) => child.tagName === "OPTION");
+  }
   className = "";
   id = "";
   hidden = false;

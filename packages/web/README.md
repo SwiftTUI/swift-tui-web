@@ -640,3 +640,18 @@ a preference leave it unspecified. No screen-reader detection is used. Swift
 receives the choices over both style transports; explicit runtime/CLI choices
 have precedence over browser detection, and authored subtree overrides apply
 locally. Color-profile propagation alone is not a whole-app contrast or WCAG claim.
+
+## Assistive focus and named navigation
+
+Canvas and DOM presenters apply additive `accessibilityFocusRequest` generations
+once, independently of the application's keyboard focus. Observable native DOM
+focus reports `accessibilityFocus`/`accessibilityBlur` only when the Swift node
+advertises those actions. Disabled nodes remain reviewable; activation guards
+remain in effect. DOM events do not expose an independent screen-reader virtual
+cursor.
+
+Authored `navigationCategories` appear in the scene's **Navigate content**
+disclosure. Native group/destination selects and **Go to content** move semantic
+review without sending ordinary keyboard focus to Swift. Groups follow the
+currently committed visible tree, including modal scope and removal. Browser
+heading and landmark navigation continue to use the semantic roles.

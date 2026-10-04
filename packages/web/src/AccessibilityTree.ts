@@ -10,6 +10,7 @@ import type {
   WebHostAccessibilityAction,
   WebHostAccessibilityActionResponse,
   WebHostAccessibilityAnnouncement,
+  WebHostAccessibilityFocusPresentation,
   WebHostAccessibilityNode,
 } from "./WebHostSurfaceTransport.ts";
 
@@ -21,6 +22,7 @@ interface AccessibilityTreeMetrics {
 interface AccessibilityTreePresentationOptions {
   synchronizeFocus?: boolean;
   actionResponse?: WebHostAccessibilityActionResponse;
+  focusRequest?: WebHostAccessibilityFocusPresentation;
 }
 
 interface RoleMapping {
@@ -31,6 +33,11 @@ interface RoleMapping {
 export class AccessibilityTreeMounter {
   readonly element: HTMLElement;
   readonly announcerElement: HTMLElement;
+  readonly navigationElement: HTMLDetailsElement;
+  private readonly categorySelect: HTMLSelectElement;
+  private readonly targetSelect: HTMLSelectElement;
+  private readonly navigationGo: HTMLButtonElement;
+  private navigationGroups = new Map<string, WebHostAccessibilityNode[]>();
   // Also unique when independent bundles each include a copy of the runtime.
   private readonly domIdentity = Array.from(
     crypto.getRandomValues(new Uint32Array(4)),
@@ -50,6 +57,7 @@ export class AccessibilityTreeMounter {
   private pendingValues = new Map<string, bigint>();
   private pendingFocus?: { id: string; requestID: bigint };
   private runtimeFocusedElement?: HTMLElement;
+  private appliedAssistiveFocusGeneration = -1n;
   private readonly compositionCommits = new WeakMap<HTMLElement, string>();
 
   get hasInteractiveControls(): boolean {
@@ -86,6 +94,55 @@ export class AccessibilityTreeMounter {
     ) => void,
     private readonly openLink?: (url: string) => void,
   ) {
+    this.navigationElement = document.createElement("details");
+    this.navigationElement.hidden = true;
+    this.navigationElement.className = "webhost-scene__content-navigation";
+    const summary = document.createElement("summary");
+    summary.textContent = "Navigate content";
+    const categoryLabel = document.createElement("label");
+    categoryLabel.textContent = "Content group ";
+    this.categorySelect = document.createElement("select");
+    categoryLabel.append(this.categorySelect);
+    const targetLabel = document.createElement("label");
+    targetLabel.textContent = "Destination ";
+    this.targetSelect = document.createElement("select");
+    targetLabel.append(this.targetSelect);
+    this.navigationGo = document.createElement("button");
+    this.navigationGo.type = "button";
+    this.navigationGo.textContent = "Go to content";
+    this.navigationElement.append(
+      summary,
+      categoryLabel,
+      targetLabel,
+      this.navigationGo,
+    );
+    this.categorySelect.addEventListener("change", () =>
+      this.refreshNavigationTargets(),
+    );
+    this.navigationGo.addEventListener("click", () => {
+      const node = this.modelsById.get(this.targetSelect.value);
+      const target = node ? this.nodesById.get(node.id) : undefined;
+      if (
+        !node?.actionTarget ||
+        !target ||
+        !node.actions?.includes("accessibilityFocus")
+      )
+        return;
+      // Navigation changes semantic review only; the control's ordinary DOM
+      // focus listener must not also move the application's keyboard focus.
+      this.presenting = true;
+      try {
+        target.focus();
+      } finally {
+        this.presenting = false;
+      }
+      this.sendAction?.(
+        node.actionTarget,
+        { action: "accessibilityFocus" },
+        String(++this.nextRequestID),
+      );
+    });
+
     this.element = document.createElement("div");
     this.element.className = "webhost-scene__accessibility-tree";
     // Assistive focus outlines use these elements' real bounds. Hide only
@@ -216,7 +273,31 @@ export class AccessibilityTreeMounter {
       childOffsets.set(container, offset + (group ? 2 : 1));
     }
 
+    this.refreshNavigation(visibleNodes);
     this.announceLiveRegionChanges(visibleNodes, normalizedAnnouncements);
+
+    const assistiveRequest = options.focusRequest;
+    const requestGeneration = assistiveRequest
+      ? BigInt(assistiveRequest.generation)
+      : undefined;
+    const applyAssistiveRequest =
+      (options.synchronizeFocus ?? true) &&
+      requestGeneration !== undefined &&
+      requestGeneration > this.appliedAssistiveFocusGeneration;
+    if (applyAssistiveRequest && assistiveRequest) {
+      this.appliedAssistiveFocusGeneration = requestGeneration;
+      const target = visibleNodes.find(
+        (node) => node.actionTarget === assistiveRequest.target,
+      );
+      if (assistiveRequest.target !== undefined && target) {
+        this.nodesById.get(target.id)?.focus({ preventScroll: true });
+      } else if (
+        assistiveRequest.target === undefined &&
+        this.element.contains(document.activeElement)
+      ) {
+        (document.activeElement as HTMLElement)?.blur();
+      }
+    }
 
     const focused = visibleNodes.find((node) => node.isFocused);
     const element = focused ? this.nodesById.get(focused.id) : undefined;
@@ -237,6 +318,7 @@ export class AccessibilityTreeMounter {
     }
     if (
       (options.synchronizeFocus ?? true) &&
+      !applyAssistiveRequest &&
       synchronize &&
       element &&
       this.pendingFocus === undefined
@@ -260,8 +342,67 @@ export class AccessibilityTreeMounter {
     this.pendingValues.clear();
     this.pendingFocus = undefined;
     this.runtimeFocusedElement = undefined;
+    this.appliedAssistiveFocusGeneration = -1n;
     this.element.replaceChildren();
     this.announcerElement.replaceChildren();
+    this.navigationElement.remove();
+  }
+
+  private refreshNavigation(nodes: WebHostAccessibilityNode[]): void {
+    this.navigationGroups = new Map();
+    for (const node of nodes) {
+      if (
+        !node.label?.trim() ||
+        !node.actionTarget ||
+        !node.actions?.includes("accessibilityFocus")
+      )
+        continue;
+      for (const category of node.navigationCategories ?? []) {
+        const entries = this.navigationGroups.get(category) ?? [];
+        entries.push(node);
+        this.navigationGroups.set(category, entries);
+      }
+    }
+    this.navigationElement.hidden = this.navigationGroups.size === 0;
+    this.setNavigationOptions(
+      this.categorySelect,
+      [...this.navigationGroups.keys()].map((name) => [name, name]),
+    );
+    this.refreshNavigationTargets();
+  }
+
+  private refreshNavigationTargets(): void {
+    const entries = this.navigationGroups.get(this.categorySelect.value) ?? [];
+    this.setNavigationOptions(
+      this.targetSelect,
+      entries.map((node) => [node.id, node.label ?? ""]),
+    );
+    this.navigationGo.disabled = entries.length === 0;
+  }
+
+  private setNavigationOptions(
+    select: HTMLSelectElement,
+    entries: [string, string][],
+  ): void {
+    if (
+      select.options.length === entries.length &&
+      entries.every(
+        ([value, label], index) =>
+          select.options[index]?.value === value &&
+          select.options[index]?.textContent === label,
+      )
+    )
+      return;
+    const selected = select.value;
+    select.replaceChildren(
+      ...entries.map(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        return option;
+      }),
+    );
+    if (entries.some(([value]) => value === selected)) select.value = selected;
   }
 
   private clearEditable(element: HTMLElement): void {
@@ -365,11 +506,16 @@ export class AccessibilityTreeMounter {
         : undefined;
     const send = (request: WebHostAccessibilityAction) => {
       const model = current();
+      const semanticFocus =
+        request.action === "accessibilityFocus" ||
+        request.action === "accessibilityBlur";
       if (
         this.presenting ||
         !model?.actionTarget ||
-        model.isEnabled === false ||
-        (model.properties?.readOnly === true && request.action !== "focus") ||
+        (model.isEnabled === false && !semanticFocus) ||
+        (model.properties?.readOnly === true &&
+          request.action !== "focus" &&
+          !semanticFocus) ||
         !model.actions?.includes(request.action)
       )
         return;
@@ -380,9 +526,18 @@ export class AccessibilityTreeMounter {
         this.pendingFocus = { id: node.id, requestID };
       this.sendAction?.(model.actionTarget, request, String(requestID));
     };
-    element.addEventListener(node.selection ? "focusin" : "focus", () =>
-      send({ action: "focus" }),
-    );
+    element.addEventListener(node.selection ? "focusin" : "focus", () => {
+      send({ action: "focus" });
+      send({ action: "accessibilityFocus" });
+    });
+    element.addEventListener(node.selection ? "focusout" : "blur", (event) => {
+      if (
+        node.selection &&
+        element.contains((event as FocusEvent).relatedTarget as Node)
+      )
+        return;
+      send({ action: "accessibilityBlur" });
+    });
     if (node.selection) {
       // A native option press must not also enter the surface pointer route,
       // which would steal focus and prevent the input's default activation.
@@ -567,6 +722,9 @@ export class AccessibilityTreeMounter {
       element.style.pointerEvents = "auto";
     }
 
+    if (node.isAccessibilityFocused)
+      element.dataset.accessibilityFocused = "true";
+    else delete element.dataset.accessibilityFocused;
     const properties = node.properties;
     const role = roleMapping(node.role);
     if (properties?.headingLevel !== undefined) {
