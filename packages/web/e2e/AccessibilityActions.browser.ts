@@ -796,6 +796,64 @@ for (const renderer of ["canvas", "dom"]) {
 }
 
 for (const renderer of ["canvas", "dom"]) {
+  test(`${renderer} links retain destinations and activation uses one typed route`, async ({
+    page,
+  }) => {
+    await page.goto(`/health?renderer=${renderer}`);
+    await page.addScriptTag({
+      url: "/accessibility-actions.js",
+      type: "module",
+    });
+    await page.waitForFunction(() => !!window.accessibilityActions);
+    const link: WebHostAccessibilityNode = {
+      id: "guide",
+      actionTarget: "1:guide",
+      role: "link",
+      label: "Guide",
+      rect: [1, 1, 12, 1],
+      actions: ["focus", "activate"],
+      value: { type: "text", value: "https://example.com/guide" },
+    };
+    const pair: WebHostAccessibilityNode = {
+      id: "name",
+      role: "group",
+      label: "Full name",
+      rect: [1, 3, 20, 1],
+      properties: { valueDescription: "Ada Lovelace" },
+    };
+    await present(page, [link, pair]);
+    const guide = page.getByRole("link", { name: "Guide", exact: true });
+    await expect(guide).toHaveAttribute("href", "https://example.com/guide");
+    const url = page.url();
+    await guide.click();
+    await guide.press("Enter");
+    expect(
+      (await records(page)).filter((record) => record.endsWith(":activate")),
+    ).toHaveLength(2);
+    expect(page.url()).toBe(url);
+    expect(
+      await page.evaluate(() =>
+        window.accessibilityActions.inputRecords.filter(
+          (record) =>
+            record.startsWith("\u001epointer:") || !record.startsWith("\u001e"),
+        ),
+      ),
+    ).toEqual([]);
+    const name = page.getByRole("group", { name: "Full name", exact: true });
+    await expect(name).toHaveAttribute("aria-description", "Ada Lovelace");
+    await expect(name).not.toHaveAttribute("aria-valuetext");
+    await present(page, [{ ...link, isEnabled: false }]);
+    await expect(guide).not.toHaveAttribute("href");
+    await guide.dispatchEvent("click");
+    expect(
+      (await records(page)).filter((record) => record.endsWith(":activate")),
+    ).toHaveLength(2);
+    await present(page, [
+      { ...link, value: { type: "text", value: "javascript:alert(1)" } },
+    ]);
+    await expect(guide).not.toHaveAttribute("href");
+  });
+
   test(`${renderer} custom adjustments and named actions preserve focus and retire removed operations`, async ({
     page,
   }) => {

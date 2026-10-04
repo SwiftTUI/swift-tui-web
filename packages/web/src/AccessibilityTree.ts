@@ -256,6 +256,7 @@ export class AccessibilityTreeMounter {
   }
 
   private elementTag(node: WebHostAccessibilityNode): string {
+    if (node.role === "link") return "a";
     if (
       node.selection &&
       ["menu", "list"].includes(node.selection.presentation)
@@ -396,12 +397,26 @@ export class AccessibilityTreeMounter {
       return element;
     }
     element.addEventListener("click", (event) => {
+      if (tag === "a") event.preventDefault();
       event.stopPropagation();
       send({ action: "activate" });
     });
+    if (tag === "a") {
+      for (const type of ["pointerdown", "pointerup", "pointermove"])
+        element.addEventListener(type, (event) => event.stopPropagation());
+    }
     element.addEventListener("keydown", (event) => {
       const model = current();
       if (!model || event.key === "Tab" || event.key === "Escape") return;
+      if (tag === "a" && event.key === "Enter") {
+        // Let the native anchor generate one click, without a second key route.
+        event.stopPropagation();
+        if (!element.hasAttribute("href")) {
+          event.preventDefault();
+          send({ action: "activate" });
+        }
+        return;
+      }
       // WebKit treats Backspace in a read-only editor as browser navigation.
       // Keep review inside the application while allowing selection/copy keys.
       if (
@@ -509,6 +524,16 @@ export class AccessibilityTreeMounter {
     // Native traversal moves focus before the next key arrives. Waiting for a
     // Swift focus frame leaves rapid Tab+edit input aimed at the old control.
     element.tabIndex = this.isTabStop(node) ? 0 : -1;
+    if (element.tagName === "A") {
+      const destination =
+        node.value?.type === "text" ? node.value.value : undefined;
+      setOrRemoveAttribute(
+        element,
+        "href",
+        node.isEnabled !== false ? safeLinkDestination(destination) : undefined,
+      );
+      element.style.pointerEvents = "auto";
+    }
 
     const properties = node.properties;
     const role = roleMapping(node.role);
@@ -558,7 +583,16 @@ export class AccessibilityTreeMounter {
     setOrRemoveAttribute(
       element,
       "aria-description",
-      properties?.description ?? (node.hint || undefined),
+      properties?.description ??
+        ([
+          !supportsValueText(node.role) && node.role !== "secureField"
+            ? properties?.valueDescription
+            : undefined,
+          node.hint,
+        ]
+          .filter(Boolean)
+          .join("; ") ||
+          undefined),
     );
     setOrRemoveAttribute(element, "lang", properties?.language);
     setOrRemoveAttribute(element, "aria-live", node.liveRegion || undefined);
@@ -628,7 +662,7 @@ export class AccessibilityTreeMounter {
     setOrRemoveAttribute(
       element,
       "aria-valuetext",
-      node.role === "secureField" || node.selection
+      !supportsValueText(node.role) || node.selection
         ? undefined
         : properties?.valueDescription?.toString(),
     );
@@ -875,6 +909,26 @@ export class AccessibilityTreeMounter {
     content.setAttribute("role", "img");
     content.setAttribute("aria-label", message);
     this.announcerElement.replaceChildren(content);
+  }
+}
+
+function supportsValueText(role: string): boolean {
+  return ["slider", "stepper", "progressBar", "scrollBar", "meter"].includes(
+    role,
+  );
+}
+
+function safeLinkDestination(
+  destination: string | undefined,
+): string | undefined {
+  if (!destination) return undefined;
+  try {
+    const url = new URL(destination);
+    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol)
+      ? url.href
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 

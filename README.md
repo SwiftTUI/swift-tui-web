@@ -15,7 +15,11 @@ A SwiftTUI app compiles to `wasm32-wasi` and streams a structured raster surface
 `@swifttui/web` paints that surface into the page through its DOM or canvas
 engine and mounts a real ARIA accessibility tree.
 The ARIA tree presents reading order, names, roles, hidden state, announcements
-and focus. With the typed action contract, assistive focus, activation,
+and focus. Link destinations use native anchors for HTTP, HTTPS, mail and
+telephone URLs while activation follows the Swift action route once. Other
+schemes have no executable browser URL. Text values on non-range roles use
+accessible descriptions; numeric range controls retain `aria-valuetext`.
+With the typed action contract, assistive focus, activation,
 adjustment and supported value edits route back to SwiftTUI. The DOM renderer's
 complete assistive-technology and production qualification remains incomplete.
 Thus, the same `App` and `Scene` run in a terminal and on a web page. These two
