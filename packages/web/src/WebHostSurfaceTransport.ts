@@ -61,7 +61,8 @@ export type WebHostAccessibilityActionKind =
   | "activate"
   | "increment"
   | "decrement"
-  | "setValue";
+  | "setValue"
+  | "custom";
 
 export type WebHostAccessibilityValue =
   | { type: "boolean"; value: boolean }
@@ -69,8 +70,9 @@ export type WebHostAccessibilityValue =
   | { type: "text"; value: string };
 
 export type WebHostAccessibilityAction =
-  | { action: Exclude<WebHostAccessibilityActionKind, "setValue"> }
-  | { action: "setValue"; value: WebHostAccessibilityValue };
+  | { action: Exclude<WebHostAccessibilityActionKind, "setValue" | "custom"> }
+  | { action: "setValue"; value: WebHostAccessibilityValue }
+  | { action: "custom"; name: string };
 
 export function encodeAccessibilityActionMessage(
   target: string,
@@ -80,7 +82,9 @@ export function encodeAccessibilityActionMessage(
   const value =
     request.action === "setValue"
       ? `:${request.value.type}:${encodeURIComponent(String(request.value.value))}`
-      : "";
+      : request.action === "custom"
+        ? `:name:${encodeURIComponent(request.name)}`
+        : "";
   return new TextEncoder().encode(
     `\u001Eaccessibility:${requestID === undefined ? "" : `${requestID}:`}${encodeURIComponent(target)}:${request.action}${value}\n`,
   );
@@ -131,6 +135,7 @@ export interface WebHostAccessibilityProperties {
 }
 
 export interface WebHostAccessibilityNode {
+  customActions?: string[];
   selection?: WebHostAccessibilitySelection;
   properties?: WebHostAccessibilityProperties;
   /** Opaque token for one live control in this scene; absent on older runtimes. */
@@ -1290,6 +1295,13 @@ function isWebHostAccessibilityNode(
   }
   const node = value as Partial<WebHostAccessibilityNode>;
   return (
+    (node.customActions === undefined ||
+      (Array.isArray(node.customActions) &&
+        node.customActions.length <= 65536 &&
+        node.customActions.every(
+          (name) => typeof name === "string" && name.trim().length > 0,
+        ) &&
+        new Set(node.customActions).size === node.customActions.length)) &&
     (node.selection === undefined ||
       isAccessibilitySelection(node.selection)) &&
     (node.properties === undefined ||

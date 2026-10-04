@@ -1438,6 +1438,15 @@ test("zero-sized grid is structurally valid", () => {
 test("accessibility input keeps tokens and text framed and typed", () => {
   expect(
     decoder.decode(
+      encodeAccessibilityActionMessage(
+        "x",
+        { action: "custom", name: "Reset: ★" },
+        "9",
+      ),
+    ),
+  ).toBe("\u001eaccessibility:9:x:custom:name:Reset%3A%20%E2%98%85\n");
+  expect(
+    decoder.decode(
       encodeAccessibilityActionMessage("3:root/名前", { action: "focus" }, "7"),
     ),
   ).toBe("\u001eaccessibility:7:3%3Aroot%2F%E5%90%8D%E5%89%8D:focus\n");

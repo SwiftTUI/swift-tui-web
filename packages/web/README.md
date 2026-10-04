@@ -608,3 +608,11 @@ not add a hidden source-text mirror, offscreen Find, paragraph-specific unequal
 margins, or browser-owned layout. Overlapping paragraph rectangles fall back to
 ordinary raster text. Apply uniform overrides through a stylesheet or ancestor
 class/style change; after direct CSSOM edits, call `refreshGeometry()`.
+
+Custom semantic controls can advertise `customActions` alongside the `custom`
+action kind. Both presenters expose those names as native buttons in an
+associated action group and send typed requests through the normal transport.
+Adjustment-only steppers retain spinbutton semantics without accepting arbitrary
+text input. Disabled/read-only state, removal and authoritative values remain
+owned by the producer. This adapter behavior is not a screen-reader acceptance
+claim; qualify the actual application and reader combination.

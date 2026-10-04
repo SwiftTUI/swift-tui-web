@@ -794,3 +794,56 @@ for (const renderer of ["canvas", "dom"]) {
     });
   }
 }
+
+for (const renderer of ["canvas", "dom"]) {
+  test(`${renderer} custom adjustments and named actions preserve focus and retire removed operations`, async ({
+    page,
+  }) => {
+    await page.goto(`/health?renderer=${renderer}`);
+    await page.addScriptTag({
+      url: "/accessibility-actions.js",
+      type: "module",
+    });
+    await page.waitForFunction(() => !!window.accessibilityActions);
+    const rating: WebHostAccessibilityNode = {
+      id: "rating",
+      actionTarget: "1:rating",
+      role: "stepper",
+      label: "Rating",
+      rect: [1, 1, 20, 1],
+      actions: ["focus", "increment", "decrement", "custom"],
+      customActions: ["Reset: ★", "Maximum"],
+      value: { type: "number", value: 2 },
+      valueMin: 0,
+      valueMax: 5,
+      properties: { valueDescription: "2 stars" },
+    };
+    await present(page, [rating]);
+    const control = page.getByRole("spinbutton", {
+      name: "Rating",
+      exact: true,
+    });
+    await control.press("ArrowUp");
+    const reset = page.getByRole("button", { name: "Reset: ★", exact: true });
+    await reset.press("Space");
+    const events = (await records(page)).filter(
+      (record) => record.includes(":custom:") || record.includes(":increment"),
+    );
+    expect(events).toHaveLength(2);
+    expect(events[0]).toContain(":increment");
+    expect(events[1]).toContain(":custom:name:Reset%3A%20%E2%98%85");
+    await present(page, [{ ...rating, value: { type: "number", value: 0 } }]);
+    await expect(reset).toBeFocused();
+    await present(page, [{ ...rating, isEnabled: false }]);
+    await expect(reset).toBeDisabled();
+    await present(page, [{ ...rating, customActions: ["Maximum"] }]);
+    await expect(reset).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Maximum", exact: true }),
+    ).toHaveCount(1);
+    await present(page, []);
+    await expect(
+      page.getByRole("group", { name: "Rating actions", exact: true }),
+    ).toHaveCount(0);
+  });
+}

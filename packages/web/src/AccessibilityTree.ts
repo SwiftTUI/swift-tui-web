@@ -38,6 +38,7 @@ export class AccessibilityTreeMounter {
   ).join("-");
 
   private nodesById = new Map<string, HTMLElement>();
+  private actionGroupsById = new Map<string, HTMLElement>();
   private previousLabelsById = new Map<string, string>();
   private hasLiveRegionBaseline = false;
 
@@ -166,6 +167,8 @@ export class AccessibilityTreeMounter {
           removed.remove();
         }
         this.pendingValues.delete(id);
+        this.actionGroupsById.get(id)?.remove();
+        this.actionGroupsById.delete(id);
         if (this.pendingFocus?.id === id) this.pendingFocus = undefined;
       }
     }
@@ -191,7 +194,10 @@ export class AccessibilityTreeMounter {
       if (container.children[offset] !== element) {
         container.insertBefore(element, container.children[offset] ?? null);
       }
-      childOffsets.set(container, offset + 1);
+      const group = this.presentCustomActions(node, element);
+      if (group && container.children[offset + 1] !== group)
+        container.insertBefore(group, container.children[offset + 1] ?? null);
+      childOffsets.set(container, offset + (group ? 2 : 1));
     }
 
     this.announceLiveRegionChanges(visibleNodes, normalizedAnnouncements);
@@ -233,6 +239,7 @@ export class AccessibilityTreeMounter {
       this.clearEditable(element);
     }
     this.nodesById.clear();
+    this.actionGroupsById.clear();
     this.modelsById.clear();
     this.previousLabelsById.clear();
     this.pendingValues.clear();
@@ -255,10 +262,79 @@ export class AccessibilityTreeMounter {
     )
       return "select";
     if (!node.actionTarget || !this.sendAction) return "div";
+    if (node.role === "stepper" && !node.actions?.includes("setValue"))
+      return "div";
     if (node.role === "textEditor") return "textarea";
     if (["textField", "secureField", "slider", "stepper"].includes(node.role))
       return "input";
     return "div";
+  }
+
+  private presentCustomActions(
+    node: WebHostAccessibilityNode,
+    owner: HTMLElement,
+  ): HTMLElement | undefined {
+    const names =
+      node.actionTarget && this.sendAction && node.actions?.includes("custom")
+        ? (node.customActions ?? [])
+        : [];
+    let group = this.actionGroupsById.get(node.id);
+    if (!names.length) {
+      group?.remove();
+      this.actionGroupsById.delete(node.id);
+      return undefined;
+    }
+    if (!group) {
+      group = document.createElement("div");
+      group.setAttribute("role", "group");
+      this.actionGroupsById.set(node.id, group);
+      for (const type of ["click", "pointerdown", "pointerup", "pointermove"])
+        group.addEventListener(type, (event) => event.stopPropagation());
+      group.addEventListener("keydown", (event) => {
+        if (event.key !== "Tab" && event.key !== "Escape")
+          event.stopPropagation();
+      });
+    }
+    group.setAttribute("aria-label", `${node.label ?? "Control"} actions`);
+    group.style.cssText = owner.style.cssText;
+    const previous = new Map(
+      Array.from(group.children, (child) => [
+        child.textContent,
+        child as HTMLButtonElement,
+      ]),
+    );
+    for (const [index, name] of names.entries()) {
+      let button = previous.get(name);
+      if (!button) {
+        button = document.createElement("button");
+        button.type = "button";
+        button.textContent = name;
+        button.addEventListener("click", () => {
+          const current = this.modelsById.get(node.id);
+          if (
+            this.actionGroupsById.get(node.id) !== group ||
+            !current?.actionTarget ||
+            current.isEnabled === false ||
+            current.properties?.readOnly === true ||
+            !current.customActions?.includes(name)
+          )
+            return;
+          this.sendAction?.(
+            current.actionTarget,
+            { action: "custom", name },
+            String(++this.nextRequestID),
+          );
+        });
+      }
+      previous.delete(name);
+      button.disabled =
+        node.isEnabled === false || node.properties?.readOnly === true;
+      button.tabIndex = button.disabled ? -1 : 0;
+      if (group.children[index] !== button)
+        group.insertBefore(button, group.children[index] ?? null);
+    }
+    for (const button of previous.values()) button.remove();
+    return group;
   }
 
   private createElement(
