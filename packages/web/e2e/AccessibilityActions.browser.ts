@@ -1187,3 +1187,281 @@ test("named navigation reaches a destination without changing keyboard focus", a
     page.getByText("Navigate content", { exact: true }),
   ).toBeHidden();
 });
+
+test("tabs expose panel relationships and manual arrow navigation with removal recovery", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  const tabs: WebHostAccessibilityNode[] = [
+    { id: "tabs", role: "tabView", label: "Workspace", rect: [0, 0, 30, 1] },
+    ...["Overview", "Details", "Unavailable"].map(
+      (label, index): WebHostAccessibilityNode => ({
+        id: `tab-${index}`,
+        parentId: "tabs",
+        role: "tab",
+        label,
+        rect: [index * 10, 0, 10, 1],
+        actionTarget: `tab-token-${index}`,
+        actions: ["activate", "accessibilityFocus", "accessibilityBlur"],
+        isEnabled: index !== 2,
+        properties: { selected: index === 0, controls: ["panel"] },
+      }),
+    ),
+    {
+      id: "panel",
+      role: "tabPanel",
+      rect: [0, 1, 30, 5],
+      properties: { labelledBy: ["tab-0"] },
+    },
+  ];
+  await present(page, tabs);
+  const overview = page.getByRole("tab", { name: "Overview", exact: true });
+  const details = page.getByRole("tab", { name: "Details", exact: true });
+  await expect(overview).toHaveAttribute(
+    "aria-controls",
+    (await page.getByRole("tabpanel").getAttribute("id")) ?? "missing",
+  );
+  await expect(page.getByRole("tabpanel")).toHaveAccessibleName("Overview");
+  await overview.focus();
+  await overview.press("ArrowRight");
+  await expect(details).toBeFocused();
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  expect(
+    (await records(page)).filter((value) => value.endsWith(":activate")),
+  ).toEqual([]);
+  await details.press("Enter");
+  expect(
+    (await records(page)).filter((value) => value.endsWith(":activate")),
+  ).toHaveLength(1);
+  const updated = tabs.map((node) =>
+    node.role === "tab"
+      ? {
+          ...node,
+          properties: { ...node.properties, selected: node.id === "tab-1" },
+        }
+      : node.id === "panel"
+        ? { ...node, properties: { labelledBy: ["tab-1"] } }
+        : node,
+  );
+  await present(page, updated);
+  await expect(details).toBeFocused();
+  await expect(page.getByRole("tabpanel")).toHaveAccessibleName("Details");
+  await details.press("ArrowRight");
+  await expect(overview).toBeFocused();
+  await overview.press("End");
+  await expect(details).toBeFocused();
+  await present(
+    page,
+    tabs.filter((node) => node.id !== "tab-1"),
+  );
+  await expect(overview).toBeFocused();
+  await expect(overview).toHaveAttribute("tabindex", "0");
+  expect((await records(page)).some((value) => value.endsWith(":focus"))).toBe(
+    false,
+  );
+});
+
+test("menus expose popup state, arrow navigation, nested scope and return targets", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  const trigger: WebHostAccessibilityNode = {
+    id: "menu-trigger",
+    role: "button",
+    label: "Commands",
+    rect: [0, 0, 20, 1],
+    actionTarget: "1:menu-trigger",
+    actions: ["focus", "activate", "setValue"],
+    value: { type: "boolean", value: false },
+    properties: { popup: "menu", expanded: false, controls: [] },
+  };
+  const open: WebHostAccessibilityNode[] = [
+    {
+      ...trigger,
+      value: { type: "boolean", value: true },
+      properties: { ...trigger.properties, expanded: true, controls: ["menu"] },
+    },
+    {
+      id: "menu",
+      role: "menu",
+      rect: [0, 1, 20, 5],
+      properties: { labelledBy: [trigger.id] },
+    },
+    ...["Copy", "Paste", "Unavailable"].map(
+      (label, index): WebHostAccessibilityNode => ({
+        id: `item-${index}`,
+        role: "menuItem",
+        label,
+        rect: [0, index + 1, 20, 1],
+        parentId: "menu",
+        actionTarget: `2:item-${index}`,
+        actions: ["focus", "activate"],
+        isEnabled: index !== 2,
+      }),
+    ),
+  ];
+  await present(page, [trigger]);
+  const button = page.getByRole("button", { name: "Commands", exact: true });
+  await expect(button).toHaveAttribute("aria-haspopup", "menu");
+  await expect(button).not.toHaveAttribute("aria-pressed");
+  await button.focus();
+  await button.press("ArrowDown");
+  expect(
+    (await records(page)).filter((value) =>
+      value.includes(":setValue:boolean:true"),
+    ),
+  ).toHaveLength(1);
+  await present(page, open);
+  const menu = page.getByRole("menu", { name: "Commands", exact: true });
+  await expect(button).toHaveAttribute(
+    "aria-controls",
+    (await menu.getAttribute("id")) ?? "missing",
+  );
+  const copy = page.getByRole("menuitem", { name: "Copy", exact: true });
+  const paste = page.getByRole("menuitem", { name: "Paste", exact: true });
+  await expect(copy).toBeFocused();
+  await copy.press("ArrowDown");
+  await expect(paste).toBeFocused();
+  await paste.press("ArrowDown");
+  await expect(copy).toBeFocused();
+  await copy.press("End");
+  await expect(paste).toBeFocused();
+  await paste.press("Enter");
+  expect(
+    (await records(page)).filter((value) => value.endsWith(":activate")),
+  ).toHaveLength(1);
+  await paste.press("Escape");
+  expect(
+    (await records(page)).filter((value) =>
+      value.includes(":setValue:boolean:false"),
+    ),
+  ).toHaveLength(1);
+  await present(page, [trigger]);
+  await expect(button).toBeFocused();
+  await expect(menu).toHaveCount(0);
+  await present(page, open);
+  await copy.focus();
+  // Programmatic closure must also return to the surviving trigger.
+  await present(page, [trigger]);
+  await expect(button).toBeFocused();
+});
+
+test("nested menus keep arrow and dismissal scope inside the current popup", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  const base: WebHostAccessibilityNode[] = [
+    {
+      id: "outer",
+      role: "button",
+      label: "Commands",
+      rect: [0, 0, 10, 1],
+      actionTarget: "outer-token",
+      actions: ["focus", "activate", "setValue"],
+      value: { type: "boolean", value: true },
+      properties: { popup: "menu", expanded: true, controls: ["outer-menu"] },
+    },
+    {
+      id: "outer-menu",
+      role: "menu",
+      rect: [0, 1, 10, 4],
+      properties: { labelledBy: ["outer"] },
+    },
+    {
+      id: "more",
+      parentId: "outer-menu",
+      role: "menuItem",
+      label: "More",
+      rect: [0, 1, 10, 1],
+      actionTarget: "more-token",
+      actions: ["focus", "activate", "setValue"],
+      value: { type: "boolean", value: false },
+      properties: { popup: "menu", expanded: false, controls: [] },
+    },
+  ];
+  await present(page, base);
+  const more = page.getByRole("menuitem", { name: "More", exact: true });
+  await more.focus();
+  await more.press("ArrowRight");
+  const expanded: WebHostAccessibilityNode[] = [
+    base[0],
+    base[1],
+    {
+      ...base[2],
+      value: { type: "boolean", value: true },
+      properties: { popup: "menu", expanded: true, controls: ["inner-menu"] },
+    },
+    {
+      id: "inner-menu",
+      role: "menu",
+      rect: [10, 1, 10, 4],
+      properties: { labelledBy: ["more"] },
+    },
+    ...["First nested", "Last nested"].map(
+      (label, index): WebHostAccessibilityNode => ({
+        id: `nested-${index}`,
+        parentId: "inner-menu",
+        role: "menuItem",
+        label,
+        rect: [10, index + 1, 10, 1],
+        actionTarget: `nested-token-${index}`,
+        actions: ["focus", "activate"],
+      }),
+    ),
+  ];
+  await present(page, expanded);
+  const first = page.getByRole("menuitem", {
+    name: "First nested",
+    exact: true,
+  });
+  await expect(first).toBeFocused();
+  await first.press("ArrowUp");
+  const last = page.getByRole("menuitem", { name: "Last nested", exact: true });
+  await expect(last).toBeFocused();
+  await last.press("ArrowLeft");
+  await present(page, base);
+  await expect(more).toBeFocused();
+  await expect(
+    page.getByRole("menu", { name: "Commands", exact: true }),
+  ).toHaveCount(1);
+  expect(
+    (await records(page)).filter((value) =>
+      value.includes(":setValue:boolean:false"),
+    ),
+  ).toHaveLength(1);
+});
+
+test("modal alert properties expose an alert dialog and a separate dismiss operation", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  await present(page, [
+    {
+      id: "alert",
+      role: "alert",
+      label: "Review payment",
+      rect: [0, 0, 30, 10],
+      actionTarget: "alert-token",
+      actions: ["accessibilityFocus", "accessibilityBlur", "custom"],
+      customActions: ["Dismiss"],
+      properties: { modal: true },
+    },
+  ]);
+  await expect(
+    page.getByRole("alertdialog", { name: "Review payment", exact: true }),
+  ).toHaveAttribute("aria-modal", "true");
+  await page
+    .getByRole("button", { name: "Dismiss", exact: true })
+    .press("Enter");
+  expect(
+    (await records(page)).filter((value) => value.includes(":custom:")),
+  ).toHaveLength(1);
+});

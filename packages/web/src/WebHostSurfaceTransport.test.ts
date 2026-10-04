@@ -1527,6 +1527,8 @@ test("optional widget properties survive decoding and reject malformed known fie
   const properties = {
     selected: false,
     expanded: true,
+    popup: "menu",
+    modal: false,
     required: true,
     invalid: true,
     busy: false,
@@ -1579,6 +1581,8 @@ test("optional widget properties survive decoding and reject malformed known fie
     null,
     [],
     { selected: "true" },
+    { popup: "window" },
+    { modal: "true" },
     { required: 1 },
     { controls: [1] },
     { activeDescendant: [] },

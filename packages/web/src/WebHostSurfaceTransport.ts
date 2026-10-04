@@ -114,6 +114,8 @@ export interface WebHostAccessibilityActionResponse {
 export interface WebHostAccessibilityProperties {
   selected?: boolean;
   expanded?: boolean;
+  popup?: "menu" | "listbox" | "tree" | "grid" | "dialog";
+  modal?: boolean;
   required?: boolean;
   invalid?: boolean;
   busy?: boolean;
@@ -1418,6 +1420,11 @@ function isAccessibilityProperties(
       typeof properties.selected === "boolean") &&
     (properties.expanded === undefined ||
       typeof properties.expanded === "boolean") &&
+    (properties.popup === undefined ||
+      ["menu", "listbox", "tree", "grid", "dialog"].includes(
+        properties.popup,
+      )) &&
+    (properties.modal === undefined || typeof properties.modal === "boolean") &&
     (properties.required === undefined ||
       typeof properties.required === "boolean") &&
     (properties.invalid === undefined ||

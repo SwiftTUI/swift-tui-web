@@ -57,6 +57,8 @@ export class AccessibilityTreeMounter {
   private pendingValues = new Map<string, bigint>();
   private pendingFocus?: { id: string; requestID: bigint };
   private runtimeFocusedElement?: HTMLElement;
+  private pendingMenu?: { trigger: string; last: boolean };
+  private pendingMenuReturn?: string;
   private appliedAssistiveFocusGeneration = -1n;
   private readonly compositionCommits = new WeakMap<HTMLElement, string>();
 
@@ -82,8 +84,66 @@ export class AccessibilityTreeMounter {
       !!this.sendAction &&
       !!node.actionTarget &&
       node.isEnabled !== false &&
-      !!node.actions?.includes("focus")
+      (!!node.actions?.includes("focus") ||
+        (node.role === "tab" && !!node.actions?.includes("accessibilityFocus")))
     );
+  }
+
+  private enclosingMenu(
+    node: WebHostAccessibilityNode,
+    models = this.modelsById,
+  ): WebHostAccessibilityNode | undefined {
+    const seen = new Set<string>();
+    let parent = node.parentId;
+    while (parent && !seen.has(parent)) {
+      seen.add(parent);
+      const model = models.get(parent);
+      if (model?.role === "menu") return model;
+      parent = model?.parentId;
+    }
+    return undefined;
+  }
+
+  private menuItems(
+    menu: WebHostAccessibilityNode,
+  ): WebHostAccessibilityNode[] {
+    return [...this.modelsById.values()].filter(
+      (node) =>
+        this.enclosingMenu(node)?.id === menu.id && this.isTabStop(node),
+    );
+  }
+
+  private focusControl(node: WebHostAccessibilityNode): void {
+    const element = this.nodesById.get(node.id);
+    if (!element || !node.actionTarget) return;
+    element.focus({ preventScroll: true });
+    if (this.presenting && node.actions?.includes("focus")) {
+      const requestID = ++this.nextRequestID;
+      this.pendingFocus = { id: node.id, requestID };
+      this.sendAction?.(
+        node.actionTarget,
+        { action: "focus" },
+        String(requestID),
+      );
+    }
+  }
+
+  private setMenuExpanded(
+    trigger: WebHostAccessibilityNode | undefined,
+    expanded: boolean,
+  ): boolean {
+    if (
+      !trigger?.actionTarget ||
+      trigger.isEnabled === false ||
+      !trigger.actions?.includes("setValue")
+    )
+      return false;
+    this.sendAction?.(
+      trigger.actionTarget,
+      { action: "setValue", value: { type: "boolean", value: expanded } },
+      String(++this.nextRequestID),
+    );
+    return true;
   }
 
   constructor(
@@ -186,6 +246,16 @@ export class AccessibilityTreeMounter {
     options: AccessibilityTreePresentationOptions,
   ): void {
     const activeBeforePresentation = document.activeElement;
+    const reviewedID = (activeBeforePresentation as HTMLElement | null)?.dataset
+      ?.accessibilityId;
+    const reviewedModel = reviewedID
+      ? this.modelsById.get(reviewedID)
+      : undefined;
+    const reviewedMenu = reviewedModel
+      ? this.enclosingMenu(reviewedModel)
+      : undefined;
+    const menuReturn =
+      this.pendingMenuReturn ?? reviewedMenu?.properties?.labelledBy?.[0];
     // Nodes the app marked hidden stay out of the assistive-technology tree,
     // mirroring the Android host's overlay filter. Hidden is per-node on the
     // wire, so children of a hidden node re-parent to the mount root.
@@ -273,6 +343,91 @@ export class AccessibilityTreeMounter {
       childOffsets.set(container, offset + (group ? 2 : 1));
     }
 
+    // Roving tab focus follows review across repaints; activation remains
+    // explicit because changing the Swift panel may perform asynchronous work.
+    const tabGroups = new Map<string | undefined, WebHostAccessibilityNode[]>();
+    for (const node of visibleNodes)
+      if (node.role === "tab") {
+        const group = tabGroups.get(node.parentId) ?? [];
+        group.push(node);
+        tabGroups.set(node.parentId, group);
+      }
+    for (const group of tabGroups.values()) {
+      const enabled = group.filter((node) => this.isTabStop(node));
+      const chosen =
+        enabled.find(
+          (node) => this.nodesById.get(node.id) === activeBeforePresentation,
+        ) ??
+        enabled.find((node) => node.properties?.selected) ??
+        enabled[0];
+      for (const node of group) {
+        const element = this.nodesById.get(node.id);
+        if (element) element.tabIndex = node === chosen ? 0 : -1;
+      }
+      if (
+        (options.synchronizeFocus ?? true) &&
+        reviewedModel?.role === "tab" &&
+        reviewedModel.parentId === group[0]?.parentId &&
+        !enabled.some(
+          (node) => this.nodesById.get(node.id) === activeBeforePresentation,
+        ) &&
+        chosen?.actionTarget &&
+        (!options.focusRequest ||
+          BigInt(options.focusRequest.generation) <=
+            this.appliedAssistiveFocusGeneration)
+      ) {
+        this.nodesById.get(chosen.id)?.focus({ preventScroll: true });
+        this.sendAction?.(
+          chosen.actionTarget,
+          { action: "accessibilityFocus" },
+          String(++this.nextRequestID),
+        );
+      }
+    }
+    for (const menu of visibleNodes.filter((node) => node.role === "menu")) {
+      const items = this.menuItems(menu);
+      const selected =
+        items.find(
+          (node) => this.nodesById.get(node.id) === activeBeforePresentation,
+        ) ?? items[0];
+      for (const item of items) {
+        const element = this.nodesById.get(item.id);
+        if (element) element.tabIndex = item === selected ? 0 : -1;
+      }
+    }
+    const newAppFocus =
+      options.focusRequest &&
+      BigInt(options.focusRequest.generation) >
+        this.appliedAssistiveFocusGeneration;
+    if ((options.synchronizeFocus ?? true) && !newAppFocus) {
+      if (this.pendingMenu) {
+        const trigger = this.modelsById.get(this.pendingMenu.trigger);
+        const menu = trigger?.properties?.controls
+          ?.map((id) => this.modelsById.get(id))
+          .find((node) => node?.role === "menu");
+        if (menu) {
+          const items = this.menuItems(menu);
+          const destination = this.pendingMenu.last ? items.at(-1) : items[0];
+          if (destination) this.focusControl(destination);
+          this.pendingMenu = undefined;
+        } else if (!trigger) this.pendingMenu = undefined;
+      }
+      if (
+        menuReturn &&
+        (!reviewedID ||
+          !this.modelsById.has(reviewedID) ||
+          this.pendingMenuReturn)
+      ) {
+        const trigger = this.modelsById.get(menuReturn);
+        if (
+          trigger?.properties?.expanded === false &&
+          this.isTabStop(trigger)
+        ) {
+          this.focusControl(trigger);
+          this.pendingMenuReturn = undefined;
+        }
+      }
+    }
     this.refreshNavigation(visibleNodes);
     this.announceLiveRegionChanges(visibleNodes, normalizedAnnouncements);
 
@@ -592,13 +747,99 @@ export class AccessibilityTreeMounter {
     }
     element.addEventListener("keydown", (event) => {
       const model = current();
-      if (!model || event.key === "Tab" || event.key === "Escape") return;
+      if (!model || event.key === "Tab") return;
+      const menu = this.enclosingMenu(model);
+      if (menu && ["Escape", "ArrowLeft"].includes(event.key)) {
+        const triggerID = menu.properties?.labelledBy?.[0];
+        if (
+          triggerID &&
+          this.setMenuExpanded(this.modelsById.get(triggerID), false)
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          this.pendingMenuReturn = triggerID;
+          return;
+        }
+      }
+      if (event.key === "Escape") return;
+      if (
+        model.properties?.popup === "menu" &&
+        ["ArrowDown", "ArrowUp", "ArrowRight"].includes(event.key)
+      ) {
+        const opened = model.properties.expanded === true;
+        if (opened || this.setMenuExpanded(model, true)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const last = event.key === "ArrowUp";
+          const controlled = model.properties.controls
+            ?.map((id) => this.modelsById.get(id))
+            .find((node) => node?.role === "menu");
+          if (opened && controlled) {
+            const items = this.menuItems(controlled);
+            const destination = last ? items.at(-1) : items[0];
+            if (destination) this.focusControl(destination);
+          } else this.pendingMenu = { trigger: model.id, last };
+          return;
+        }
+      }
+      if (menu && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const peers = this.menuItems(menu);
+        const index = peers.findIndex((node) => node.id === model.id);
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? peers.length - 1
+              : (index + (event.key === "ArrowUp" ? -1 : 1) + peers.length) %
+                peers.length;
+        const destination = peers[next];
+        if (destination) {
+          for (const peer of peers) {
+            const target = this.nodesById.get(peer.id);
+            if (target) target.tabIndex = peer === destination ? 0 : -1;
+          }
+          this.focusControl(destination);
+        }
+        return;
+      }
       if (tag === "a" && event.key === "Enter") {
         // Let the native anchor generate one click, without a second key route.
         event.stopPropagation();
         if (!element.hasAttribute("href")) {
           event.preventDefault();
           element.click();
+        }
+        return;
+      }
+      if (
+        model.role === "tab" &&
+        ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        const peers = [...this.modelsById.values()].filter(
+          (node) =>
+            node.role === "tab" &&
+            node.parentId === model.parentId &&
+            this.isTabStop(node),
+        );
+        const index = peers.findIndex((node) => node.id === model.id);
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? peers.length - 1
+              : (index + (event.key === "ArrowLeft" ? -1 : 1) + peers.length) %
+                peers.length;
+        const destination = peers[next];
+        if (destination) {
+          for (const peer of peers) {
+            const target = this.nodesById.get(peer.id);
+            if (target) target.tabIndex = peer === destination ? 0 : -1;
+          }
+          this.nodesById.get(destination.id)?.focus();
         }
         return;
       }
@@ -726,7 +967,10 @@ export class AccessibilityTreeMounter {
       element.dataset.accessibilityFocused = "true";
     else delete element.dataset.accessibilityFocused;
     const properties = node.properties;
-    const role = roleMapping(node.role);
+    const role =
+      node.role === "alert" && properties?.modal
+        ? { role: "alertdialog" }
+        : roleMapping(node.role);
     if (properties?.headingLevel !== undefined) {
       role.role = "heading";
       role.level = properties.headingLevel;
@@ -783,6 +1027,8 @@ export class AccessibilityTreeMounter {
         .join("; ") || undefined,
     );
     setOrRemoveAttribute(element, "lang", properties?.language);
+    setOrRemoveAttribute(element, "aria-haspopup", properties?.popup);
+    setOrRemoveAttribute(element, "aria-modal", properties?.modal?.toString());
     setOrRemoveAttribute(element, "aria-live", node.liveRegion || undefined);
     if (node.isFocused) {
       element.dataset.focused = "true";
@@ -798,14 +1044,17 @@ export class AccessibilityTreeMounter {
     setOrRemoveAttribute(
       element,
       "aria-pressed",
-      node.role === "button" && node.value?.type === "boolean"
+      node.role === "button" &&
+        properties?.expanded === undefined &&
+        node.value?.type === "boolean"
         ? String(node.value.value)
         : undefined,
     );
     setOrRemoveAttribute(
       element,
       "aria-checked",
-      node.role === "toggle" && node.value?.type === "boolean"
+      ["toggle", "custom(menuitemcheckbox)"].includes(node.role) &&
+        node.value?.type === "boolean"
         ? String(node.value.value)
         : undefined,
     );
@@ -1185,6 +1434,7 @@ function roleMapping(role: string): RoleMapping {
     case "columnHeader":
       return { role: "columnheader" };
     case "confirmationDialog":
+    case "popover":
     case "sheet":
       return { role: "dialog" };
     case "disclosureGroup":

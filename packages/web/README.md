@@ -655,3 +655,20 @@ disclosure. Native group/destination selects and **Go to content** move semantic
 review without sending ordinary keyboard focus to Swift. Groups follow the
 currently committed visible tree, including modal scope and removal. Browser
 heading and landmark navigation continue to use the semantic roles.
+
+## Composite controls
+
+The shared Canvas/DOM sidecar presents logical tabs and their active panels.
+Left/Right and Home/End review enabled tabs; Enter/Space activates the reviewed
+choice. The selected tab or current review target supplies the list's single
+Tab stop, with recovery when that target is removed.
+
+Menu triggers expose `popup`, `expanded` and `controls`. Arrows enter and move
+within the current menu; Escape/Left dismisses that menu through its typed
+Boolean action and returns to its trigger. Nested popup scope is independent,
+and disabled commands are skipped. Programmatic closure restores a surviving
+trigger. Disclosure content is a sibling region of its trigger, so nested
+controls remain operable. `properties.modal` maps to `aria-modal`; a modal alert
+uses `alertdialog`. Framework Back and Dismiss operations use the existing named
+custom-action buttons. These browser behaviors are covered by the automated
+engine matrix; screen-reader task and announcement qualification is separate.
