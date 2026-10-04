@@ -86,6 +86,46 @@ async function records(page: Page) {
   return page.evaluate(() => [...window.accessibilityActions.records]);
 }
 
+test("a rejected hierarchy does not leave existing controls action-suppressed", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  await present(page, [nodes[0]]);
+  const error = await page.evaluate((button) => {
+    try {
+      window.accessibilityActions.present([
+        button,
+        {
+          id: "invalid",
+          parentId: "invalid",
+          role: "group",
+          label: "Invalid hierarchy",
+          rect: [0, 1, 1, 1],
+        },
+      ]);
+    } catch (error) {
+      return String(error);
+    }
+    return "";
+  }, nodes[0]);
+  expect(error).toMatch(/HierarchyRequestError|ancestor|itself/);
+  await page
+    .getByRole("button", { name: "Increment", exact: true })
+    .press("Space");
+  expect(
+    (await records(page)).filter((record) => record.endsWith(":activate")),
+  ).toHaveLength(1);
+  await present(page, [nodes[0]]);
+  await page
+    .getByRole("button", { name: "Increment", exact: true })
+    .press("Enter");
+  expect(
+    (await records(page)).filter((record) => record.endsWith(":activate")),
+  ).toHaveLength(2);
+});
+
 test("row selection buttons expose authoritative pressed state without duplicate actions", async ({
   page,
 }) => {

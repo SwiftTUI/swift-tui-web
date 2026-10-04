@@ -112,6 +112,22 @@ export class AccessibilityTreeMounter {
     announcements: WebHostAccessibilityAnnouncement[] = [],
     options: AccessibilityTreePresentationOptions = {},
   ): void {
+    this.presenting = true;
+    try {
+      this.presentFrame(nodes, metrics, announcements, options);
+    } finally {
+      // A rejected DOM hierarchy or host exception must not suppress every
+      // subsequent user action after a valid frame recovers the scene.
+      this.presenting = false;
+    }
+  }
+
+  private presentFrame(
+    nodes: WebHostAccessibilityNode[],
+    metrics: AccessibilityTreeMetrics,
+    announcements: WebHostAccessibilityAnnouncement[],
+    options: AccessibilityTreePresentationOptions,
+  ): void {
     const activeBeforePresentation = document.activeElement;
     // Nodes the app marked hidden stay out of the assistive-technology tree,
     // mirroring the Android host's overlay filter. Hidden is per-node on the
@@ -126,7 +142,6 @@ export class AccessibilityTreeMounter {
       ...announcement,
       politeness: normalizePoliteness(announcement.politeness),
     }));
-    this.presenting = true;
     if (options.actionResponse) {
       const acknowledged = BigInt(options.actionResponse.requestID);
       if (acknowledged > this.acknowledgedRequestID)
@@ -232,7 +247,6 @@ export class AccessibilityTreeMounter {
       if (document.activeElement !== focusElement)
         focusElement.focus?.({ preventScroll: true });
     }
-    this.presenting = false;
   }
 
   dispose(): void {
