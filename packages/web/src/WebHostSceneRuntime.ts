@@ -472,6 +472,7 @@ export class WebHostSceneRuntime {
 
     this.applyStyle(this.currentStyle);
     if (this.domGeometry) this.loadDomFont(this.currentStyle);
+    else this.bridge?.updateRenderStyle(this.currentStyle);
     this.installPointerParadigmObserver();
     this.sendPointerCapabilitiesIfChanged(coarsePrimaryPointer());
     this.measureCells();

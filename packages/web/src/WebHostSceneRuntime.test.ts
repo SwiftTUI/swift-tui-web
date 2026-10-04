@@ -4410,3 +4410,39 @@ test("dom renderer selects plain text while Alt-drag on controls stays app input
     dom.restore();
   }
 });
+
+test("Canvas sends initial user preferences to a bridge before any explicit restyle", async () => {
+  const dom = installFakeDOM();
+  try {
+    const styles: unknown[] = [];
+    const runtime = new WebHostSceneRuntime({
+      mount: new FakeElement("div") as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: {
+        reduceMotion: true,
+        contrast: "increased",
+        differentiateWithoutColor: false,
+      },
+      bridge: {
+        bindOutput: () => {},
+        resize: () => {},
+        sendInput: () => {},
+        dispose: () => {},
+        updateRenderStyle: (style) => {
+          styles.push(style);
+        },
+      },
+      onInput: () => {},
+    });
+    await runtime.mount();
+    expect(styles).toHaveLength(1);
+    expect(styles[0]).toMatchObject({
+      reduceMotion: true,
+      contrast: "increased",
+      differentiateWithoutColor: false,
+    });
+    runtime.dispose();
+  } finally {
+    dom.restore();
+  }
+});
