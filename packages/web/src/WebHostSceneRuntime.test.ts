@@ -4565,3 +4565,44 @@ test("reconnecting a shared Canvas blocks stale page input until the fresh frame
     dom.restore();
   }
 });
+
+test("hover and link cursors resume after a hidden press is released off-surface", async () => {
+  const dom = installFakeDOM();
+  const input: string[] = [];
+  try {
+    const { runtime, clock, present } = await mountBatchedRuntime({
+      dom,
+      onInput: (bytes) => input.push(decoder.decode(bytes)),
+    });
+    const pointer = (type: string, buttons: number, clientX = 5) =>
+      runtime.terminalMount.dispatch(
+        type,
+        pointerEvent({ button: 0, buttons, clientX, clientY: 5, pointerId: 3 }),
+      );
+    present({
+      gen: 1,
+      rows: [[[0, "ab", 2, 0]], []],
+      links: [[0, [[0, 1, 0]]]],
+      linkTargets: ["https://example.com"],
+    });
+    clock.tick();
+    pointer("pointerdown", 1);
+    runtime.setDocumentVisible(false);
+    expect(input.at(-1)).toContain(":cancelled:");
+    runtime.setDocumentVisible(true);
+    const cancelledCount = input.length;
+    pointer("pointermove", 1);
+    expect(input).toHaveLength(cancelledCount);
+    // No pointerup reaches this document when release happens in another tab.
+    pointer("pointermove", 0);
+    expect(input).toHaveLength(cancelledCount + 1);
+    expect(input.at(-1)).toContain(":moved:");
+    expect(runtime.terminalMount.style.cursor).toBe("pointer");
+    pointer("pointermove", 0, 30);
+    expect(input.at(-1)).toContain(":moved:");
+    expect(runtime.terminalMount.style.cursor).toBe("");
+    runtime.dispose();
+  } finally {
+    dom.restore();
+  }
+});

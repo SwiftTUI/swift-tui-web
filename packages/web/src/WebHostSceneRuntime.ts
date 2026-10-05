@@ -1205,7 +1205,12 @@ export class WebHostSceneRuntime {
     };
 
     const handlePointerMove = (event: PointerEvent) => {
-      if (event.pointerId === this.canceledPointerId) return;
+      if (event.pointerId === this.canceledPointerId) {
+        if (event.buttons) return;
+        // A release in another window never reaches our pointerup handler.
+        // The first hover proves that the canceled press is over.
+        this.canceledPointerId = undefined;
+      }
       const press = this.textInputPress;
       if (
         press &&
