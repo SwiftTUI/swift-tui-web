@@ -36,8 +36,7 @@ for (const renderer of ["canvas", "dom"] as const) {
     await expect(quantity).toBeAttached();
     await quantity.press("ArrowUp");
     await expect.poll(() => text(page, "controls")).toContain("Quantity 2");
-    // Picker's tagged shared contract has no typed adjustment action; exercise
-    // its real pointer route instead of inventing an assistive action in JS.
+    // Exercise Picker's pointer route against Swift-owned selection state.
     const optionPoint = await page.evaluate(() => {
       const frame = window.__compiledWasm.snapshot().frames.controls!;
       const y = frame.rows.findIndex((row) =>
@@ -61,15 +60,11 @@ for (const renderer of ["canvas", "dom"] as const) {
     });
     await page.mouse.click(optionPoint.x, optionPoint.y);
     await expect.poll(() => text(page, "controls")).toContain("Choice 1");
-    // The released producer uses the legacy region trigger. Current producers
-    // expose a button controlling a separate content region (STUI-659).
-    const disclosure = page.getByRole(
-      process.env.SWIFTTUI_DOM_CURRENT_PRODUCER === "1" ? "button" : "region",
-      {
-        name: "Details",
-        exact: true,
-      },
-    );
+    // SwiftTUI 0.16 exposes a button controlling a separate content region.
+    const disclosure = page.getByRole("button", {
+      name: "Details",
+      exact: true,
+    });
     await disclosure.press("Enter");
     await expect
       .poll(() => text(page, "controls"))
@@ -259,13 +254,9 @@ for (const renderer of ["canvas", "dom"] as const) {
   });
 }
 
-test("current producer cancels a real DOM drag without completion and accepts the next drag", async ({
+test("compiled producer cancels a real DOM drag without completion and accepts the next drag", async ({
   page,
 }) => {
-  test.skip(
-    process.env.SWIFTTUI_DOM_CURRENT_PRODUCER !== "1",
-    "Requires a coordination-owned current producer with explicit pointer cancellation",
-  );
   await start(page, "dom", "controls");
   await expect(
     page.getByRole("spinbutton", { name: "Quantity", exact: true }),
