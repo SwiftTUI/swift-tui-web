@@ -11,6 +11,46 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-08
+
+Browser hosts expose richer control and document semantics, preserve native
+text interaction, and carry live accessibility preferences to the runtime.
+Use matching framework and browser versions for the new capabilities; the
+documented browser and assistive-technology qualification limits still apply.
+
+### Added
+
+- Native assistive Picker choices, shared widget properties, composite
+  navigation and modal semantics, and custom assistive actions in Canvas and
+  DOM presenters. Selection uses live opaque option tokens rather than labels
+  or array offsets (STUI-654, STUI-655, STUI-658, STUI-659, STUI-660).
+- Independent assistive focus, named content navigation, and native scene
+  selection for shared terminal companions (STUI-656, STUI-665).
+- Native editor text selection and composition, directed edit ranges, and
+  structured authored paragraphs with negotiated text spacing (STUI-579,
+  STUI-662).
+- Live browser preference controls and initial Canvas preference handshakes;
+  Canvas typography uses shared measured geometry, forced system colors are
+  respected, and review focus has a contrasting presentation (STUI-668,
+  STUI-669, STUI-671).
+
+### Fixed
+
+- DOM text can be selected without a global selection mode. Paragraph copy,
+  native Find, and row separators remain accurate through retained updates;
+  unchanged resize notifications preserve retained styles (STUI-559, STUI-641,
+  STUI-642).
+- Default semantic links open through the browser host, and assistive Picker
+  activation stays on its native control with placed option bounds
+  (STUI-658, STUI-713).
+- Hover and cursor updates resume after an off-surface pointer release,
+  including a scene switch during a press (STUI-710).
+- Pointer cancellation, WASI disposal and paused-worker wakeup release their
+  owned resources; retained pipe data and browser diagnostics remain bounded
+  (STUI-569, STUI-573, STUI-579).
+- Assistive action dispatch recovers after presentation errors, and native
+  editor text is redacted from browser test diagnostics (STUI-660, STUI-662).
+
 ## [0.15.1] - 2026-09-25
 
 Lockstep version bump only; the package contents are unchanged from 0.15.0.
@@ -330,7 +370,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.15.1...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.16.0...HEAD
+[0.16.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.16.0
 [0.15.1]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.15.1
 [0.15.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.15.0
 [0.14.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.14.0

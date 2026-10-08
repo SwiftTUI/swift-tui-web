@@ -79,9 +79,9 @@ validation descriptions, language, ordinary source text, authored paragraph/code
 heading/tree levels, collection/table indexes and relationships. Canvas and DOM
 use one adapter. Missing properties clear prior attributes on retained elements;
 unknown optional object keys are ignored, while malformed known fields reject
-the frame. Older producers, including 0.15.1, remain valid without the object.
+the frame. Older producers, including 0.16.0, remain valid without the object.
 Older adapters ignore the extension, so rich semantics require matching updated
-producer and adapter sources. This is not a released 0.15.1 support claim.
+producer and adapter sources. This is not a released 0.16.0 support claim.
 
 Relationship lists contain wire node IDs, never DOM IDs. The adapter resolves
 present, nonhidden same-scene targets and drops missing, duplicate and self
@@ -160,7 +160,7 @@ stdin works.
 **The DOM renderer is experimental.** It is opt-in, has documented typography and
 performance limits, and is not a production-qualified or WCAG-conformant
 host profile. Canvas remains the default. The APIs and behavior described here
-are the state of this repository's HEAD; released 0.15.1 has the earlier DOM
+are the state of this repository's HEAD; released 0.16.0 has the earlier DOM
 presenter with system fonts, without the packaged font and correlated-geometry
 features below. In that release the semantic sidecar's bounds can lag the
 visible DOM layout after resize, although pointer input on the visible control
@@ -320,7 +320,7 @@ factory can instead use the same renderer with a WebSocket-backed Swift app.
 
 The maintained [counter example](https://github.com/SwiftTUI/swift-tui-counter-demo/tree/main/WebExample)
 provides `npm run build:dom`, `npm run dev:dom`, and a `/dom.html` page sharing
-the ordinary counter artifact. Its bootstrap also supports released 0.15.1 by
+the ordinary counter artifact. Its bootstrap also supports released 0.16.0 by
 detecting the packaged-font API rather than requiring it.
 
 ### Experimental support boundary
