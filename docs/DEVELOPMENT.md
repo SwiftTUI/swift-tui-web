@@ -13,6 +13,7 @@ bun run build:packages   # compile both packages to dist/ (tsdown: ESM + .d.ts)
 bun run build:web        # bundle the in-repo browser demo to dist-demo/
 bun run ci               # frozen install + test + build:packages + build:web
 bun run test:browser     # compiled Swift fixture + Chromium/Firefox/WebKit journeys
+bun run demo:dom         # build and serve the self-starting local DOM demo
 ```
 
 `build:packages` creates the publishable artifacts in the compiled `dist/`
@@ -68,3 +69,21 @@ browser engines, Swift/WASI fixture toolchain, per-engine reruns, capability
 skips and failure artifacts. CI runs the Canvas pixel oracle, synthetic bridge
 journey and real compiled Swift WASM journey in every engine. The regular
 `bun run ci` package gate remains independent of Swift and browser installation.
+
+## Local DOM demo
+
+Run `bun run demo:dom` and open <http://127.0.0.1:4173/>. This builds the public
+packages and compiled Swift fixture, then starts the DOM demo with the bundled
+font. It requires the [browser fixture toolchain](../packages/web/e2e/README.md).
+The Controls scene starts automatically, including after reload. Use the Scene
+menu for the other examples, or append `?scene=alpha` to open a counter directly.
+
+Once the packages and fixture are built, `bun run demo:dom:built` restarts the
+server without recompiling Swift. Set `SWIFTTUI_BROWSER_JOURNEY_PORT` to use a
+different port. Generated bundles and WASM remain in `.build/`.
+
+The Deep scene is a 96-wrapper stack stress fixture. It currently exceeds the
+WebKit worker stack before its first frame; Firefox has also exceeded the
+qualification's update-time bound. Use the ordinary examples for the font
+preview. The test harness at `/compiled-wasm.html` still requires explicit
+startup; `/dom-demo.html` is the self-starting page on either server mode.

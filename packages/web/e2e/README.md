@@ -40,6 +40,13 @@ Set `SWIFTTUI_BROWSER_JOURNEY_PORT` to move both the fixture server and
 Playwright client from their default port of `4173`; the value must be an
 integer from 1 through 65535.
 
+For an interactive page that starts automatically on navigation and reload,
+run `bun run demo:dom` (or `bun run demo:dom:built` after the packages and fixture
+are built). See the [local DOM demo instructions](../../../docs/DEVELOPMENT.md#local-dom-demo).
+`DomDemo.browser.ts` checks startup, reload, scene selection and counter input.
+The separate `/compiled-wasm.html` harness intentionally waits for a test or
+its Start button to initialize the app.
+
 ## Compiled Swift WASM
 
 `CompiledWasm.browser.ts` executes the two counter scenes in `Fixtures/BrowserApp`,

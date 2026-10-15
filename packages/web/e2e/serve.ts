@@ -8,6 +8,7 @@ import {
 } from "./journey-environment.ts";
 
 const e2eDirectory = import.meta.dir;
+const demoMode = process.argv.includes("--demo");
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const outputDirectory = join(repositoryRoot, ".build/browser-journey/site");
 const wasmDirectory = join(repositoryRoot, ".build/browser-journey/wasm");
@@ -25,6 +26,7 @@ for (const asset of ["assets/app.wasm", "scene-manifest.json"]) {
 }
 
 for (const [entry, output] of [
+  ["dom-demo.ts", "dom-demo.js"],
   ["compiled-wasm.fixture.ts", "compiled-wasm.js"],
   ["dom-surface.fixture.ts", "dom-surface.js"],
   ["dom-typography.fixture.ts", "dom-typography.js"],
@@ -125,6 +127,8 @@ const server = Bun.serve({
     }
 
     const wasmAssets: Record<string, string> = {
+      "/dom-demo.html": join(e2eDirectory, "dom-demo.html"),
+      "/dom-demo.js": join(outputDirectory, "dom-demo.js"),
       "/font-qualification.js": join(outputDirectory, "font-qualification.js"),
       "/dom-performance.js": join(outputDirectory, "dom-performance.js"),
       "/dom-surface.js": join(outputDirectory, "dom-surface.js"),
@@ -157,7 +161,9 @@ const server = Bun.serve({
     const file = wasmAssets[path]
       ? Bun.file(wasmAssets[path])
       : path === "/" || path === "/index.html"
-        ? Bun.file(join(e2eDirectory, "fixture.html"))
+        ? Bun.file(
+            join(e2eDirectory, demoMode ? "dom-demo.html" : "fixture.html"),
+          )
         : path === "/preview-readiness.js"
           ? Bun.file(join(outputDirectory, "preview-readiness.js"))
           : path === "/canvas-damage.js"
@@ -182,4 +188,8 @@ const server = Bun.serve({
   },
 });
 
-console.log(`SwiftTUI browser journey fixture: ${server.url}`);
+console.log(
+  demoMode
+    ? `SwiftTUI DOM demo: ${server.url}`
+    : `SwiftTUI browser journey fixture: ${server.url}`,
+);

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SwiftTUI DOM demo</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        background: #101827;
+        color: #e5e7eb;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 24px; }
+      header { max-width: 1100px; margin: 0 auto 16px; }
+      h1 { margin: 0 0 6px; font-size: 22px; }
+      p { margin: 0; color: #aab6c8; }
+      #status { margin-top: 12px; }
+      #demo {
+        width: 100%;
+        max-width: 1100px;
+        height: min(780px, calc(100dvh - 130px));
+        min-height: 480px;
+        margin: auto;
+        border: 1px solid #334155;
+        border-radius: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>SwiftTUI demo</h1>
+      <p><span id="font-name"></span> · DOM renderer · Choose an example from the Scene menu.</p>
+      <p id="status" role="status">Starting the Swift app…</p>
+    </header>
+    <main id="demo"></main>
+    <script type="module" src="/dom-demo.js"></script>
+  </body>
+</html>
