@@ -68,8 +68,8 @@ jobs:
         run: |
           set -euo pipefail
           bun install --frozen-lockfile
-          bun run test
           bun run build:packages
+          bun run test
           bun run --cwd packages/web typecheck:image-recovery
           bun run build:web
 
