@@ -1,6 +1,9 @@
 import { DOM_FONT_FAMILY, type DomFontOptions } from "./DomFontResources.ts";
 import type { WebHostPaintScheduling } from "./SurfacePaintScheduler.ts";
-import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
+import {
+  resolveSurfaceRenderer,
+  type WebHostSurfaceRendererKind,
+} from "./SurfaceRenderer.ts";
 import {
   createWebHostAccessibilitySettings,
   readWebHostAccessibilityPreferences,
@@ -29,6 +32,9 @@ import {
   type WebSocketSceneBridgeOptions,
 } from "./WebSocketSceneBridge.ts";
 import { BrowserWASIBridge } from "./wasi/BrowserWASIBridge.ts";
+
+// Keep these checks at the use sites so bundlers remove the unused imports.
+declare const SWIFTTUI_WEB_RENDERER: "canvas" | "dom" | undefined;
 
 export interface WebHostEmbeddedHostConfig {
   token: string;
@@ -81,9 +87,11 @@ export interface WebHostAppOptions {
   /** Visibility source override; defaults to the global `document`. */
   visibilityDocument?: WebHostVisibilityDocument;
   /**
-   * Which surface presenter every scene runtime uses: `"canvas"` (default)
+   * Which surface presenter every scene runtime uses: `"canvas"`
    * paints frames onto a 2D `<canvas>`; experimental `"dom"` renders them as absolutely
    * positioned text elements. Forwarded to each scene runtime as `renderer`.
+   * Defaults to the build's selected renderer, or Canvas in an unconfigured
+   * library build. A renderer excluded at build time cannot be selected here.
    * See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
@@ -195,6 +203,7 @@ class InternalWebHostAppController implements WebHostAppController {
     paintScheduling?: WebHostPaintScheduling;
     accessibilitySettings?: boolean;
   }) {
+    this.renderer = resolveSurfaceRenderer(options.renderer);
     this.mount = options.mount;
     const settingsEnabled = options.accessibilitySettings ?? true;
     const initialStyle = {
@@ -202,7 +211,10 @@ class InternalWebHostAppController implements WebHostAppController {
       ...(settingsEnabled ? readWebHostAccessibilityPreferences() : {}),
     };
     this.style = normalizeWebHostTerminalStyle(
-      options.renderer === "dom" && !initialStyle.fontFamily
+      (typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+        SWIFTTUI_WEB_RENDERER === "dom") &&
+        this.renderer === "dom" &&
+        !initialStyle.fontFamily
         ? { ...initialStyle, fontFamily: DOM_FONT_FAMILY }
         : initialStyle,
     );
@@ -212,7 +224,6 @@ class InternalWebHostAppController implements WebHostAppController {
     this.bridgeFactory = options.bridgeFactory;
     this.sceneRuntimeFactory = options.sceneRuntimeFactory;
     this.suspendHiddenScenes = options.suspendHiddenScenes;
-    this.renderer = options.renderer;
     this.sceneFrame = options.sceneFrame ?? "fill";
     this.paintScheduling = options.paintScheduling;
     this.visibilityDocument = options.visibilityDocument;

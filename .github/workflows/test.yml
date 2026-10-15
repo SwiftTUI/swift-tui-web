@@ -28,11 +28,11 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       # Stages mirror `bun run ci` (the repo gate). build:packages must run
-      # before build:web: since 0.0.15 the packages ship compiled dist/, so
-      # @swifttui/build imports @swifttui/web/manifest from dist/manifest.js.
+      # before tests and build:web: the builder consumes the runtime's published
+      # entrypoints from dist/, including the renderer bundle packaging tests.
       - run: bun install --frozen-lockfile
-      - run: bun run test
       - run: bun run build:packages
+      - run: bun run test
       - run: bun run --cwd packages/web typecheck:image-recovery
       - run: bun run build:web
 

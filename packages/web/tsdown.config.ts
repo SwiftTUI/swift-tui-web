@@ -8,6 +8,7 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   entry: [
     "index.ts",
+    "src/browser.ts",
     "manifest.ts",
     "testing.ts",
     "wasi.ts",

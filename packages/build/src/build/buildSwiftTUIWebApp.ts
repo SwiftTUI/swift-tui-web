@@ -1,16 +1,20 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type BuildAppWasmOptions, buildAppWasm } from "./buildAppWasm.ts";
+import { parseWebRenderer, type WebRenderer } from "./buildBrowserBundle.ts";
 import { copyDomFontAssets } from "./copyDomFontAssets.ts";
 import { generateSceneManifest } from "./generateSceneManifest.ts";
 
 export interface BuildSwiftTUIWebAppOptions extends BuildAppWasmOptions {
   appExecutable?: string;
+  /** Include the experimental DOM font assets only when explicitly selected. */
+  renderer?: WebRenderer;
 }
 
 export async function buildSwiftTUIWebApp(
   options: BuildSwiftTUIWebAppOptions,
 ): Promise<void> {
+  const renderer = parseWebRenderer(options.renderer);
   await rm(options.outputDirectory, { recursive: true, force: true });
   await mkdir(options.outputDirectory, { recursive: true });
   await generateSceneManifest({
@@ -20,5 +24,5 @@ export async function buildSwiftTUIWebApp(
     swiftCommand: options.swiftCommand,
   });
   await buildAppWasm(options);
-  await copyDomFontAssets(options.outputDirectory);
+  if (renderer === "dom") await copyDomFontAssets(options.outputDirectory);
 }

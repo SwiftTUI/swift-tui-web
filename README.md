@@ -35,6 +35,11 @@ contains the browser deployment packages.
 > [DOM setup, behavior and known limits](packages/web/README.md#renderers),
 > including native find, accessibility, fonts, embedding and performance.
 
+The framework's default accessibility companion and `build:web` output package
+only Canvas. Use `swifttui-web build:web --renderer dom` for an app-owned DOM
+companion, or choose a renderer in your web bundler. See
+[renderer build configuration](packages/build/README.md#choose-the-browser-renderer).
+
 | Package | Role |
 | --- | --- |
 | [`@swifttui/web`](packages/web) | Browser runtime: scene-manifest loading, DOM + canvas rendering, ARIA mounting, WebSocket + WASI scene bridges |

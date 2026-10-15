@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
-import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   buildAppWasm,
+  buildBrowserBundle,
   buildSwiftTUIWebApp,
-  copyDomFontAssets,
   generateSceneManifest,
+  parseWebRenderer,
   type WasmBuildConfiguration,
 } from "../build/index.ts";
 
@@ -17,6 +17,7 @@ async function runCli(argv: string[]): Promise<void> {
   const flags = parseFlags(argv.slice(1));
   const packagePath = resolve(flags["package-path"] ?? "../../");
   const distPath = resolve(flags["dist"] ?? "./dist");
+  const renderer = parseWebRenderer(flags.renderer);
   const appExecutable =
     flags.app ?? flags.product ?? flags["app-product"] ?? "";
   const wasmConfiguration = parseWasmBuildConfiguration(
@@ -42,19 +43,22 @@ async function runCli(argv: string[]): Promise<void> {
       });
       return;
     case "build:web":
-      await bunBuildWeb({
+      await buildBrowserBundle({
+        renderer,
         outputDirectory: distPath,
       });
       return;
     case "build":
       assertAppExecutable(appExecutable);
       await buildSwiftTUIWebApp({
+        renderer,
         configuration: wasmConfiguration,
         packagePath,
         outputDirectory: distPath,
         product: appExecutable,
       });
-      await bunBuildWeb({
+      await buildBrowserBundle({
+        renderer,
         outputDirectory: distPath,
       });
       return;
@@ -63,29 +67,6 @@ async function runCli(argv: string[]): Promise<void> {
       return;
     default:
       throw new Error(`unknown command: ${command}`);
-  }
-}
-
-async function bunBuildWeb(options: {
-  outputDirectory: string;
-}): Promise<void> {
-  await mkdir(options.outputDirectory, { recursive: true });
-  await copyDomFontAssets(options.outputDirectory);
-  const proc = Bun.spawn({
-    cmd: ["bun", "build", "./index.html", "--outdir", options.outputDirectory],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-
-  if (exitCode !== 0) {
-    throw new Error(
-      [stdout, stderr].filter(Boolean).join("\n").trim() || "web build failed",
-    );
   }
 }
 

@@ -4,6 +4,7 @@ import { buildSwiftTUIWebApp } from "../../build/dist/index.js";
 // Public build entry point, with a checked-in app and exact HTTPS dependency.
 // No org checkout, source overlays, or independently authored Swift flags.
 await buildSwiftTUIWebApp({
+  renderer: "dom", // The browser qualification fixture exercises both renderers.
   packagePath: fileURLToPath(
     new URL("../../../Fixtures/BrowserApp", import.meta.url),
   ),

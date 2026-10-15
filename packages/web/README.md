@@ -272,6 +272,22 @@ move browser focus. Native text selection temporarily suppresses the overlay.
 
 ### Experimental DOM quickstart
 
+The framework's default native companion and `build:web` output include only
+Canvas. DOM requires an explicit build opt-in; a query parameter alone cannot
+add it to a Canvas-only bundle. Build a standalone DOM page with Bun installed:
+
+```sh
+npx swifttui-web build:web --renderer dom --dist browser-dom
+```
+
+Use `--renderer canvas` for Canvas, or omit the flag. A native app can serve the
+generated directory with `RuntimeConfiguration.browserAssetsPath`; see the
+[custom companion example](https://github.com/SwiftTUI/swift-tui/blob/main/Platforms/WebHost/Sources/SwiftTUIWebHostCLI/SwiftTUIWebHostCLI.docc/Browser-Companion.md#opt-into-the-experimental-dom-renderer).
+Custom web bundlers can define `SWIFTTUI_WEB_RENDERER` to the string literal
+`"dom"` or `"canvas"` to omit the unused painter. See
+[build configuration](../build/README.md#choose-the-browser-renderer).
+Without a build define, the runtime API retains both painters and defaults to Canvas.
+
 The renderer consumes the same Swift raster frames and WASM artifact as Canvas;
 it does not translate a Swift view tree into browser flow layout. Size the mount
 explicitly and include the package stylesheet:
@@ -310,7 +326,8 @@ import { startWasmSceneWorker } from "@swifttui/web/wasi-worker";
 startWasmSceneWorker();
 ```
 
-Use `@swifttui/build` to generate the manifest/WASM and copy the font assets as
+Use `@swifttui/build` with `--renderer dom` (or `renderer: "dom"` in its build API)
+to generate the manifest/WASM and copy the font assets as
 described below. Worker execution requires the existing WASI isolation headers;
 renderer choice does not change that execution contract. A custom runtime
 factory can instead use the same renderer with a WebSocket-backed Swift app.
@@ -393,7 +410,7 @@ their original source build and release tag are not recorded. Browser typography
 checks cover face advances, baselines and Latin samples, including canonical
 decompositions, at 12, 14, 16, 20, 24 and 32 CSS px. Other glyphs remain best
 effort; the painter preserves their original Unicode and corrects the next run
-origin without scaling glyph artwork. `@swifttui/build` copies them into
+origin without scaling glyph artwork. `@swifttui/build` with `--renderer dom` copies them into
 `assets/swifttui-fonts/7d231a426067/` beside an app's output. Custom build systems
 can call its `copyDomFontAssets(outputDirectory)` API. Serve these assets from
 your origin; no external font service is required. The runtime resolves the

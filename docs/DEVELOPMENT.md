@@ -11,7 +11,7 @@ bun install
 bun test
 bun run build:packages   # compile both packages to dist/ (tsdown: ESM + .d.ts)
 bun run build:web        # bundle the in-repo browser demo to dist-demo/
-bun run ci               # frozen install + test + build:packages + build:web
+bun run ci               # frozen install + build:packages + test + build:web
 bun run test:browser     # compiled Swift fixture + Chromium/Firefox/WebKit journeys
 bun run demo:dom         # build and serve the self-starting local DOM demo
 ```

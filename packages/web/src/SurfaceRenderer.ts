@@ -5,6 +5,39 @@ import type {
 } from "./WebHostSurfaceTransport.ts";
 import type { ResolvedWebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
+// Bundlers replace this identifier with a string literal to omit the unused
+// presenter. Unconfigured library consumers retain runtime renderer selection.
+declare const SWIFTTUI_WEB_RENDERER: "canvas" | "dom" | undefined;
+
+/** Resolves the build default and rejects a presenter excluded from the bundle. */
+export function resolveSurfaceRenderer(
+  renderer?: WebHostSurfaceRendererKind,
+): WebHostSurfaceRendererKind {
+  const selected =
+    renderer ??
+    (typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+    SWIFTTUI_WEB_RENDERER === "canvas"
+      ? "canvas"
+      : "dom");
+  if (
+    (selected === "dom" &&
+      !(
+        typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+        SWIFTTUI_WEB_RENDERER === "dom"
+      )) ||
+    (selected === "canvas" &&
+      !(
+        typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+        SWIFTTUI_WEB_RENDERER === "canvas"
+      ))
+  ) {
+    throw new Error(
+      `The ${selected} renderer is not included in this browser build. Rebuild with --renderer ${selected}.`,
+    );
+  }
+  return selected;
+}
+
 /**
  * Which presenter draws surface frames into the scene mount.
  *

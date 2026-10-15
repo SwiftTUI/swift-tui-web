@@ -6,8 +6,9 @@ compile a SwiftTUI app to `wasm32-wasi` and capture its scene manifest.**
 [![npm](https://img.shields.io/npm/v/@swifttui/build)](https://www.npmjs.com/package/@swifttui/build)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 
-`@swifttui/build` produces an `app.wasm`, a `scene-manifest.json`, and the DOM
-host's bundled font assets and license notice. It drives the Swift toolchain, runs a
+`@swifttui/build` produces an `app.wasm` and a `scene-manifest.json`.
+Canvas is the default; `--renderer dom` additionally packages the experimental
+DOM host's font assets and license notice. It drives the Swift toolchain, runs a
 browser `WebAssembly.compile` validation pass, and packages the result. It
 is separate from [`@swifttui/web`](https://www.npmjs.com/package/@swifttui/web),
 the browser runtime. Thus, runtime imports do not include Swift processes, Node
@@ -53,13 +54,59 @@ await buildSwiftTUIWebApp({
 });
 ```
 
-The full build copies the runtime package's four verified WOFF2 faces, their
+For experimental DOM, pass `--renderer dom` to the command or `renderer: "dom"`
+to `buildSwiftTUIWebApp`. That build copies the runtime package's four verified WOFF2 faces, their
 manifest and OFL notice into `assets/swifttui-fonts/7d231a426067/`. Deploy that
 directory with the app. Build systems that package WASM separately can use
 `await copyDomFontAssets(outputDirectory)` from `@swifttui/build`; it validates
 the installed asset hashes before copying. Runtime `domFont.assetBase` can
 point at another same-origin asset directory. Font loading does not depend on
 an external font service.
+
+### Choose the browser renderer
+
+The WASM/manifest build above is independent of browser JavaScript bundling.
+For the standalone WebHost page, including a custom native app companion,
+install Bun and run:
+
+```sh
+npx swifttui-web build:web --renderer canvas --dist browser
+npx swifttui-web build:web --renderer dom --dist browser-dom
+```
+
+`build:web` needs no `--app`, Swift compiler, or WASM build. It produces
+`index.html` and JavaScript with only the selected painter; the DOM variant also
+includes its fonts and license. Omitting `--renderer` selects Canvas. Rebuilding
+the same output directory replaces the previous presenter and removes DOM fonts
+when selecting Canvas. Serve the entire directory. A native SwiftTUI app can
+set `RuntimeConfiguration.browserAssetsPath` to that directory to use it for
+both its accessibility companion and `--web` mode.
+
+The API equivalent is:
+
+```ts
+import { buildBrowserBundle } from "@swifttui/build";
+await buildBrowserBundle({ outputDirectory: "browser-dom", renderer: "dom" });
+```
+
+For a custom web page with its own bundler, set the bundler's compile-time
+`SWIFTTUI_WEB_RENDERER` define to `JSON.stringify("canvas")` or
+`JSON.stringify("dom")` and enable dead-code elimination. In Vite, for example:
+
+```ts
+export default {
+  define: { SWIFTTUI_WEB_RENDERER: JSON.stringify("dom") },
+};
+```
+
+Use `renderer: "dom"` in `createWebHostApp` (or omit it in a DOM-only build),
+and package fonts with `build --renderer dom` or `copyDomFontAssets`.
+Canvas-only builds need no DOM font copy. An unconfigured library bundle retains
+both renderers for runtime selection and defaults to Canvas; the explicit build
+define is what excludes the unused implementation. A single-renderer build
+rejects requests for the other renderer, including URL or page configuration
+overrides. DOM remains experimental; see the runtime's
+[renderer guide](../web/README.md#renderers).
 
 Toolchain defaults match the repo:
 

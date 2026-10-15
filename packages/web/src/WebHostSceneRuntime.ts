@@ -38,7 +38,10 @@ import {
   type WebHostPaintScheduling,
   type WebHostPaintStatistics,
 } from "./SurfacePaintScheduler.ts";
-import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
+import {
+  resolveSurfaceRenderer,
+  type WebHostSurfaceRendererKind,
+} from "./SurfaceRenderer.ts";
 import { fontForStyle } from "./SurfaceTypography.ts";
 import type { WebHostSceneDescriptor } from "./WebHostSceneManifest.ts";
 import type {
@@ -58,6 +61,9 @@ import {
   type WebHostTerminalStyle,
   webTUITerminalBackgroundColor,
 } from "./WebHostTerminalStyle.ts";
+
+// Keep these checks at the use sites so bundlers remove the unused imports.
+declare const SWIFTTUI_WEB_RENDERER: "canvas" | "dom" | undefined;
 
 export interface WebHostSceneBridge {
   bindOutput(sink: WebHostOutputSink): void;
@@ -162,11 +168,13 @@ export interface WebHostSceneRuntimeOptions {
    */
   suspendWhenHidden?: boolean;
   /**
-   * Which surface presenter draws the scene's frames. `"canvas"` (default)
+   * Which surface presenter draws the scene's frames. `"canvas"`
    * paints onto a 2D `<canvas>`; experimental `"dom"` renders cells as absolutely
    * positioned text elements — native font rendering and, uniquely, real
    * text selection: drag rendered text to select; buttons and other controls
-   * retain application pointer input. See {@link WebHostSurfaceRendererKind}.
+   * retain application pointer input. Defaults to the build's selected renderer,
+   * or Canvas in an unconfigured library build. An excluded renderer is rejected.
+   * See {@link WebHostSurfaceRendererKind}.
    */
   renderer?: WebHostSurfaceRendererKind;
   /** Font asset location and bounded readiness wait for the experimental DOM presenter. */
@@ -269,6 +277,8 @@ export class WebHostSceneRuntime {
   private readonly rendererKind: WebHostSurfaceRendererKind;
   private readonly sceneFrame: WebHostSceneFrameMode;
   private readonly painter: CanvasSurfacePainter | DomSurfacePainter;
+  private readonly domPainter?: DomSurfacePainter;
+  private readonly canvasPainter?: CanvasSurfacePainter;
   private readonly paintScheduler: SurfacePaintScheduler;
   private readonly inputEncoder = new InputEventEncoder();
   private awaitingConnectionFrame = false;
@@ -358,10 +368,14 @@ export class WebHostSceneRuntime {
   private detachPointerParadigmObserver?: () => void;
 
   constructor(options: WebHostSceneRuntimeOptions) {
+    this.rendererKind = resolveSurfaceRenderer(options.renderer);
     this.descriptor = options.descriptor;
     this.embeddingMount = options.mount;
     this.currentStyle = normalizeWebHostTerminalStyle(
-      options.renderer === "dom" && !options.style.fontFamily
+      (typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+        SWIFTTUI_WEB_RENDERER === "dom") &&
+        this.rendererKind === "dom" &&
+        !options.style.fontFamily
         ? { ...options.style, fontFamily: DOM_FONT_FAMILY }
         : options.style,
     );
@@ -376,21 +390,34 @@ export class WebHostSceneRuntime {
       options.synchronizeAccessibilityFocus ?? true;
     this.wheelMode =
       options.wheelMode ?? legacyWheelMode(options.captureWheelInput);
-    this.rendererKind = options.renderer ?? "canvas";
     this.sceneFrame = options.sceneFrame ?? "fill";
     const onImagePayloadMiss = (
       ids: readonly string[],
     ): readonly string[] | void => {
       return this.bridge?.requestImagePayloads?.(ids);
     };
-    this.painter =
+    if (
+      (typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+        SWIFTTUI_WEB_RENDERER === "dom") &&
       this.rendererKind === "dom"
-        ? new DomSurfacePainter({
-            onResourceLimit: (message) => this.writeOutput(`${message}\n`),
-            onImagePayloadMiss,
-            onOpenHyperlink: options.onOpenHyperlink,
-          })
-        : new CanvasSurfacePainter({ onImagePayloadMiss });
+    ) {
+      this.domPainter = new DomSurfacePainter({
+        onResourceLimit: (message) => this.writeOutput(`${message}\n`),
+        onImagePayloadMiss,
+        onOpenHyperlink: options.onOpenHyperlink,
+      });
+    }
+    if (
+      (typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+        SWIFTTUI_WEB_RENDERER === "canvas") &&
+      this.rendererKind === "canvas"
+    ) {
+      this.canvasPainter = new CanvasSurfacePainter({ onImagePayloadMiss });
+    }
+    const painter = this.domPainter ?? this.canvasPainter;
+    if (!painter)
+      throw new Error(`Unsupported surface renderer: ${this.rendererKind}`);
+    this.painter = painter;
     const paintScheduling =
       options.paintScheduling ?? defaultAnimationFrameScheduler();
     this.paintScheduler = new SurfacePaintScheduler(
@@ -431,21 +458,28 @@ export class WebHostSceneRuntime {
       return;
     }
 
-    if (this.painter instanceof DomSurfacePainter) {
+    let surfaceElement: HTMLElement;
+    if (this.domPainter) {
       const surfaceRoot = document.createElement("div");
       surfaceRoot.className =
         "webhost-scene__surface webhost-scene__surface--dom";
       surfaceRoot.setAttribute("aria-hidden", "true");
       this.domSurfaceRoot = surfaceRoot;
-      this.painter.attach(surfaceRoot);
-    } else {
+      surfaceElement = surfaceRoot;
+      this.domPainter.attach(surfaceRoot);
+    } else if (this.canvasPainter) {
       const canvas = document.createElement("canvas");
       canvas.className = "webhost-scene__surface";
       canvas.setAttribute("aria-hidden", "true");
       this.canvas = canvas;
+      surfaceElement = canvas;
       // A decode completion asks for a repaint; many completing at once fold
       // into the next animation frame rather than each painting the surface.
-      this.painter.attach(canvas, () => this.paintScheduler.requestRepaint());
+      this.canvasPainter.attach(canvas, () =>
+        this.paintScheduler.requestRepaint(),
+      );
+    } else {
+      throw new Error(`Unsupported surface renderer: ${this.rendererKind}`);
     }
     this.accessibilityTree = new AccessibilityTreeMounter(
       (target, request, requestID) => {
@@ -457,7 +491,7 @@ export class WebHostSceneRuntime {
     );
     this.chrome.append(this.accessibilityTree.navigationElement);
     this.terminalMount.replaceChildren(
-      this.surfaceElement as HTMLElement,
+      surfaceElement,
       this.accessibilityTree.element,
       this.accessibilityTree.announcerElement,
     );
@@ -555,10 +589,7 @@ export class WebHostSceneRuntime {
   /** Live presentation ownership, independent from the wire allocation caps. */
   get resourceStatistics() {
     return {
-      dom:
-        this.painter instanceof DomSurfacePainter
-          ? this.painter.statistics
-          : undefined,
+      dom: this.domPainter?.statistics,
       semanticNodes: this.terminalMount.querySelectorAll(
         ".webhost-scene__accessibility-tree *",
       ).length,
@@ -591,7 +622,10 @@ export class WebHostSceneRuntime {
   setStyle(style: WebHostTerminalStyle): void {
     if (this.disposed) return;
     const next = normalizeWebHostTerminalStyle(
-      this.domSurfaceRoot && !style.fontFamily
+      (typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+        SWIFTTUI_WEB_RENDERER === "dom") &&
+        this.domSurfaceRoot &&
+        !style.fontFamily
         ? { ...style, fontFamily: DOM_FONT_FAMILY }
         : style,
     );
@@ -901,8 +935,7 @@ export class WebHostSceneRuntime {
         this.refreshGeometry();
         return;
       }
-      if (this.painter instanceof DomSurfacePainter)
-        this.painter.invalidateFontMetrics();
+      this.domPainter?.invalidateFontMetrics();
       this.resizeToMount();
     };
     if (typeof ResizeObserver !== "undefined") {
@@ -919,8 +952,7 @@ export class WebHostSceneRuntime {
     const userStyleObserver =
       this.domGeometry && typeof MutationObserver !== "undefined"
         ? new MutationObserver(() => {
-            if (this.painter instanceof DomSurfacePainter)
-              this.painter.invalidateFontMetrics();
+            this.domPainter?.invalidateFontMetrics();
             refresh();
           })
         : undefined;
@@ -944,8 +976,7 @@ export class WebHostSceneRuntime {
     const refreshFonts = () => {
       // A custom/fallback face can change fractional shaping advances while
       // the rounded grid pitch stays identical. Reprobe inline runs as well.
-      if (this.painter instanceof DomSurfacePainter)
-        this.painter.invalidateFontMetrics();
+      this.domPainter?.invalidateFontMetrics();
       refresh();
     };
     fonts?.addEventListener?.("loadingdone", refreshFonts);
@@ -1072,9 +1103,7 @@ export class WebHostSceneRuntime {
         // in an editable field still needs the app's normal focus/caret route.
         const location = this.cellLocation(event);
         this.textInputPress =
-          location &&
-          this.painter instanceof DomSurfacePainter &&
-          this.painter.isTextInput(location.x, location.y)
+          location && this.domPainter?.isTextInput(location.x, location.y)
             ? {
                 location,
                 event,
@@ -1759,48 +1788,53 @@ export class WebHostSceneRuntime {
   }
 
   private loadDomFont(style: ResolvedWebHostTerminalStyle): void {
-    if (this.fontResources !== this.activeFontResources)
-      this.fontResources?.dispose();
-    this.fontPending = true;
-    this.paintScheduler.setHeld(true);
-    this.terminalMount.setAttribute("aria-busy", "true");
-    if (!this.loadingFont) {
-      this.loadingFont = document.createElement("div");
-      this.loadingFont.setAttribute("role", "status");
-      this.loadingFont.textContent = "Loading display font…";
-      this.terminalMount.appendChild(this.loadingFont);
+    if (
+      typeof SWIFTTUI_WEB_RENDERER === "undefined" ||
+      SWIFTTUI_WEB_RENDERER === "dom"
+    ) {
+      if (this.fontResources !== this.activeFontResources)
+        this.fontResources?.dispose();
+      this.fontPending = true;
+      this.paintScheduler.setHeld(true);
+      this.terminalMount.setAttribute("aria-busy", "true");
+      if (!this.loadingFont) {
+        this.loadingFont = document.createElement("div");
+        this.loadingFont.setAttribute("role", "status");
+        this.loadingFont.textContent = "Loading display font…";
+        this.terminalMount.appendChild(this.loadingFont);
+      }
+      const resources = new DomFontResources(
+        this.terminalMount.ownerDocument ?? document,
+        style.fontFamily,
+        style.fontSize,
+        this.domFontOptions,
+      );
+      this.fontResources = resources;
+      void resources.ready
+        .then((result) => {
+          if (
+            this.disposed ||
+            resources !== this.fontResources ||
+            result.status === "disposed"
+          )
+            return;
+          this.fontResult = result;
+          this.fontPending = false;
+          this.loadingFont?.remove();
+          this.loadingFont = undefined;
+          this.terminalMount.removeAttribute("aria-busy");
+          this.currentStyle = { ...style, fontFamily: result.family };
+          this.applyStyle(this.currentStyle);
+          this.bridge?.updateRenderStyle(this.currentStyle);
+          if (result.diagnostic) this.writeOutput(`${result.diagnostic}\n`);
+          this.resizeToMount();
+        })
+        .catch((error) => {
+          if (this.disposed || resources !== this.fontResources) return;
+          this.fontPending = false;
+          this.writeOutput(`DOM font configuration failed: ${String(error)}\n`);
+        });
     }
-    const resources = new DomFontResources(
-      this.terminalMount.ownerDocument ?? document,
-      style.fontFamily,
-      style.fontSize,
-      this.domFontOptions,
-    );
-    this.fontResources = resources;
-    void resources.ready
-      .then((result) => {
-        if (
-          this.disposed ||
-          resources !== this.fontResources ||
-          result.status === "disposed"
-        )
-          return;
-        this.fontResult = result;
-        this.fontPending = false;
-        this.loadingFont?.remove();
-        this.loadingFont = undefined;
-        this.terminalMount.removeAttribute("aria-busy");
-        this.currentStyle = { ...style, fontFamily: result.family };
-        this.applyStyle(this.currentStyle);
-        this.bridge?.updateRenderStyle(this.currentStyle);
-        if (result.diagnostic) this.writeOutput(`${result.diagnostic}\n`);
-        this.resizeToMount();
-      })
-      .catch((error) => {
-        if (this.disposed || resources !== this.fontResources) return;
-        this.fontPending = false;
-        this.writeOutput(`DOM font configuration failed: ${String(error)}\n`);
-      });
   }
 
   private isNativeLink(event: MouseEvent): boolean {
@@ -1820,11 +1854,10 @@ export class WebHostSceneRuntime {
   }
 
   private allowsNativeTextSelection(event: MouseEvent): boolean {
-    if (!(this.painter instanceof DomSurfacePainter) || event.button > 0)
-      return false;
+    if (!this.domPainter || event.button > 0) return false;
     const location = this.cellLocation(event);
     return (
-      !!location && this.painter.allowsTextSelection(location.x, location.y)
+      !!location && this.domPainter.allowsTextSelection(location.x, location.y)
     );
   }
 

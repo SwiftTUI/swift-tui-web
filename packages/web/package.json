@@ -17,6 +17,7 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "browser.html",
     "fonts",
     "style.css"
   ],
@@ -46,6 +47,7 @@
       "import": "./dist/websocket.js"
     },
     "./style.css": "./style.css",
+    "./browser.html": "./browser.html",
     "./fonts/*": "./fonts/*",
     "./package.json": "./package.json"
   },

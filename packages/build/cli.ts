@@ -3,8 +3,10 @@
 import { resolve } from "node:path";
 import {
   buildAppWasm,
+  buildBrowserBundle,
   buildSwiftTUIWebApp,
   generateSceneManifest,
+  parseWebRenderer,
   type WasmBuildConfiguration,
 } from "./index.ts";
 
@@ -15,6 +17,7 @@ async function runCli(argv: string[]): Promise<void> {
   const flags = parseFlags(argv.slice(1));
   const packagePath = resolve(flags["package-path"] ?? "../../");
   const distPath = resolve(flags["dist"] ?? "./dist");
+  const renderer = parseWebRenderer(flags.renderer);
   const appExecutable =
     flags.app ?? flags.product ?? flags["app-product"] ?? "";
   const configuration = parseWasmBuildConfiguration(
@@ -22,6 +25,9 @@ async function runCli(argv: string[]): Promise<void> {
   );
 
   switch (command) {
+    case "build:web":
+      await buildBrowserBundle({ outputDirectory: distPath, renderer });
+      return;
     case "build:manifest":
       assertAppExecutable(appExecutable);
       await generateSceneManifest({
@@ -42,6 +48,7 @@ async function runCli(argv: string[]): Promise<void> {
     case "build":
       assertAppExecutable(appExecutable);
       await buildSwiftTUIWebApp({
+        renderer,
         configuration,
         packagePath,
         outputDirectory: distPath,

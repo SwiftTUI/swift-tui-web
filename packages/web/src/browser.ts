@@ -1,6 +1,7 @@
 import type { WebHostSurfaceRendererKind } from "./SurfaceRenderer.ts";
-import { createWebHostApp, type WebHostTerminalStyle } from "./WebHostApp.ts";
+import { createWebHostApp } from "./WebHostApp.ts";
 import type { WebHostSceneFrameMode } from "./WebHostSceneRuntime.ts";
+import type { WebHostTerminalStyle } from "./WebHostTerminalStyle.ts";
 
 declare global {
   interface Window {
@@ -58,7 +59,12 @@ async function bootstrap(): Promise<void> {
   window.__WEBTUI_APP__ = controller;
 }
 
-void bootstrap();
+void bootstrap().catch((error: unknown) => {
+  const mount = document.getElementById("webhost-root");
+  if (!mount) throw error;
+  mount.setAttribute("role", "alert");
+  mount.textContent = error instanceof Error ? error.message : String(error);
+});
 
 // Allowlisted so a page URL can only choose a shipped presenter.
 function rendererFromQuery(
