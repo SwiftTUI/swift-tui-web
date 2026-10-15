@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import fontManifest from "../fonts/manifest.json" with { type: "json" };
 
 import {
   browserFixtureCSP,
@@ -10,6 +11,10 @@ const e2eDirectory = import.meta.dir;
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const outputDirectory = join(repositoryRoot, ".build/browser-journey/site");
 const wasmDirectory = join(repositoryRoot, ".build/browser-journey/wasm");
+const fontPaths = new Set([
+  ...fontManifest.faces.map((face) => `/fonts/${face.file}`),
+  "/fonts/manifest.json",
+]);
 
 for (const asset of ["assets/app.wasm", "scene-manifest.json"]) {
   if (!(await Bun.file(join(wasmDirectory, asset)).exists())) {
@@ -106,11 +111,7 @@ const server = Bun.serve({
     if (path === "/favicon.ico") {
       return new Response(null, { status: 204, headers });
     }
-    if (
-      /^\/fonts\/(SwiftTUICoreCandidate3-(Regular|Bold|Italic|BoldItalic)\.woff2|manifest\.json)$/.test(
-        path,
-      )
-    ) {
+    if (fontPaths.has(path)) {
       return new Response(
         Bun.file(join(repositoryRoot, "packages/web", path.slice(1))),
         { headers },

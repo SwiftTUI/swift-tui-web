@@ -1,21 +1,23 @@
 # Bundled DOM font
 
-SwiftTUI Core Candidate 3 (0.3.0) is a renamed, unhinted source build of Iosevka
-34.8.1. Four WOFF2 faces total 167,584 bytes. `manifest.json` records upstream,
-source archive and per-face SHA-256 hashes, packaging tools and normalized epoch.
-`LICENSE.md` preserves the upstream SIL Open Font License 1.1 and copyright.
+The DOM renderer uses [Ioskeley Mono](https://github.com/ahatem/IoskeleyMono)
+in its normal width: regular (400), bold (700), italic (400) and bold italic
+(700). These four WOFF2 files total 407,732 bytes and are preserved byte for
+byte from the supplied font files; they are not renamed, subset or rebuilt.
 
-`private-build-plans.toml` is Iosevka's build configuration, not a product plan.
-It retains a 600-unit advance and 1.5em leading with increased sidebearings,
-smaller accents and a four-degree italic. `profile.json` defines the printable
-Basic Latin/Latin-1 core and broader best-effort coverage; `core-corpus.json`
-contains the 243 original/canonically decomposed qualification strings.
+`manifest.json` records the family, embedded version string, upstream project,
+per-face sizes and SHA-256 hashes. The embedded version is Iosevka 34.4.0 with
+ttfautohint 1.8.4; it does not identify an Ioskeley Mono release tag. `LICENSE.md`
+preserves the Iosevka and Ioskeley Mono copyright notices and SIL Open Font
+License 1.1. The exact source archive/build configuration for these supplied
+bytes is not recorded, so this package does not claim a reproducible source
+build.
 
-To reproduce the bytes, use Python 3.13 (Unicode 15.1), fontTools 4.66.0 with
-Brotli, Node 26.10.0 and npm. Run `python3 rebuild.py --clean` from this directory.
-The script verifies the upstream source archive, uses its npm lockfile, builds
-all four real faces, and normalizes font metadata before WOFF2 packaging.
-Outputs go to `../.build/font-source/`; the script does not install fonts or
-replace committed assets. A subsequent clean rebuild compares all face hashes.
-The runtime consumes the committed WOFF2 assets and does not require these
-font-development tools.
+All four faces have a nominal 600-unit advance per 1,000-unit em. The renderer
+measures the loaded faces, keeps its 1.5em line height, and disables font
+synthesis and ligatures. Browser tests cover advances, baselines, Unicode
+allocation, loading failures and fallback ownership.
+
+`@swifttui/build` verifies and copies these assets with their manifest and
+license. The asset directory suffix is the first 12 hexadecimal characters of
+the SHA-256 of `manifest.json`, so a font update gets a new cache identity.

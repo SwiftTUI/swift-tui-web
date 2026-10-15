@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import fontManifest from "../fonts/manifest.json" with { type: "json" };
 import type {} from "./dom-geometry.fixture.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -201,13 +202,11 @@ test("standalone resizable chrome with hidden header boots an empty DOM surface"
   expect(result.inputs.some((x) => x.startsWith("resize:"))).toBe(true);
 });
 
-for (const face of ["Regular", "Bold", "Italic", "BoldItalic"]) {
-  test(`failure of the ${face} face selects a complete measured fallback`, async ({
+for (const face of fontManifest.faces) {
+  test(`failure of ${face.file} selects a complete measured fallback`, async ({
     page,
   }) => {
-    await page.route(`**/fonts/SwiftTUICoreCandidate3-${face}.woff2`, (route) =>
-      route.abort("failed"),
-    );
+    await page.route(`**/fonts/${face.file}`, (route) => route.abort("failed"));
     const id = await page.evaluate(() => window.domGeometryJourney.create());
     await page.evaluate((id) => window.domGeometryJourney.ready(id), id);
     const result = await page.evaluate(
@@ -230,15 +229,15 @@ test("offline embeds reuse settled faces and unrelated late fonts cannot change 
     (id) => window.domGeometryJourney.state(id),
     id,
   );
-  await page.evaluate(async () => {
+  await page.evaluate(async (file) => {
     const unrelated = new FontFace(
       "Unrelated document font",
-      "url(/fonts/SwiftTUICoreCandidate3-Regular.woff2)",
+      `url(/fonts/${file})`,
     );
     document.fonts.add(unrelated);
     await unrelated.load();
     await window.domGeometryJourney.settle();
-  });
+  }, fontManifest.faces[0]!.file);
   expect(
     (await page.evaluate((id) => window.domGeometryJourney.state(id), id))
       .geometry!.cellWidth,

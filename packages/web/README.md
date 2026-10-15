@@ -384,16 +384,17 @@ grid bounds, rather than changing them.
 
 ### DOM typography and embedding
 
-DOM mode defaults to the four bundled SwiftTUI Core Candidate 3 faces (regular, bold,
+DOM mode defaults to the four bundled Ioskeley Mono faces (regular, bold,
 italic and bold italic), with synthesis and discretionary ligatures disabled.
-The Iosevka-derived WOFF2 files total 167,584 bytes. Their pinned upstream source,
-SHA-256 hashes and SIL Open Font License are included under `fonts/` in this
-package, together with the source build recipe. The strict font core is printable
-Basic Latin and Latin-1 Supplement, including canonical decompositions, in four
-styles at 12, 14, 16, 20, 24 and 32 CSS px. Other glyphs remain best effort; the
-painter preserves their original Unicode and corrects the next run origin without
-scaling glyph artwork. `@swifttui/build` copies them into
-`assets/swifttui-fonts/6ec060766aae/` beside an app's output. Custom build systems
+The normal-width WOFF2 files total 407,732 bytes. Their upstream project,
+embedded version, SHA-256 hashes and SIL Open Font License are included under
+`fonts/` in this package. The supplied bytes are shipped without modification;
+their original source build and release tag are not recorded. Browser typography
+checks cover face advances, baselines and Latin samples, including canonical
+decompositions, at 12, 14, 16, 20, 24 and 32 CSS px. Other glyphs remain best
+effort; the painter preserves their original Unicode and corrects the next run
+origin without scaling glyph artwork. `@swifttui/build` copies them into
+`assets/swifttui-fonts/7d231a426067/` beside an app's output. Custom build systems
 can call its `copyDomFontAssets(outputDirectory)` API. Serve these assets from
 your origin; no external font service is required. The runtime resolves the
 directory against `document.baseURI`. For a different deployment layout, set

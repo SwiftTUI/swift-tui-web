@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { DOM_FONT_ASSET_PATH } from "../dist/index.js";
+import fontManifest from "../fonts/manifest.json" with { type: "json" };
 import type {} from "./compiled-wasm.fixture.ts";
 
 // The host sets style properties and compiles WASM. Its declared policy allows
@@ -7,6 +9,16 @@ test("compiled DOM starts under the declared same-origin CSP", async ({
   page,
 }) => {
   const violations: string[] = [];
+  const loadedFonts: string[] = [];
+  page.on("response", (response) => {
+    const path = new URL(response.url()).pathname;
+    if (
+      response.ok() &&
+      path.startsWith(`/${DOM_FONT_ASSET_PATH}`) &&
+      path.endsWith(".woff2")
+    )
+      loadedFonts.push(path.slice(DOM_FONT_ASSET_PATH.length + 1));
+  });
   page.on("console", (message) => {
     if (/Content Security Policy|violates.*directive/i.test(message.text()))
       violations.push(message.text());
@@ -26,6 +38,9 @@ test("compiled DOM starts under the declared same-origin CSP", async ({
     "Alpha count 1",
   );
   expect(violations).toEqual([]);
+  expect(loadedFonts.sort()).toEqual(
+    fontManifest.faces.map((face) => face.file).sort(),
+  );
   await page.evaluate(() => window.__compiledWasm.dispose());
 });
 
