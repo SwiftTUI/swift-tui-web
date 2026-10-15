@@ -11,6 +11,23 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-14
+
+### Added
+
+- `swifttui-web build:web` and `buildBrowserBundle` produce standalone browser
+  companions without a Swift or WASM build. Choose Canvas or experimental DOM
+  explicitly; DOM bundles include their fonts and license (STUI-945).
+- A self-starting local DOM demo for browser development (STUI-942).
+
+### Changed
+
+- Explicit renderer builds exclude the unused renderer and reject attempts to
+  select it at runtime. Canvas remains the default; framework companions use a
+  Canvas-only bundle. General runtime imports retain both renderer choices
+  unless the bundler sets the renderer define (STUI-945).
+- Experimental DOM rendering uses packaged Ioskeley Mono fonts (STUI-926).
+
 ## [0.17.0] - 2026-10-12
 
 Lockstep release for SwiftTUI 0.17.0. Browser runtime and build-tool behavior
@@ -376,7 +393,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.17.0...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.18.0...HEAD
+[0.18.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.18.0
 [0.17.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.17.0
 [0.16.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.16.0
 [0.15.1]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.15.1
