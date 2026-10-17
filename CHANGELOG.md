@@ -11,6 +11,10 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-10-17
+
+Coordinated release metadata for SwiftTUI 0.18.2. Browser runtime and build-tool behavior are unchanged. The browser qualification fixture now covers framework 0.18.1 and advances to 0.18.2 after coordinated release acceptance.
+
 ## [0.18.1] - 2026-10-17
 
 Lockstep release for the SwiftTUI 0.18.1 bug fixes. Browser runtime and build-tool
@@ -400,7 +404,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.18.1...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.18.2...HEAD
+[0.18.2]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.18.2
 [0.18.1]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.18.1
 [0.18.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.18.0
 [0.17.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.17.0
