@@ -81,7 +81,7 @@ use one adapter. Missing properties clear prior attributes on retained elements;
 unknown optional object keys are ignored, while malformed known fields reject
 the frame. Older producers, including 0.15.1, remain valid without the object.
 Older adapters ignore the extension, so rich semantics require matching updated
-producer and adapter sources, as paired framework and browser 0.18.3 provide.
+producer and adapter sources, as paired framework and browser 0.19.0 provide.
 
 Relationship lists contain wire node IDs, never DOM IDs. The adapter resolves
 present, nonhidden same-scene targets and drops missing, duplicate and self
@@ -159,7 +159,7 @@ stdin works.
 
 **The DOM renderer is experimental.** It is opt-in, has documented typography and
 performance limits, and is not a production-qualified or WCAG-conformant
-host profile. Canvas remains the default. Release 0.18.3 includes the packaged
+host profile. Canvas remains the default. Release 0.19.0 includes the packaged
 fonts and correlated geometry described below. Use matching framework and
 browser versions for the complete geometry and semantic transport.
 

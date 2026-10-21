@@ -143,7 +143,7 @@ jobs:
             gh release create "$version" \
               --target "$GITHUB_SHA" \
               --title "$version" \
-              --notes "SwiftTUI web packages $version" \
+              --notes "" \
               "$web_tarball" \
               "$build_tarball"
           fi
