@@ -1,6 +1,7 @@
 // Deterministic pseudo-random generation with shrinking, for adversarial
-// property tests under `bun test`. Test-only: nothing here is exported from a
-// public entrypoint. The Swift twin lives in swift-tui's SwiftTUITestSupport
+// property tests under `bun test`. Test-only: it lives outside `src/` so the
+// browser bundle's entry graph and the WebHost bundle provenance check never
+// see it, and nothing exports it from a public entrypoint. The Swift twin lives in swift-tui's SwiftTUITestSupport
 // (SeededGeneration.swift); the two share the SplitMix64 stream so a seed
 // reproduces the same integer sequence on both sides.
 

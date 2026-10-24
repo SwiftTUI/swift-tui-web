@@ -6,7 +6,7 @@ import {
   Gen,
   graphemeAlphabet,
   SeededRandomSource,
-} from "./SeededGenerator.ts";
+} from "../test-support/SeededGenerator.ts";
 
 test("SplitMix64 reproduces the reference stream for seed 0", () => {
   // Reference values from the SplitMix64 paper's test vector (seed 0).
