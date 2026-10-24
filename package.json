@@ -11,6 +11,8 @@
     "test": "bun test packages/web packages/build",
     "test:browser": "bun run build:packages && bun run build:browser-fixture && bun run test:browser:built",
     "test:browser:built": "bun run typecheck:browser && playwright test --config packages/web/e2e/playwright.config.ts",
+    "test:browser:w2": "bun run build:packages && bun run typecheck:browser && playwright test --config packages/web/e2e/w2.playwright.config.ts",
+    "test:browser:w2:built": "playwright test --config packages/web/e2e/w2.playwright.config.ts",
     "build:browser-fixture": "bun run packages/web/e2e/build-wasm-fixture.ts",
     "demo:dom": "bun run build:packages && bun run build:browser-fixture && bun run demo:dom:built",
     "demo:dom:built": "bun run packages/web/e2e/serve.ts --demo",
