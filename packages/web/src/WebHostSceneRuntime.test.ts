@@ -2631,6 +2631,73 @@ test("Canvas keeps Ctrl keys as terminal input and Command keys for the browser 
   }
 });
 
+// Wave-2 regression hunt, part CB (STUI-1165): neighbours of the STUI-1190
+// renderer-independent Ctrl/Command+wheel bypass. The coordination root's
+// wave-2 hunt evidence owns the case descriptions (w2cb005, w2cb006).
+test("w2cb005 Canvas leaves Ctrl/Command+wheel combinations and the legacy capture flag to the browser", async () => {
+  const dom = installFakeDOM();
+  try {
+    const cases = [
+      [
+        "Ctrl+Shift",
+        { wheelMode: "capture" },
+        { ctrlKey: true, shiftKey: true },
+      ],
+      ["Ctrl+Alt", { wheelMode: "capture" }, { ctrlKey: true, altKey: true }],
+      [
+        "Command+Shift",
+        { wheelMode: "capture" },
+        { metaKey: true, shiftKey: true },
+      ],
+      [
+        "horizontal Ctrl",
+        { wheelMode: "capture" },
+        { ctrlKey: true, deltaX: 20, deltaY: 0 },
+      ],
+      ["legacy capture Ctrl", { captureWheelInput: true }, { ctrlKey: true }],
+      [
+        "legacy capture Command",
+        { captureWheelInput: true },
+        { metaKey: true },
+      ],
+    ] as const;
+    const observed: string[] = [];
+    for (const [label, mode, modifiers] of cases) {
+      const result = await wheelScenario({
+        ...mode,
+        wheel: { clientX: 5, clientY: 5, deltaY: 20, ...modifiers },
+      });
+      observed.push(
+        `${label}: prevented=${result.wheelPrevented} records=${result.scrolled.length}`,
+      );
+    }
+    expect(observed).toEqual(
+      cases.map(([label]) => `${label}: prevented=false records=0`),
+    );
+  } finally {
+    dom.restore();
+  }
+});
+
+test("w2cb006 an interleaved Ctrl+wheel leaves chain-mode routing of later wheels unchanged", async () => {
+  const dom = installFakeDOM();
+  try {
+    const result = await modifiedWheelSequence({
+      wheelMode: "chain",
+      scrollRegions: [
+        { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
+      ],
+      wheels: [{}, { ctrlKey: true }, {}, { shiftKey: true }],
+    });
+    expect(result.prevented).toEqual([true, false, true, true]);
+    expect(
+      result.scrolled.map((record) => record.trim().split(":").at(-1)),
+    ).toEqual(["0", "0", "1"]);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime preserves pointer movement within one cell", async () => {
   const dom = installFakeDOM();
   try {
@@ -3926,6 +3993,70 @@ async function mountWheelScene(options: {
   }
   bridge.stdout.write(encoder.encode(surfaceRecord(frame)));
   return { runtime, inputs };
+}
+
+/**
+ * Dispatches several modified wheels over one Canvas scene (w2cb006). Each
+ * wheel travels one line, one whole row, so STUI-1191's sub-cell accumulation
+ * leaves one record per captured wheel.
+ */
+async function modifiedWheelSequence(options: {
+  wheelMode: WheelMode;
+  scrollRegions: Array<Record<string, unknown>>;
+  wheels: Array<{ shiftKey?: boolean; ctrlKey?: boolean }>;
+}): Promise<{ prevented: boolean[]; scrolled: string[] }> {
+  const inputs: string[] = [];
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 4,
+    rows: 2,
+  });
+  const runtime = new WebHostSceneRuntime({
+    mount: new FakeElement("div") as unknown as HTMLElement,
+    descriptor: { id: "main", title: "Main", isDefault: true },
+    style: { fontSize: 20 },
+    bridge,
+    onInput: (chunk) => {
+      inputs.push(decoder.decode(chunk));
+    },
+    synchronizeAccessibilityFocus: false,
+    wheelMode: options.wheelMode,
+  });
+  await runtime.mount();
+  bridge.stdout.write(
+    encoder.encode(
+      surfaceRecord({
+        version: 2,
+        width: 4,
+        height: 2,
+        styles: [null],
+        rows: [[], []],
+        scrollRegions: options.scrollRegions,
+      }),
+    ),
+  );
+  const prevented = options.wheels.map((modifiers) => {
+    let wheelPrevented = false;
+    runtime.terminalMount.dispatch("wheel", {
+      clientX: 5,
+      clientY: 5,
+      deltaX: 0,
+      deltaY: 1,
+      deltaMode: 1,
+      shiftKey: modifiers.shiftKey ?? false,
+      altKey: false,
+      ctrlKey: modifiers.ctrlKey ?? false,
+      metaKey: false,
+      preventDefault() {
+        wheelPrevented = true;
+      },
+    });
+    return wheelPrevented;
+  });
+  return {
+    prevented,
+    scrolled: inputs.filter((input) => input.includes(":scrolled:")),
+  };
 }
 
 function surfaceRecord(frame: Record<string, unknown>): string {

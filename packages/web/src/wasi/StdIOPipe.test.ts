@@ -118,3 +118,84 @@ test("close settles a pending read without notifying observers (wave2web-r07)", 
   expect(pipe.write(new Uint8Array([5]))).toBe(false);
   expect(observed).toEqual([]);
 });
+
+// Wave-2 regression hunt, part CB (STUI-1165): neighbours of the STUI-1181
+// repair. The coordination root's wave-2 hunt evidence owns the case
+// descriptions (w2cb001–w2cb003).
+
+test("w2cb001 an async-iterator reader and an observer see every write once in order", async () => {
+  const pipe = new StdIOPipe();
+  const observed: number[][] = [];
+  pipe.subscribe((chunk) => {
+    observed.push([...chunk]);
+  });
+  const iterator = pipe[Symbol.asyncIterator]();
+  const received: (number[] | undefined)[] = [];
+  const first = iterator.next();
+  pipe.write(new Uint8Array([1]));
+  const waiterTookFirst = pipe.bufferedBytes === 0;
+  received.push(chunkArray((await first).value));
+  // The iterator is not parked: these writes take the queued path.
+  pipe.write(new Uint8Array([2]));
+  pipe.write(new Uint8Array([3]));
+  const queuedWhileBusy = pipe.bufferedBytes;
+  received.push(chunkArray((await iterator.next()).value));
+  received.push(chunkArray((await iterator.next()).value));
+  const fourth = iterator.next();
+  pipe.write(new Uint8Array([4]));
+  const waiterTookFourth = pipe.bufferedBytes === 0;
+  received.push(chunkArray((await fourth).value));
+  pipe.close();
+  const end = await iterator.next();
+  expect({ waiterTookFirst, queuedWhileBusy, waiterTookFourth }).toEqual({
+    waiterTookFirst: true,
+    queuedWhileBusy: 2,
+    waiterTookFourth: true,
+  });
+  expect(received).toEqual([[1], [2], [3], [4]]);
+  expect(observed).toEqual([[1], [2], [3], [4]]);
+  expect(end.done).toBe(true);
+  expect(pipe.bufferedBytes).toBe(0);
+});
+
+test("w2cb002 a throwing observer does not take a waiter-path chunk from its reader", async () => {
+  const pipe = new StdIOPipe();
+  const seen: number[][] = [];
+  const detachThrowing = pipe.subscribe(() => {
+    throw new Error("observer failed");
+  });
+  pipe.subscribe((chunk) => {
+    seen.push([...chunk]);
+  });
+  const first = pipe.read();
+  try {
+    pipe.write(new Uint8Array([1]));
+  } catch {
+    // Whether a throwing observer's error reaches the writer is not under test.
+  }
+  expect(chunkArray(await first)).toEqual([1]);
+  expect(pipe.bufferedBytes).toBe(0);
+  detachThrowing();
+  const second = pipe.read();
+  expect(pipe.write(new Uint8Array([2]))).toBe(true);
+  expect(chunkArray(await second)).toEqual([2]);
+  expect(pipe.bufferedBytes).toBe(0);
+  expect(seen.at(-1)).toEqual([2]);
+  pipe.close();
+});
+
+test("w2cb003 waiter-path delivery is isolated from later writer-buffer mutation", async () => {
+  const pipe = new StdIOPipe();
+  let observedChunk: Uint8Array | undefined;
+  pipe.subscribe((chunk) => {
+    observedChunk = chunk;
+  });
+  const pending = pipe.read();
+  const source = new Uint8Array([5, 6]);
+  pipe.write(source);
+  source.fill(9);
+  const delivered = await pending;
+  expect(chunkArray(delivered)).toEqual([5, 6]);
+  expect(chunkArray(observedChunk)).toEqual([5, 6]);
+  pipe.close();
+});

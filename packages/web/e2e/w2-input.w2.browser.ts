@@ -996,3 +996,63 @@ for (const phase of ["edge", "none"] as const) {
     await page.waitForFunction(() => window.scrollY > 0);
   });
 }
+
+// ---- Wave-2 regression hunt, part CB (STUI-1165) ---------------------------
+//
+// Neighbours of the STUI-1190 renderer-independent Ctrl/Command+wheel bypass.
+// The coordination root's wave-2 hunt evidence owns the case descriptions
+// (w2cb007, w2cb008).
+
+for (const renderer of ["canvas", "dom"] as const) {
+  test(`w2cb007 ${renderer}: Ctrl/Command+wheel over chain headroom stays with the browser`, async ({
+    page,
+  }) => {
+    await capturingScene(page, {
+      wheelMode: "chain",
+      scrollRegion: true,
+      renderer,
+    });
+    const result = await modifiedWheels(page, ["ctrlKey", "metaKey", "plain"]);
+    expect(result.ctrlKey).toEqual({ prevented: false, records: [] });
+    expect(result.metaKey).toEqual({ prevented: false, records: [] });
+    expect(result.plain?.prevented).toBe(true);
+    expect(result.plain?.records.map((r) => r.split(":").at(-1))).toEqual([
+      "0",
+    ]);
+  });
+}
+
+test("w2cb008 a real Control-held wheel over presented chain headroom stays with the browser", async ({
+  page,
+}) => {
+  const scene = await embeddedChainScene(page, "headroom");
+  const observe = async (count: number) => {
+    await scene.child.waitForFunction(
+      (count) =>
+        (window as unknown as { __wheels: boolean[] }).__wheels.length >= count,
+      count,
+    );
+    return await scene.child.evaluate(() => {
+      const state = window as unknown as {
+        __w2id: number;
+        __wheels: boolean[];
+      };
+      return {
+        prevented: state.__wheels.at(-1) === true,
+        records: window.__w2
+          .mouseInputs(state.__w2id)
+          .filter((record) => record.includes(":scrolled:")).length,
+      };
+    });
+  };
+  await page.mouse.move(scene.x, scene.y);
+  // A plain real wheel first proves routing is live over the presented region.
+  await page.mouse.wheel(0, 400);
+  const plain = await observe(1);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, 400);
+  const controlHeld = await observe(2);
+  await page.keyboard.up("Control");
+  expect(plain).toEqual({ prevented: true, records: 1 });
+  expect(controlHeld).toEqual({ prevented: false, records: 1 });
+});

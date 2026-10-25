@@ -483,3 +483,43 @@ test("bridge delivers typed runtime issues and frame diagnostics to sinks", () =
   ]);
   expect(text).toEqual([]);
 });
+
+// Wave-2 regression hunt, part CB (STUI-1165), w2cb004: a caller of
+// StdIOPipe.write's result after the STUI-1181 repair. The coordination
+// root's wave-2 hunt evidence owns the case description.
+test("w2cb004 a resync request a parked stdin reader already took is not delivered again", async () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  let declining = true;
+  const unsubscribe = bridge.stdin.subscribe(() =>
+    declining ? false : undefined,
+  );
+  bridge.bindOutput({ presentSurface: () => {} });
+  const parked = bridge.stdin.read();
+  bridge.requestImagePayloads(["png:a"]);
+  const delivered = await parked;
+  expect(new TextDecoder().decode(delivered)).toBe(
+    '\u001Eresync:{"scope":"images","ids":["png:a"]}\n',
+  );
+  declining = false;
+  bridge.notifyInputCapacityAvailable();
+  const redelivered = bridge.stdin.bufferedBytes;
+  if (Bun.env.SWIFTTUI_W2HUNT_UNMARKED === "1") {
+    expect(redelivered).toBe(0);
+  } else {
+    // NEW-1: StdIOPipe.write returns false for a chunk a pending read already
+    // took when an observer declines (STUI-1181 repair), and the bridge
+    // re-queues every refused resync request. Qualify the exact observed
+    // value before guarding only the contract.
+    expect(redelivered).toBe(delivered?.byteLength ?? -1);
+    expect(() => expect(redelivered).toBe(0)).toThrow();
+    console.info(
+      "W2HUNT_KNOWN_ASSERTION w2cb004 NEW-1: a resync request the parked stdin reader took is queued again after a capacity notification; StdIOPipe.write reports an observer's decline as a failed delivery; contract: BrowserWASIBridge.notifyInputCapacityAvailable retries only a failed delivery; adjacent STUI-1181",
+    );
+  }
+  unsubscribe();
+  bridge.dispose();
+});
