@@ -2432,6 +2432,102 @@ test("default wheel mode is chain: page scrolls with no scrollable region", asyn
   }
 });
 
+// Wave 2 repair scenarios for STUI-1190. Browsers deliver a trackpad pinch as a
+// Ctrl+wheel; README "Ctrl/Command+wheel is left for browser zoom" holds for
+// the default Canvas renderer as well as DOM. These fake-DOM runtimes use Canvas.
+test.each([
+  ["Ctrl+wheel in capture mode (wave2web-r08)", "capture", { ctrlKey: true }],
+  [
+    "Command+wheel in capture mode (wave2web-r09)",
+    "capture",
+    { metaKey: true },
+  ],
+  ["Ctrl+wheel over chain headroom (wave2web-r10)", "chain", { ctrlKey: true }],
+] as const)(
+  "Canvas leaves %s to browser zoom",
+  async (_, wheelMode, modifiers) => {
+    const dom = installFakeDOM();
+    try {
+      const result = await wheelScenario({
+        wheelMode,
+        scrollRegions: [
+          { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
+        ],
+        wheel: { clientX: 5, clientY: 5, deltaY: 20, ...modifiers },
+      });
+      expect(result.wheelPrevented).toBe(false);
+      expect(result.scrolled).toEqual([]);
+    } finally {
+      dom.restore();
+    }
+  },
+);
+
+test("Canvas still forwards Shift and Alt wheels with their modifier bits (wave2web-r11)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const shifted = await wheelScenario({
+      wheelMode: "capture",
+      wheel: { clientX: 5, clientY: 5, deltaY: 20, shiftKey: true },
+    });
+    const alternate = await wheelScenario({
+      wheelMode: "capture",
+      wheel: { clientX: 5, clientY: 5, deltaY: 20, altKey: true },
+    });
+    expect(shifted.wheelPrevented).toBe(true);
+    expect(
+      shifted.scrolled.map((record) => record.trim().split(":").at(-1)),
+    ).toEqual(["1"]);
+    expect(alternate.wheelPrevented).toBe(true);
+    expect(
+      alternate.scrolled.map((record) => record.trim().split(":").at(-1)),
+    ).toEqual(["2"]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("Canvas keeps Ctrl keys as terminal input and Command keys for the browser (wave2web-r13)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const inputs: string[] = [];
+    const runtime = new WebHostSceneRuntime({
+      mount: new FakeElement("div") as unknown as HTMLElement,
+      descriptor: { id: "main", title: "Main", isDefault: true },
+      style: { fontSize: 20 },
+      onInput: (chunk) => {
+        inputs.push(decoder.decode(chunk));
+      },
+    });
+    await runtime.mount();
+    runtime.resize(10, 4);
+    const press = (key: string, modifier: "ctrlKey" | "metaKey") => {
+      let prevented = false;
+      runtime.terminalMount.dispatch("keydown", {
+        key,
+        shiftKey: false,
+        altKey: false,
+        ctrlKey: modifier === "ctrlKey",
+        metaKey: modifier === "metaKey",
+        isComposing: false,
+        preventDefault() {
+          prevented = true;
+        },
+      });
+      return prevented;
+    };
+    expect(press("f", "ctrlKey")).toBe(true);
+    expect(press("=", "ctrlKey")).toBe(true);
+    expect(press("f", "metaKey")).toBe(false);
+    expect(inputs).toEqual([
+      "\u001Ekey:character:f:4\n",
+      "\u001Ekey:character:%3D:4\n",
+    ]);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime preserves pointer movement within one cell", async () => {
   const dom = installFakeDOM();
   try {
@@ -3611,11 +3707,21 @@ async function wheelScenario(options: {
   wheelMode?: WheelMode;
   captureWheelInput?: boolean;
   scrollRegions?: Array<Record<string, unknown>>;
-  wheel: { clientX: number; clientY: number; deltaX?: number; deltaY?: number };
+  wheel: {
+    clientX: number;
+    clientY: number;
+    deltaX?: number;
+    deltaY?: number;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+  };
 }): Promise<{
   captured: boolean;
   wheelPrevented: boolean;
   overscrollBehavior: string;
+  scrolled: string[];
 }> {
   const inputs: string[] = [];
   const bridge = new BrowserWASIBridge({
@@ -3656,9 +3762,10 @@ async function wheelScenario(options: {
     clientY: options.wheel.clientY,
     deltaX: options.wheel.deltaX ?? 0,
     deltaY: options.wheel.deltaY ?? 0,
-    shiftKey: false,
-    altKey: false,
-    ctrlKey: false,
+    shiftKey: options.wheel.shiftKey ?? false,
+    altKey: options.wheel.altKey ?? false,
+    ctrlKey: options.wheel.ctrlKey ?? false,
+    metaKey: options.wheel.metaKey ?? false,
     preventDefault() {
       wheelPrevented = true;
     },
@@ -3668,6 +3775,7 @@ async function wheelScenario(options: {
     captured: inputs.some((i) => i.includes("scrolled")),
     wheelPrevented,
     overscrollBehavior: String(runtime.terminalMount.style.overscrollBehavior),
+    scrolled: inputs.filter((i) => i.includes(":scrolled:")),
   };
 }
 

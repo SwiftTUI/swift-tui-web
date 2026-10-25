@@ -241,8 +241,10 @@ The option is also available for each scene runtime through
 DOM host keyboard routing leaves all Command shortcuts to the browser, plus
 Ctrl+F, +, =, -, 0, L, R, T, W, N, Tab, PageUp and PageDown. Ctrl+C passes through
 when browser text is selected; Alt+Left/Right retain browser navigation.
-Ctrl/Command+wheel is left for browser zoom. Other recognized characters,
-Enter, Space, arrows, Backspace, Escape, Home and End enter Swift input.
+With either renderer, Ctrl/Command+wheel (including a trackpad pinch, which
+browsers deliver as Ctrl+wheel) is left for browser zoom in every wheel mode.
+Other recognized characters, Enter, Space, arrows, Backspace, Escape, Home and
+End enter Swift input.
 Within the semantic control list, Tab and Shift+Tab move browser focus immediately
 and send the shared typed focus action. Disabled controls are skipped; the first
 and last controls retain native browser exits. This also covers Safari's default

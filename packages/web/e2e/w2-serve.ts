@@ -59,6 +59,24 @@ const fixtureHtml = `<!doctype html>
 </html>
 `;
 
+// A tall host page embedding the fixture in an iframe, with the counter demo's
+// scroll-chain harness geometry, so journeys can drive real wheel input whose
+// default action chains to an outer document (wave 2, STUI-1207).
+const scrollChainHostHtml = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>SwiftTUI W2 scroll-chain host</title>
+    <style>
+      html, body { margin: 0; min-height: 100%; }
+      main { min-height: 2400px; padding-top: 80px; }
+      iframe { display: block; width: 720px; height: 480px; margin: 0 auto; border: 0; }
+    </style>
+  </head>
+  <body><main><iframe src="/" title="W2 scroll-chain fixture"></iframe></main></body>
+</html>
+`;
+
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port,
@@ -70,6 +88,10 @@ const server = Bun.serve({
       return new Response(null, { status: 204, headers });
     if (path === "/" || path === "/index.html")
       return new Response(fixtureHtml, {
+        headers: { ...headers, "Content-Type": "text/html" },
+      });
+    if (path === "/scroll-chain-host")
+      return new Response(scrollChainHostHtml, {
         headers: { ...headers, "Content-Type": "text/html" },
       });
     if (path === "/style.css")

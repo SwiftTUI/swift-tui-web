@@ -17,13 +17,16 @@ export class StdIOPipe implements AsyncIterable<Uint8Array> {
       typeof chunk === "string"
         ? new TextEncoder().encode(chunk)
         : new Uint8Array(chunk);
+    let accepted = true;
     const waiter = this.waiters.shift();
     if (waiter) {
+      // A pending read takes the chunk; it is not also queued. Observers
+      // still see it below: they watch writes, not queue consumption.
       waiter({ done: false, value: bytes });
-      return true;
+    } else {
+      if (!this.consumer) this.chunks.push(bytes);
+      accepted = this.consumer?.(bytes) !== false;
     }
-    if (!this.consumer) this.chunks.push(bytes);
-    let accepted = this.consumer?.(bytes) !== false;
     for (const listener of this.listeners) {
       if (listener(bytes) === false) accepted = false;
     }

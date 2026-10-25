@@ -142,6 +142,9 @@ export interface WebHostSceneRuntimeOptions {
    *   where there is no page to scroll past.
    * - `"passive"`: never capture; the page always scrolls.
    *
+   * In every mode, Ctrl/Command+wheel (and a trackpad pinch, which browsers
+   * deliver as Ctrl+wheel) is left to the browser for zoom.
+   *
    * Takes precedence over the legacy `captureWheelInput` flag.
    */
   wheelMode?: WheelMode;
@@ -1281,10 +1284,9 @@ export class WebHostSceneRuntime {
     };
 
     const handleWheel = (event: WheelEvent) => {
-      if (
-        this.wheelMode === "passive" ||
-        (this.rendererKind === "dom" && (event.ctrlKey || event.metaKey))
-      ) {
+      // Ctrl/Command+wheel is browser zoom with either renderer; browsers also
+      // deliver a trackpad pinch as a Ctrl+wheel. Never claim it for the app.
+      if (this.wheelMode === "passive" || event.ctrlKey || event.metaKey) {
         return;
       }
 

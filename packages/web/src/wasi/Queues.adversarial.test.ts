@@ -76,15 +76,9 @@ for (let id = 131; id <= 144; id++) {
           const pending = pipe.read();
           pipe.write(bytes(2));
           expect(array(await pending)).toEqual([2]);
-          if (Bun.env.SWIFTTUI_W1_UNMARKED === "1") {
-            expect(observed).toEqual([[1], [2]]);
-          } else {
-            // Only this reproduced assertion is expected to fail. Qualifying
-            // the exact current value keeps other observer changes unexpected.
-            expect(observed).toEqual([[1]]);
-            expect(() => expect(observed).toEqual([[1], [2]])).toThrow();
-            console.info("W1_KNOWN_ASSERTION w1s138 STUI-1181");
-          }
+          // STUI-1181 (fixed in wave 2): the write that satisfied the pending
+          // read is still observed.
+          expect(observed).toEqual([[1], [2]]);
           break;
         }
         case 139:

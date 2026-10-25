@@ -4,7 +4,7 @@
 // coalescing rules. Finding assertions encode the reproduced current behavior
 // and log a W2_KNOWN_ASSERTION; under SWIFTTUI_W2_UNMARKED=1 they assert the
 // contract-correct value instead (so the unmarked run shows the finding).
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Frame, type Page, test } from "@playwright/test";
 import type { WebHostAccessibilityNode } from "./w2-adversarial.fixture.ts";
 
 const UNMARKED = process.env.SWIFTTUI_W2_UNMARKED === "1";
@@ -315,12 +315,16 @@ test("a paste of multi-line Unicode text is delivered percent-encoded and unspli
 
 async function capturingScene(
   page: Page,
-  options: { wheelMode?: "capture" | "chain"; scrollRegion?: boolean } = {},
+  options: {
+    wheelMode?: "capture" | "chain";
+    scrollRegion?: boolean;
+    renderer?: "canvas" | "dom";
+  } = {},
 ): Promise<void> {
   await page.evaluate(
-    async ({ wheelMode, scrollRegion }) => {
+    async ({ wheelMode, scrollRegion, renderer }) => {
       const id = await window.__w2.create({
-        renderer: "canvas",
+        renderer,
         wheelMode,
         mountWidth: 480,
         mountHeight: 240,
@@ -358,6 +362,7 @@ async function capturingScene(
     {
       wheelMode: options.wheelMode ?? "capture",
       scrollRegion: options.scrollRegion ?? false,
+      renderer: options.renderer ?? "canvas",
     },
   );
 }
@@ -631,7 +636,7 @@ test("chain-mode wheel captures with headroom and falls through at the edge (w2s
   expect(result.records).toBe(1);
 });
 
-test("a canvas scene captures Ctrl+wheel and blocks browser zoom (w2s028)", async ({
+test("a canvas scene leaves Ctrl+wheel to browser zoom (w2s028)", async ({
   page,
 }) => {
   await capturingScene(page, { wheelMode: "capture" });
@@ -655,17 +660,247 @@ test("a canvas scene captures Ctrl+wheel and blocks browser zoom (w2s028)", asyn
         .filter((r) => r.includes(":scrolled:")).length,
     };
   });
-  if (UNMARKED) {
-    // README leaves Ctrl/Command+wheel to browser zoom; a canvas scene should
-    // not preventDefault a pinch-zoom gesture.
-    expect(result.prevented).toBe(false);
-    expect(result.records).toBe(0);
-  } else {
-    expect(result.prevented).toBe(true);
-    expect(result.records).toBe(1);
-    known(
-      "w2s028",
-      "STUI-1190: Canvas renderer traps Ctrl+wheel (pinch-zoom) while the DOM renderer leaves it to the browser; contract: README Ctrl+wheel policy",
-    );
-  }
+  // STUI-1190 (fixed in wave 2): README leaves Ctrl/Command+wheel to browser
+  // zoom; a canvas scene must not preventDefault a pinch-zoom gesture.
+  expect(result.prevented).toBe(false);
+  expect(result.records).toBe(0);
 });
+
+// Wave 2 repair journeys for STUI-1190 (wave2web-r15, r16): synthetic wheels
+// with each modifier over a capture-mode scene of each renderer.
+async function modifiedWheels(
+  page: Page,
+  modifiers: readonly ("plain" | "ctrlKey" | "metaKey" | "shiftKey")[],
+): Promise<Record<string, { prevented: boolean; records: string[] }>> {
+  return await page.evaluate((modifiers) => {
+    const id = (window as unknown as { __w2id: number }).__w2id;
+    const el = document.querySelector<HTMLElement>(".webhost-scene__terminal");
+    if (!el) throw new Error("no W2 terminal");
+    const rect = el.getBoundingClientRect();
+    const results: Record<string, { prevented: boolean; records: string[] }> =
+      {};
+    for (const modifier of modifiers) {
+      const before = window.__w2.mouseInputs(id).length;
+      const event = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: 120,
+        clientX: rect.left + 10,
+        clientY: rect.top + 10,
+        ...(modifier === "plain" ? {} : { [modifier]: true }),
+      });
+      el.dispatchEvent(event);
+      results[modifier] = {
+        prevented: event.defaultPrevented,
+        records: window.__w2
+          .mouseInputs(id)
+          .slice(before)
+          .filter((r) => r.includes(":scrolled:")),
+      };
+    }
+    return results;
+  }, modifiers);
+}
+
+test("a canvas scene leaves Command+wheel to the browser (wave2web-r15)", async ({
+  page,
+}) => {
+  await capturingScene(page, { wheelMode: "capture" });
+  const result = await modifiedWheels(page, ["metaKey"]);
+  expect(result.metaKey).toEqual({ prevented: false, records: [] });
+});
+
+for (const renderer of ["canvas", "dom"] as const) {
+  test(`${renderer}: plain and Shift wheels stay app input${renderer === "dom" ? " and Ctrl/Command wheels go to the browser" : ""} (wave2web-r16)`, async ({
+    page,
+  }) => {
+    await capturingScene(page, { wheelMode: "capture", renderer });
+    const result = await modifiedWheels(
+      page,
+      renderer === "dom"
+        ? ["ctrlKey", "metaKey", "plain", "shiftKey"]
+        : ["plain", "shiftKey"],
+    );
+    if (renderer === "dom") {
+      expect(result.ctrlKey).toEqual({ prevented: false, records: [] });
+      expect(result.metaKey).toEqual({ prevented: false, records: [] });
+    }
+    expect(result.plain?.prevented).toBe(true);
+    expect(result.plain?.records.map((r) => r.split(":").at(-1))).toEqual([
+      "0",
+    ]);
+    expect(result.shiftKey?.prevented).toBe(true);
+    expect(result.shiftKey?.records.map((r) => r.split(":").at(-1))).toEqual([
+      "1",
+    ]);
+  });
+}
+
+// ---- Embedded chain-mode headroom under real wheel input (STUI-1207) --------
+//
+// Wave 2 root-cause journeys (wave2web-r17..r20). The counter demo's
+// scroll-chaining spec embeds a geometry-negotiating producer in an iframe on a
+// tall page and wheels as soon as any frame has been decoded. These journeys
+// rebuild that case with this repository's fixture: a synthetic peer that
+// acknowledges geometry revisions, the counter harness's host page, and real
+// Chromium wheel input whose default action chains to the outer document.
+
+type ChainPhase = "pending" | "headroom" | "edge" | "none";
+
+async function embeddedChainScene(
+  page: Page,
+  phase: ChainPhase,
+): Promise<{ child: Frame; x: number; y: number }> {
+  await page.goto("/scroll-chain-host");
+  const handle = await page.locator("iframe").elementHandle();
+  const child = await handle?.contentFrame();
+  if (!child) throw new Error("scroll-chain iframe did not attach");
+  await child.waitForFunction(
+    () => document.querySelector("#journey-root") !== null,
+  );
+  await child.addScriptTag({ url: "/w2-adversarial.js", type: "module" });
+  await child.waitForFunction(() => !!window.__w2);
+  const point = await child.evaluate(async (phase) => {
+    const id = await window.__w2.create({
+      renderer: "canvas",
+      wheelMode: "chain",
+      mountWidth: 640,
+      mountHeight: 360,
+    });
+    const state = window as unknown as { __w2id: number; __wheels: boolean[] };
+    state.__w2id = id;
+    state.__wheels = [];
+    // Bubble listener: runs after the runtime's own terminal handler, so it
+    // records whether the runtime claimed the wheel.
+    window.addEventListener(
+      "wheel",
+      (event) => state.__wheels.push(event.defaultPrevented),
+      { passive: true },
+    );
+    const terminal = document.querySelector<HTMLElement>(
+      ".webhost-scene__terminal",
+    );
+    if (!terminal) throw new Error("no W2 terminal");
+    const region = (columns: number, rows: number) =>
+      phase === "none"
+        ? {}
+        : {
+            scrollRegions: [
+              {
+                id: "browser-scroll-chain-fixture",
+                rect: [0, 0, columns, rows] as [number, number, number, number],
+                offset: [0, phase === "edge" ? 20 : 0] as [number, number],
+                content: [columns, rows + 20] as [number, number],
+              },
+            ],
+          };
+    // Revision-zero acknowledgement at the producer's launch grid, carrying
+    // the region exactly as the counter spec's JSON.parse patch does.
+    window.__w2.present(id, {
+      geometryRevision: 0,
+      width: 40,
+      height: 12,
+      rows: window.__w2.helpers.fullRows(40, 12, "W"),
+      ...region(40, 12),
+    });
+    if (!terminal.hasAttribute("data-geometry-pending"))
+      throw new Error("the acknowledgement did not start a geometry request");
+    if (phase !== "pending") {
+      const request = window.__w2
+        .inputs(id)
+        .filter((record) => record.startsWith("\u001egeometry:"))
+        .at(-1);
+      if (!request) throw new Error("no geometry request was sent");
+      const [, revision = 0, columns = 1, rows = 1] = request
+        .split(":")
+        .map(Number);
+      window.__w2.present(id, {
+        geometryRevision: revision,
+        width: columns,
+        height: rows,
+        rows: window.__w2.helpers.fullRows(columns, rows, "W"),
+        ...region(columns, rows),
+      });
+    }
+    const rect = terminal.getBoundingClientRect();
+    return { x: rect.left + 10, y: rect.top + 10 };
+  }, phase);
+  if (phase !== "pending")
+    // Producer-owned presentation signal: the runtime painted the requested
+    // geometry and cleared its geometry wait (WebHostSceneRuntime.paint).
+    await child.waitForFunction(() => {
+      const id = (window as unknown as { __w2id: number }).__w2id;
+      const terminal = document.querySelector(".webhost-scene__terminal");
+      const statistics = window.__w2.paintStatistics(id);
+      return (
+        !terminal?.hasAttribute("data-geometry-pending") &&
+        !statistics.pending &&
+        statistics.paints > 0 &&
+        window.__w2.geometry(id)?.sourceRevision !== undefined
+      );
+    });
+  const frame = await page.locator("iframe").boundingBox();
+  if (!frame) throw new Error("scroll-chain iframe has no bounds");
+  return { child, x: frame.x + point.x, y: frame.y + point.y };
+}
+
+async function realWheel(
+  page: Page,
+  scene: { child: Frame; x: number; y: number },
+): Promise<{ prevented: boolean; records: number }> {
+  await page.mouse.move(scene.x, scene.y);
+  await page.mouse.wheel(0, 400);
+  await scene.child.waitForFunction(
+    () => (window as unknown as { __wheels: boolean[] }).__wheels.length > 0,
+  );
+  return await scene.child.evaluate(() => {
+    const state = window as unknown as { __w2id: number; __wheels: boolean[] };
+    return {
+      prevented: state.__wheels[0] === true,
+      records: window.__w2
+        .mouseInputs(state.__w2id)
+        .filter((record) => record.includes(":scrolled:")).length,
+    };
+  });
+}
+
+async function outerScrollAfterFrames(page: Page): Promise<number> {
+  return await page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    return window.scrollY;
+  });
+}
+
+test("embedded chain headroom keeps a real wheel once its geometry is presented (wave2web-r17)", async ({
+  page,
+}) => {
+  const scene = await embeddedChainScene(page, "headroom");
+  const result = await realWheel(page, scene);
+  expect(result).toEqual({ prevented: true, records: 1 });
+  expect(await outerScrollAfterFrames(page)).toBe(0);
+});
+
+test("a real wheel before the requested geometry is presented chains to the outer page (wave2web-r18)", async ({
+  page,
+}) => {
+  // The counter-demo failure state: a decoded revision-zero frame publishes
+  // headroom, but no frame at the requested geometry has been painted, so no
+  // region is visible and pointer input is not yet routed (README geometry
+  // revisions; HostGeometrySession.allowsPointer).
+  const scene = await embeddedChainScene(page, "pending");
+  const result = await realWheel(page, scene);
+  expect(result).toEqual({ prevented: false, records: 0 });
+  await page.waitForFunction(() => window.scrollY > 0);
+});
+
+for (const phase of ["edge", "none"] as const) {
+  test(`a presented ${phase === "edge" ? "region at its scroll edge" : "scene without scroll regions"} chains a real wheel to the outer page (wave2web-${phase === "edge" ? "r19" : "r20"})`, async ({
+    page,
+  }) => {
+    const scene = await embeddedChainScene(page, phase);
+    const result = await realWheel(page, scene);
+    expect(result).toEqual({ prevented: false, records: 0 });
+    await page.waitForFunction(() => window.scrollY > 0);
+  });
+}
