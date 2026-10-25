@@ -198,6 +198,7 @@ function manifestBinding(
     case "control":
     case "baseline-loss":
     case "epoch-reanchor":
+    case "non-json-number":
       return { kind: "record", stage: "s1", runners: allRecord };
     case "image-forget":
       return actualKind === "record"

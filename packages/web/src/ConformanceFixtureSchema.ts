@@ -91,6 +91,7 @@ function parseStep(
       validateEmittedRecord(
         record,
         entry.kind === "websocket-channel",
+        entry.mutationClass === "non-json-number",
         context,
       );
       return { type: "emit", record };
@@ -797,9 +798,14 @@ function resolveDrops(steps: ConformanceStep[], context: string): Set<number> {
   return result;
 }
 
+// `allowsNonJSONPayload` is the `non-json-number` relaxation. That class's
+// mutation is a surface payload outside RFC 8259, which every decoder must
+// refuse, so its emits keep the framing checks but a payload that fails JSON
+// parsing is admitted. A payload that parses must still be an object.
 function validateEmittedRecord(
   record: string,
   allowsNonSurface: boolean,
+  allowsNonJSONPayload: boolean,
   context: string,
 ): void {
   if (
@@ -816,7 +822,19 @@ function validateEmittedRecord(
   }
   if (record.startsWith("\u001Esurface:")) {
     const payload = record.slice("\u001Esurface:".length, -1);
+    if (allowsNonJSONPayload && !isJSON(payload)) {
+      return;
+    }
     const value = JSON.parse(payload) as unknown;
     requiredObject(value, `${context}.emit.surface`);
+  }
+}
+
+function isJSON(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
   }
 }

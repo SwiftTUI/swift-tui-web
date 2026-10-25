@@ -466,6 +466,10 @@ function installFakeDOM(): FakeDOMInstallation {
   globalThis.document = {
     createElement: (tagName: string) =>
       tagName === "canvas" ? new FakeCanvasElement() : new FakeElement(tagName),
+    // The DOM painter ends every row but the last with a newline text node,
+    // so a multirow frame needs this standard method.
+    createTextNode: (text: string) =>
+      Object.assign(new FakeElement("#text"), { textContent: text }),
   } as unknown as Document;
   return {
     restore: () => {

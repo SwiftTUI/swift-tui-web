@@ -21,11 +21,11 @@ import {
 const fixtureDirectory = join(import.meta.dir, "../../../Fixtures/Transport");
 
 describe("host-wire conformance corpus", () => {
-  test("loads the full ten-body census including host-only fixtures", async () => {
+  test("loads the full twelve-body census including host-only fixtures", async () => {
     const corpus = await loadConformanceCorpus(fixtureDirectory);
 
-    expect(corpus.manifest.fixtures).toHaveLength(10);
-    expect(corpus.fixtures.size).toBe(10);
+    expect(corpus.manifest.fixtures).toHaveLength(12);
+    expect(corpus.fixtures.size).toBe(12);
     expect(corpus.manifest.fixtures.map((entry) => entry.file)).toEqual([
       "conformance-android-delivery-commit.jsonl",
       "conformance-baseline-loss.jsonl",
@@ -34,6 +34,8 @@ describe("host-wire conformance corpus", () => {
       "conformance-image-decode-failure.jsonl",
       "conformance-image-forget-record.jsonl",
       "conformance-image-forget-web-painter.jsonl",
+      "conformance-non-json-number.jsonl",
+      "conformance-omitted-trailing-row.jsonl",
       "conformance-style-append.jsonl",
       "conformance-unknown-token.jsonl",
       "conformance-websocket-detached-backlog.jsonl",
@@ -339,6 +341,17 @@ describe("host-wire conformance integrity and schema teeth", () => {
     expect(() => syntheticFixture([emitA, expectation, { drop: 1 }])).toThrow(
       /barrier/,
     );
+  });
+
+  test("admits a non-JSON surface payload only in the non-json-number class", () => {
+    const steps = [
+      { emit: '\u001Esurface:{"version":2,"opacity":NaN}\n' },
+      { expect: { rows: [], imagesVisible: [], resyncRequests: [] } },
+    ];
+    expect(() => syntheticFixture(steps)).toThrow(SyntaxError);
+    expect(
+      syntheticFixture(steps, { mutationClass: "non-json-number" }).steps,
+    ).toHaveLength(2);
   });
 
   test("validates inactive Android labels and channel token lifecycle before execution", () => {

@@ -27,6 +27,8 @@ export const CONFORMANCE_MUTATION_CLASSES = [
   "android-delivery-commit",
   "websocket-detached-backlog",
   "style-append",
+  // The only class whose emitted surface payload may fail JSON parsing.
+  "non-json-number",
 ] as const;
 
 export type ConformanceRunner = (typeof CONFORMANCE_RUNNERS)[number];
