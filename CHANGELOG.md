@@ -11,6 +11,18 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+### Fixed
+
+- Wheel and trackpad scrolling reaches Swift as proportional, bounded cell
+  deltas instead of one cell per event. Pixel deltas divide by the presented
+  cell size and carry sub-cell travel to the next event, line deltas are one
+  cell per line, page deltas are the presented grid, and each axis of one
+  wheel record carries at most 16 cells (STUI-1191).
+- The WASI bridge no longer sends a second copy of an image or keyframe resync
+  request when a `StdIOPipe.subscribe()` observer declines a write that a
+  pending read, the readable queue or the exclusive consumer already took; a
+  request the exclusive consumer refuses is still retried once (STUI-1252).
+
 ## [0.19.3] - 2026-10-25
 
 Coordinated package metadata for SwiftTUI 0.19.3, with two browser-runtime
