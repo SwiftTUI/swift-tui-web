@@ -562,6 +562,15 @@ input retains the last valid frame and requests a deduplicated keyframe repair.
 The shared [allocation policy](https://github.com/SwiftTUI/swift-tui/blob/main/docs/HOST-WIRE-CONTRACT.md#allocation-budgets)
 defines exact units, framing recovery, and bitmap limits.
 
+Forwarded wheel input reaches Swift in whole terminal cells, the unit of
+`ScrollWheelEvent`. A pixel delta is divided by the presented cell width or
+height, a line delta is one cell per line, and a page delta is the presented
+grid's columns or rows. Travel under one cell carries to the next wheel event
+(a reversal drops it); the surface still consumes that event, so the page does
+not scroll underneath. Each axis of one `scrolled` record carries at most 16
+cells. Larger per-event travel is clamped and its excess is discarded, not
+deferred.
+
 ## Notes
 
 - Scene switching is controller-managed and retains existing scene runtimes.

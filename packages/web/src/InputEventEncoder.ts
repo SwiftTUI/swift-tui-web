@@ -18,16 +18,43 @@ export interface CellLocation {
 export type PointerButton = "primary" | "middle" | "secondary";
 
 /**
+ * The presented cell pitch (CSS pixels) and grid extent (cells) that convert a
+ * wheel's pixel, line or page deltas into whole terminal cells.
+ */
+export interface WheelCellMetrics {
+  cellWidth: number;
+  cellHeight: number;
+  columns: number;
+  rows: number;
+}
+
+/**
+ * The most cells one encoded wheel record carries on each axis. Larger
+ * per-event travel (an accelerated spin, a page delta on a tall grid, events
+ * the browser coalesced) is clamped to it and the excess is discarded rather
+ * than deferred, so no single wheel event can scroll farther.
+ */
+export const MAX_WHEEL_CELL_DELTA = 16;
+
+const DOM_DELTA_LINE = 1;
+const DOM_DELTA_PAGE = 2;
+
+/**
  * Encodes DOM keyboard/pointer/wheel/paste events into the `web-surface` wire
  * messages the SwiftTUI host consumes. This collaborator owns the translation
  * from browser event vocabulary (key names, button indices, wheel deltas,
  * modifier flags) to the transport's message vocabulary; it produces raw byte
- * chunks and holds no DOM or geometry state.
+ * chunks and holds no DOM or geometry state. Its only state is the sub-cell
+ * wheel travel (under one cell per axis) carried to the next wheel event.
  *
  * Hit-testing (pixel → cell) lives in the host, which passes already-resolved
- * {@link CellLocation}s here so the encoder stays free of layout concerns.
+ * {@link CellLocation}s and {@link WheelCellMetrics} here so the encoder stays
+ * free of layout concerns.
  */
 export class InputEventEncoder {
+  private wheelRemainderX = 0;
+  private wheelRemainderY = 0;
+
   /**
    * Builds the key message for a keyboard event, or `undefined` when the event
    * does not map to a forwarded key (e.g. a multi-codepoint composed string).
@@ -120,19 +147,45 @@ export class InputEventEncoder {
     );
   }
 
+  /**
+   * Builds the scrolled record for a wheel the host captured, in whole
+   * terminal cells: pixel deltas divide by the presented cell pitch, line
+   * deltas are one cell per line, and page deltas are the presented grid.
+   * Sub-cell travel carries to the next wheel; a delta opposing the carried
+   * travel drops it first. Each axis is bounded by
+   * {@link MAX_WHEEL_CELL_DELTA}. Returns `undefined` when neither axis has
+   * reached a whole cell; the host still consumes the event.
+   */
   encodeWheel(
     location: CellLocation,
     event: WheelEvent,
+    metrics: WheelCellMetrics,
     geometryRevision?: number,
     viewportRevision?: number,
-  ): Uint8Array {
+  ): Uint8Array | undefined {
+    // Read the mode before the deltas: Firefox may report line units only to a
+    // page that has read `deltaMode` first.
+    const mode = event.deltaMode;
+    const [deltaX, remainderX] = wholeWheelCells(
+      this.wheelRemainderX,
+      wheelTravel(event.deltaX, mode, metrics.cellWidth, metrics.columns),
+    );
+    const [deltaY, remainderY] = wholeWheelCells(
+      this.wheelRemainderY,
+      wheelTravel(event.deltaY, mode, metrics.cellHeight, metrics.rows),
+    );
+    this.wheelRemainderX = remainderX;
+    this.wheelRemainderY = remainderY;
+    if (deltaX === 0 && deltaY === 0) {
+      return undefined;
+    }
     return encodeMouseInputMessage(
       {
         kind: "scrolled",
         x: location.x,
         y: location.y,
-        deltaX: normalizedWheelDelta(event.deltaX),
-        deltaY: normalizedWheelDelta(event.deltaY),
+        deltaX,
+        deltaY,
         modifiers: modifierMask(event),
       },
       geometryRevision,
@@ -210,12 +263,46 @@ function modifierMask(event: MouseEvent | KeyboardEvent): number {
   return mask;
 }
 
-function normalizedWheelDelta(delta: number): number {
-  if (delta > 0) {
-    return 1;
+/**
+ * One axis of a wheel's travel in (fractional) cells. Pixel mode, and any
+ * unrecognized mode, divides by the cell pitch; a pitch that is not a finite
+ * positive number falls back to one cell in the delta's direction.
+ */
+function wheelTravel(
+  delta: number,
+  mode: number,
+  pitch: number,
+  extent: number,
+): number {
+  if (!Number.isFinite(delta) || delta === 0) {
+    return 0;
   }
-  if (delta < 0) {
-    return -1;
+  switch (mode) {
+    case DOM_DELTA_LINE:
+      return delta;
+    case DOM_DELTA_PAGE:
+      return delta * (Number.isFinite(extent) && extent >= 1 ? extent : 1);
+    default:
+      return Number.isFinite(pitch) && pitch > 0
+        ? delta / pitch
+        : Math.sign(delta);
   }
-  return 0;
+}
+
+/**
+ * Adds `travel` to the carried sub-cell `remainder` and splits the total into
+ * the whole cells to send now (bounded by {@link MAX_WHEEL_CELL_DELTA}) and the
+ * remainder to carry. A reversal drops the opposing remainder; a clamped total
+ * carries nothing.
+ */
+function wholeWheelCells(remainder: number, travel: number): [number, number] {
+  const carried =
+    travel !== 0 && Math.sign(travel) !== Math.sign(remainder) ? 0 : remainder;
+  const total = carried + travel;
+  const whole = Math.trunc(total);
+  if (Math.abs(whole) > MAX_WHEEL_CELL_DELTA) {
+    return [Math.sign(whole) * MAX_WHEEL_CELL_DELTA, 0];
+  }
+  // `|| 0` normalizes -0 so a record never spells a negative zero.
+  return [whole || 0, total - whole];
 }

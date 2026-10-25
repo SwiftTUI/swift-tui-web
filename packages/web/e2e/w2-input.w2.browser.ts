@@ -1,16 +1,14 @@
 // W2 input journeys: IME composition (w2s009–w2s018) and pointer/wheel bursts
 // (w2s019–w2s028). Contracts: UI Events / Composition Events specs, the web
 // README input/keyboard-routing section, and HOST-WIRE-CONTRACT.md pointer and
-// coalescing rules. Finding assertions encode the reproduced current behavior
-// and log a W2_KNOWN_ASSERTION; under SWIFTTUI_W2_UNMARKED=1 they assert the
-// contract-correct value instead (so the unmarked run shows the finding).
+// coalescing rules. Both findings (w2s021, STUI-1191; w2s028, STUI-1190) are
+// repaired, so every assertion here is ordinary.
 import { expect, type Frame, type Page, test } from "@playwright/test";
 import type { WebHostAccessibilityNode } from "./w2-adversarial.fixture.ts";
 
-const UNMARKED = process.env.SWIFTTUI_W2_UNMARKED === "1";
-function known(id: string, note: string): void {
-  if (!UNMARKED) console.info(`W2_KNOWN_ASSERTION ${id} ${note}`);
-}
+// UI Events WheelEvent.deltaMode values (the test runner has no DOM globals).
+const DOM_DELTA_LINE = 1;
+const DOM_DELTA_PAGE = 2;
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -402,7 +400,7 @@ test("a pointer-move burst in one task emits one record per move (no host coales
   expect(count).toBe(60);
 });
 
-test("wheel momentum magnitude collapses to a unit cell delta (w2s021)", async ({
+test("a momentum wheel carries its magnitude as bounded cell deltas (w2s021)", async ({
   page,
 }) => {
   await capturingScene(page, { wheelMode: "capture" });
@@ -425,16 +423,110 @@ test("wheel momentum magnitude collapses to a unit cell delta (w2s021)", async (
     const fields = record.slice(1).split(":");
     return fields[fields.length - 2]; // deltaY field
   });
-  if (UNMARKED) {
-    // A momentum-like deltaY of 480 should carry a proportional cell delta.
-    expect(Number(deltas)).toBeGreaterThan(1);
-  } else {
-    expect(deltas).toBe("1");
-    known(
-      "w2s021",
-      "STUI-1191: normalizedWheelDelta collapses every wheel magnitude to +/-1; contract: wire delta is an integer cell count",
-    );
-  }
+  // STUI-1191 (fixed in wave 3): the wire delta is an integer cell count. 480
+  // CSS px spans more than 16 of the fixture's Canvas rows, so the record
+  // carries the documented per-record bound of 16.
+  expect(deltas).toBe("16");
+});
+
+// Wave 3 repair journeys for STUI-1191 (wave3web-r11..r14): real WheelEvents
+// in each deltaMode over a capture-mode scene. Returns, per wheel, whether the
+// runtime consumed it and the deltaY fields of the records it produced.
+async function wheelDeltas(
+  page: Page,
+  wheels: readonly { deltaY: number; deltaMode?: number }[],
+): Promise<{ prevented: boolean; deltaY: string[]; prefixes: string[] }[]> {
+  return await page.evaluate((wheels) => {
+    const id = (window as unknown as { __w2id: number }).__w2id;
+    const el = document.querySelector<HTMLElement>(".webhost-scene__terminal");
+    if (!el) throw new Error("no W2 terminal");
+    const rect = el.getBoundingClientRect();
+    return wheels.map(({ deltaY, deltaMode }) => {
+      const before = window.__w2.mouseInputs(id).length;
+      const event = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY,
+        deltaMode: deltaMode ?? WheelEvent.DOM_DELTA_PIXEL,
+        clientX: rect.left + 10,
+        clientY: rect.top + 10,
+      });
+      el.dispatchEvent(event);
+      const records = window.__w2
+        .mouseInputs(id)
+        .slice(before)
+        .filter((r) => r.includes(":scrolled:"));
+      return {
+        prevented: event.defaultPrevented,
+        deltaY: records.map((r) => r.split(":").at(-2) ?? ""),
+        prefixes: records.map((r) => r.split(":scrolled:")[0] ?? ""),
+      };
+    });
+  }, wheels);
+}
+
+async function presentedCells(
+  page: Page,
+): Promise<{ cellHeight: number; rows: number }> {
+  return await page.evaluate(() => {
+    const id = (window as unknown as { __w2id: number }).__w2id;
+    const metrics = window.__w2.cellMetrics(id);
+    if (!metrics) throw new Error("no presented W2 geometry");
+    return { cellHeight: metrics.cellHeight, rows: metrics.rows };
+  });
+}
+
+test("a line-mode wheel sends one row per line (wave3web-r11)", async ({
+  page,
+}) => {
+  await capturingScene(page, { wheelMode: "capture" });
+  const [result] = await wheelDeltas(page, [
+    { deltaY: 3, deltaMode: DOM_DELTA_LINE },
+  ]);
+  expect(result).toMatchObject({ prevented: true, deltaY: ["3"] });
+});
+
+test("a page-mode wheel sends the presented rows, bounded (wave3web-r12)", async ({
+  page,
+}) => {
+  await capturingScene(page, { wheelMode: "capture" });
+  const { rows } = await presentedCells(page);
+  const [result] = await wheelDeltas(page, [
+    { deltaY: 1, deltaMode: DOM_DELTA_PAGE },
+  ]);
+  expect(result).toMatchObject({
+    prevented: true,
+    deltaY: [String(Math.min(rows, 16))],
+  });
+});
+
+test("sub-cell pixel wheels are consumed and accumulate to one row (wave3web-r13)", async ({
+  page,
+}) => {
+  await capturingScene(page, { wheelMode: "capture" });
+  const { cellHeight } = await presentedCells(page);
+  const results = await wheelDeltas(page, [
+    { deltaY: cellHeight / 2 },
+    { deltaY: cellHeight / 2 },
+  ]);
+  expect(
+    results.map(({ prevented, deltaY }) => ({ prevented, deltaY })),
+  ).toEqual([
+    { prevented: true, deltaY: [] },
+    { prevented: true, deltaY: ["1"] },
+  ]);
+});
+
+test("a DOM scene converts pixel wheels with its measured cell pitch (wave3web-r14)", async ({
+  page,
+}) => {
+  await capturingScene(page, { wheelMode: "capture", renderer: "dom" });
+  const { cellHeight } = await presentedCells(page);
+  // 3.5 rows keeps the expectation robust to sub-pixel DOM pitch rounding.
+  const [result] = await wheelDeltas(page, [{ deltaY: 3.5 * cellHeight }]);
+  expect(result?.prevented).toBe(true);
+  expect(result?.deltaY).toEqual(["3"]);
+  expect(result?.prefixes[0]?.startsWith("\u001emouse")).toBe(true);
 });
 
 test("secondary and middle buttons encode their wire identity (w2s020)", async ({

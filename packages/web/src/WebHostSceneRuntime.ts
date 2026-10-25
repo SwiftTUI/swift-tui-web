@@ -143,7 +143,9 @@ export interface WebHostSceneRuntimeOptions {
    * - `"passive"`: never capture; the page always scrolls.
    *
    * In every mode, Ctrl/Command+wheel (and a trackpad pinch, which browsers
-   * deliver as Ctrl+wheel) is left to the browser for zoom.
+   * deliver as Ctrl+wheel) is left to the browser for zoom. A forwarded wheel
+   * reaches the app as whole terminal cells of the presented pitch, at most 16
+   * per axis per event; sub-cell travel carries to the next wheel.
    *
    * Takes precedence over the legacy `captureWheelInput` flag.
    */
@@ -1313,14 +1315,17 @@ export class WebHostSceneRuntime {
         return;
       }
 
-      this.onInput(
-        this.inputEncoder.encodeWheel(
-          location,
-          event,
-          this.pointerRevision,
-          this.pointerViewportRevision,
-        ),
+      // Deltas become whole cells of the presented pitch. Sub-cell travel sends
+      // no record yet, but the surface still consumes it so the page does not
+      // scroll underneath.
+      const record = this.inputEncoder.encodeWheel(
+        location,
+        event,
+        this.pointerMetrics(),
+        this.pointerRevision,
+        this.pointerViewportRevision,
       );
+      if (record) this.onInput(record);
       event.preventDefault();
     };
 

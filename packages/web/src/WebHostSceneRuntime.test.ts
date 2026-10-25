@@ -2163,7 +2163,7 @@ test("runtime maps browser input events to web-surface messages", async () => {
       clientX: 35,
       clientY: 30,
       deltaX: 0,
-      deltaY: 20,
+      deltaY: 27,
       shiftKey: false,
       altKey: true,
       ctrlKey: false,
@@ -2237,7 +2237,7 @@ test("runtime can run as a passive embed without stealing focus or wheel scroll"
       clientX: 35,
       clientY: 30,
       deltaX: 0,
-      deltaY: 20,
+      deltaY: 27,
       shiftKey: false,
       altKey: false,
       ctrlKey: false,
@@ -2265,7 +2265,7 @@ test("chain mode captures the wheel when a region under the pointer can scroll",
       scrollRegions: [
         { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
       ],
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
@@ -2285,7 +2285,7 @@ test("chain mode lets the wheel fall through at the region's scroll edge", async
       scrollRegions: [
         { id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] },
       ],
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
@@ -2304,7 +2304,7 @@ test("chain mode captures an upward wheel when scrolled away from the top", asyn
       scrollRegions: [
         { id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] },
       ],
-      wheel: { clientX: 5, clientY: 5, deltaY: -20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: -27 },
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
@@ -2323,7 +2323,7 @@ test("chain mode falls through when the pointer is outside every scroll region",
       scrollRegions: [
         { id: "list", rect: [2, 0, 2, 2], offset: [0, 0], content: [2, 10] },
       ],
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
@@ -2338,7 +2338,7 @@ test("chain mode falls through when the scene publishes no scroll regions", asyn
   try {
     const result = await wheelScenario({
       wheelMode: "chain",
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
@@ -2353,7 +2353,7 @@ test("capture mode always eats the wheel even without scroll regions", async () 
   try {
     const result = await wheelScenario({
       wheelMode: "capture",
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
@@ -2368,7 +2368,7 @@ test("legacy captureWheelInput:true maps to capture mode", async () => {
   try {
     const result = await wheelScenario({
       captureWheelInput: true,
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
@@ -2387,7 +2387,7 @@ test("legacy captureWheelInput:false maps to passive mode", async () => {
       scrollRegions: [
         { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
       ],
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
@@ -2406,7 +2406,7 @@ test("default wheel mode is chain: captures over a scrollable region", async () 
       scrollRegions: [
         { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
       ],
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(true);
     expect(result.wheelPrevented).toBe(true);
@@ -2422,7 +2422,7 @@ test("default wheel mode is chain: page scrolls with no scrollable region", asyn
     // No mode set and no scroll regions published — the default "chain" mode
     // must let the wheel fall through so the page scrolls.
     const result = await wheelScenario({
-      wheel: { clientX: 5, clientY: 5, deltaY: 20 },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27 },
     });
     expect(result.captured).toBe(false);
     expect(result.wheelPrevented).toBe(false);
@@ -2453,7 +2453,7 @@ test.each([
         scrollRegions: [
           { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
         ],
-        wheel: { clientX: 5, clientY: 5, deltaY: 20, ...modifiers },
+        wheel: { clientX: 5, clientY: 5, deltaY: 27, ...modifiers },
       });
       expect(result.wheelPrevented).toBe(false);
       expect(result.scrolled).toEqual([]);
@@ -2468,11 +2468,11 @@ test("Canvas still forwards Shift and Alt wheels with their modifier bits (wave2
   try {
     const shifted = await wheelScenario({
       wheelMode: "capture",
-      wheel: { clientX: 5, clientY: 5, deltaY: 20, shiftKey: true },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27, shiftKey: true },
     });
     const alternate = await wheelScenario({
       wheelMode: "capture",
-      wheel: { clientX: 5, clientY: 5, deltaY: 20, altKey: true },
+      wheel: { clientX: 5, clientY: 5, deltaY: 27, altKey: true },
     });
     expect(shifted.wheelPrevented).toBe(true);
     expect(
@@ -2482,6 +2482,109 @@ test("Canvas still forwards Shift and Alt wheels with their modifier bits (wave2
     expect(
       alternate.scrolled.map((record) => record.trim().split(":").at(-1)),
     ).toEqual(["2"]);
+  } finally {
+    dom.restore();
+  }
+});
+
+// Wave 3 repair scenarios for STUI-1191: wheel deltas reach Swift as whole
+// terminal cells (`ScrollWheelEvent` deltas are cells; the wire fields are
+// integers that the receiver sums). The fake DOM's Canvas cell is 10 x 27 CSS
+// px on a 4x2 grid: 27 px of vertical travel is one row, 10 px one column.
+const wheelCellScenarios: ReadonlyArray<
+  readonly [
+    string,
+    Array<{ deltaX?: number; deltaY?: number; deltaMode?: number }>,
+    string[][],
+  ]
+> = [
+  [
+    "pixel travel divides by the row height (wave3web-r01)",
+    [{ deltaY: 81 }],
+    [["0:3"]],
+  ],
+  [
+    "pixel travel divides by the column width (wave3web-r02)",
+    [{ deltaX: 30 }],
+    [["3:0"]],
+  ],
+  [
+    "sub-cell travel accumulates to the next whole row (wave3web-r03)",
+    [{ deltaY: 13.5 }, { deltaY: 13.5 }],
+    [[], ["0:1"]],
+  ],
+  [
+    "line deltas are one cell per line (wave3web-r04)",
+    [{ deltaMode: 1, deltaX: -2, deltaY: 3 }],
+    [["-2:3"]],
+  ],
+  [
+    "page deltas are the presented grid (wave3web-r05)",
+    [{ deltaMode: 2, deltaX: 1, deltaY: 1 }],
+    [["4:2"]],
+  ],
+  [
+    "each axis is bounded and the clamped excess is not carried (wave3web-r06)",
+    [{ deltaY: 10_000 }, { deltaY: -10_000 }, { deltaY: 13.5 }],
+    [["0:16"], ["0:-16"], []],
+  ],
+  [
+    "a reversal drops the opposing sub-cell remainder (wave3web-r07)",
+    [{ deltaY: 13.5 }, { deltaY: -13.5 }, { deltaY: -13.5 }],
+    [[], [], ["0:-1"]],
+  ],
+  [
+    "a wheel without travel sends no record (wave3web-r08)",
+    [{ deltaX: 0, deltaY: 0 }],
+    [[]],
+  ],
+];
+
+test.each(wheelCellScenarios)(
+  "Canvas capture: %s",
+  async (_, wheels, expected) => {
+    const dom = installFakeDOM();
+    try {
+      const results = await wheelSequence({ wheelMode: "capture", wheels });
+      expect(results.map((result) => result.deltas)).toEqual(expected);
+      // Every captured wheel is consumed, including sub-cell travel, so the
+      // page never scrolls underneath the surface.
+      expect(results.map((result) => result.prevented)).toEqual(
+        wheels.map(() => true),
+      );
+    } finally {
+      dom.restore();
+    }
+  },
+);
+
+test("chain mode consumes sub-cell travel over headroom without a record (wave3web-r09)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const results = await wheelSequence({
+      wheelMode: "chain",
+      scrollRegions: [
+        { id: "list", rect: [0, 0, 4, 2], offset: [0, 0], content: [4, 10] },
+      ],
+      wheels: [{ deltaY: 13.5 }],
+    });
+    expect(results).toEqual([{ prevented: true, deltas: [] }]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("chain mode still lets sub-cell travel fall through at the scroll edge (wave3web-n05)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const results = await wheelSequence({
+      wheelMode: "chain",
+      scrollRegions: [
+        { id: "list", rect: [0, 0, 4, 2], offset: [0, 8], content: [4, 10] },
+      ],
+      wheels: [{ deltaY: 13.5 }],
+    });
+    expect(results).toEqual([{ prevented: false, deltas: [] }]);
   } finally {
     dom.restore();
   }
@@ -3700,9 +3803,10 @@ async function waitForAvailableInput(
 }
 
 // Drives a single wheel event over a 4x2 surface (cellWidth 10, cellHeight 27
-// under the fake DOM) with the given wheel mode and published scroll regions,
-// and reports whether the wheel was forwarded to the app and/or preventDefault'd.
-// Assumes a fake DOM is already installed by the caller.
+// under the fake DOM, so a 27 px wheel is one row) with the given wheel mode
+// and published scroll regions, and reports whether the wheel was forwarded to
+// the app and/or preventDefault'd. Assumes a fake DOM is already installed by
+// the caller.
 async function wheelScenario(options: {
   wheelMode?: WheelMode;
   captureWheelInput?: boolean;
@@ -3723,6 +3827,72 @@ async function wheelScenario(options: {
   overscrollBehavior: string;
   scrolled: string[];
 }> {
+  const { runtime, inputs } = await mountWheelScene(options);
+
+  let wheelPrevented = false;
+  runtime.terminalMount.dispatch("wheel", {
+    clientX: options.wheel.clientX,
+    clientY: options.wheel.clientY,
+    deltaX: options.wheel.deltaX ?? 0,
+    deltaY: options.wheel.deltaY ?? 0,
+    shiftKey: options.wheel.shiftKey ?? false,
+    altKey: options.wheel.altKey ?? false,
+    ctrlKey: options.wheel.ctrlKey ?? false,
+    metaKey: options.wheel.metaKey ?? false,
+    preventDefault() {
+      wheelPrevented = true;
+    },
+  });
+
+  return {
+    captured: inputs.some((i) => i.includes("scrolled")),
+    wheelPrevented,
+    overscrollBehavior: String(runtime.terminalMount.style.overscrollBehavior),
+    scrolled: inputs.filter((i) => i.includes(":scrolled:")),
+  };
+}
+
+// Dispatches a sequence of unmodified wheels at cell (0, 0) of the same 4x2
+// scene and reports, per wheel, whether it was preventDefault'd and the
+// `deltaX:deltaY` fields of the scrolled records it produced.
+async function wheelSequence(options: {
+  wheelMode?: WheelMode;
+  scrollRegions?: Array<Record<string, unknown>>;
+  wheels: Array<{ deltaX?: number; deltaY?: number; deltaMode?: number }>;
+}): Promise<Array<{ prevented: boolean; deltas: string[] }>> {
+  const { runtime, inputs } = await mountWheelScene(options);
+  return options.wheels.map((wheel) => {
+    const before = inputs.length;
+    let prevented = false;
+    runtime.terminalMount.dispatch("wheel", {
+      clientX: 5,
+      clientY: 5,
+      deltaX: wheel.deltaX ?? 0,
+      deltaY: wheel.deltaY ?? 0,
+      deltaMode: wheel.deltaMode ?? 0,
+      shiftKey: false,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      preventDefault() {
+        prevented = true;
+      },
+    });
+    return {
+      prevented,
+      deltas: inputs
+        .slice(before)
+        .filter((record) => record.includes(":scrolled:"))
+        .map((record) => record.trim().split(":").slice(-3, -1).join(":")),
+    };
+  });
+}
+
+async function mountWheelScene(options: {
+  wheelMode?: WheelMode;
+  captureWheelInput?: boolean;
+  scrollRegions?: Array<Record<string, unknown>>;
+}): Promise<{ runtime: WebHostSceneRuntime; inputs: string[] }> {
   const inputs: string[] = [];
   const bridge = new BrowserWASIBridge({
     sceneId: "main",
@@ -3755,28 +3925,7 @@ async function wheelScenario(options: {
     frame.scrollRegions = options.scrollRegions;
   }
   bridge.stdout.write(encoder.encode(surfaceRecord(frame)));
-
-  let wheelPrevented = false;
-  runtime.terminalMount.dispatch("wheel", {
-    clientX: options.wheel.clientX,
-    clientY: options.wheel.clientY,
-    deltaX: options.wheel.deltaX ?? 0,
-    deltaY: options.wheel.deltaY ?? 0,
-    shiftKey: options.wheel.shiftKey ?? false,
-    altKey: options.wheel.altKey ?? false,
-    ctrlKey: options.wheel.ctrlKey ?? false,
-    metaKey: options.wheel.metaKey ?? false,
-    preventDefault() {
-      wheelPrevented = true;
-    },
-  });
-
-  return {
-    captured: inputs.some((i) => i.includes("scrolled")),
-    wheelPrevented,
-    overscrollBehavior: String(runtime.terminalMount.style.overscrollBehavior),
-    scrolled: inputs.filter((i) => i.includes(":scrolled:")),
-  };
+  return { runtime, inputs };
 }
 
 function surfaceRecord(frame: Record<string, unknown>): string {

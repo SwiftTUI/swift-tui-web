@@ -118,18 +118,33 @@ for (let id = 71; id <= 90; id++) {
           ),
         ).toBe("\x1emouse:dragged:1:2:primary:0:0:0\n");
         break;
-      case 89:
-        for (const [dx, dy, expectedX, expectedY] of [
-          [0.1, -40, 1, -1],
-          [-0.1, 40, -1, 1],
-          [0, 0, 0, 0],
-        ]) {
-          const wheel = { deltaX: dx, deltaY: dy } as WheelEvent;
-          expect(text(encoder.encodeWheel({ x: 1, y: 2 }, wheel))).toBe(
-            `\x1emouse:scrolled:1:2:none:${expectedX}:${expectedY}:0\n`,
+      case 89: {
+        // STUI-1191 (wave 3): pixel deltas become whole cells of the given
+        // pitch, sub-cell travel carries, each axis is bounded to 16 cells,
+        // and a wheel without a whole cell sends no record.
+        const wheelEncoder = new InputEventEncoder();
+        const metrics = {
+          cellWidth: 10,
+          cellHeight: 20,
+          columns: 80,
+          rows: 24,
+        };
+        for (const [dx, dy, expected] of [
+          [0.1, -40, "0:-2"],
+          [-0.1, 400, "0:16"],
+          [0, 0, undefined],
+        ] as const) {
+          const wheel = { deltaX: dx, deltaY: dy, deltaMode: 0 } as WheelEvent;
+          expect(
+            text(wheelEncoder.encodeWheel({ x: 1, y: 2 }, wheel, metrics)),
+          ).toBe(
+            expected === undefined
+              ? undefined
+              : `\x1emouse:scrolled:1:2:none:${expected}:0\n`,
           );
         }
         break;
+      }
       case 90:
         expect(
           [0, 1, 2].map((button) => encoder.pointerButton(button)),
