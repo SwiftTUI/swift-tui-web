@@ -11,6 +11,20 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.19.3] - 2026-10-25
+
+Coordinated package metadata for SwiftTUI 0.19.3, with two browser-runtime
+repairs. The compiled browser fixture remains on framework 0.19.0 until
+coordinated release acceptance.
+
+### Fixed
+
+- `StdIOPipe` observers registered with `subscribe()` now see a write that
+  satisfies a pending read, and a declining observer rejects that write as on
+  the queued path (STUI-1181).
+- The Canvas renderer leaves Ctrl/Command+wheel to the browser for zoom, as the
+  DOM renderer already did (STUI-1190).
+
 ## [0.19.2] - 2026-10-24
 
 Coordinated package metadata for SwiftTUI 0.19.2, with expanded browser-runtime
@@ -423,7 +437,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.19.2...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.19.3...HEAD
+[0.19.3]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.3
 [0.19.2]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.2
 [0.19.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.0
 [0.18.3]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.18.3
