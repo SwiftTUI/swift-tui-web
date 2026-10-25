@@ -11,6 +11,12 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.19.4] - 2026-10-25
+
+Coordinated package metadata for SwiftTUI 0.19.4, with two browser-runtime
+repairs and the expanded conformance corpus. The compiled browser fixture
+stays on framework 0.19.3 until coordinated release acceptance.
+
 ### Fixed
 
 - Wheel and trackpad scrolling reaches Swift as proportional, bounded cell
@@ -449,7 +455,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.19.3...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.19.4...HEAD
+[0.19.4]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.4
 [0.19.3]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.3
 [0.19.2]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.2
 [0.19.0]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.0
