@@ -194,7 +194,9 @@ test("bridge dedupes keyframe resync while a stamped dimension repair is outstan
   const input: string[] = [];
   let acceptsInput = false;
   let deliveryAttempts = 0;
-  const unsubscribe = bridge.stdin.subscribe((chunk) => {
+  // The WASI runtime attaches as the exclusive consumer (WasmSceneRuntime
+  // mount) and refuses input it cannot take; observers are diagnostic.
+  const unsubscribe = bridge.stdin.consume((chunk) => {
     deliveryAttempts += 1;
     if (!acceptsInput) {
       return false;
@@ -350,7 +352,9 @@ test("WASI image resync delivery failure requeues once without request storms", 
   let acceptsInput = false;
   let deliveryAttempts = 0;
   const input: string[] = [];
-  const unsubscribe = bridge.stdin.subscribe((chunk) => {
+  // The refusing endpoint is the exclusive consumer, the runtime's delivery
+  // path; an observer's decline is not a delivery failure (w2cb004).
+  const unsubscribe = bridge.stdin.consume((chunk) => {
     deliveryAttempts += 1;
     if (!acceptsInput) {
       return false;
@@ -506,20 +510,88 @@ test("w2cb004 a resync request a parked stdin reader already took is not deliver
   );
   declining = false;
   bridge.notifyInputCapacityAvailable();
-  const redelivered = bridge.stdin.bufferedBytes;
-  if (Bun.env.SWIFTTUI_W2HUNT_UNMARKED === "1") {
-    expect(redelivered).toBe(0);
-  } else {
-    // NEW-1: StdIOPipe.write returns false for a chunk a pending read already
-    // took when an observer declines (STUI-1181 repair), and the bridge
-    // re-queues every refused resync request. Qualify the exact observed
-    // value before guarding only the contract.
-    expect(redelivered).toBe(delivered?.byteLength ?? -1);
-    expect(() => expect(redelivered).toBe(0)).toThrow();
-    console.info(
-      "W2HUNT_KNOWN_ASSERTION w2cb004 NEW-1: a resync request the parked stdin reader took is queued again after a capacity notification; StdIOPipe.write reports an observer's decline as a failed delivery; contract: BrowserWASIBridge.notifyInputCapacityAvailable retries only a failed delivery; adjacent STUI-1181",
-    );
-  }
+  // STUI-1252 (fixed in wave 3): the observer's decline does not mark the
+  // request the parked read took as undelivered, so it is not queued again.
+  expect(bridge.stdin.bufferedBytes).toBe(0);
   unsubscribe();
+  bridge.dispose();
+});
+
+// Wave 3 repair scenarios for STUI-1252: every resync request is delivered
+// exactly once on the queued and consumer paths too, while a refusing
+// consumer (the delivery path) still has it retried once.
+const imagesRequestA = '\u001Eresync:{"scope":"images","ids":["png:a"]}\n';
+
+test("a queued resync request is not queued again when an observer declines it (w3cb-w01)", async () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  let declining = true;
+  bridge.stdin.subscribe(() => (declining ? false : undefined));
+  bridge.bindOutput({ presentSurface: () => {} });
+  bridge.requestImagePayloads(["png:a"]);
+  const afterRequest = bridge.stdin.bufferedBytes;
+  declining = false;
+  bridge.notifyInputCapacityAvailable();
+  const afterNotification = bridge.stdin.bufferedBytes;
+  const read = new TextDecoder().decode(await bridge.stdin.read());
+  expect({ afterRequest, afterNotification, read }).toEqual({
+    afterRequest: imagesRequestA.length,
+    afterNotification: imagesRequestA.length,
+    read: imagesRequestA,
+  });
+  expect(bridge.stdin.bufferedBytes).toBe(0);
+  bridge.dispose();
+});
+
+test("a consumer receives a resync request once when an observer declines it (w3cb-w02)", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  const consumed: string[] = [];
+  bridge.stdin.consume((chunk) => {
+    consumed.push(new TextDecoder().decode(chunk));
+    return true;
+  });
+  let declining = true;
+  bridge.stdin.subscribe(() => (declining ? false : undefined));
+  bridge.bindOutput({ presentSurface: () => {} });
+  bridge.requestImagePayloads(["png:a"]);
+  declining = false;
+  bridge.notifyInputCapacityAvailable();
+  expect(consumed).toEqual([imagesRequestA]);
+  bridge.dispose();
+});
+
+test("a resync request a consumer refused is retried once on capacity (w3cb-n01)", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  let accepting = false;
+  let attempts = 0;
+  const consumed: string[] = [];
+  bridge.stdin.consume((chunk) => {
+    attempts += 1;
+    if (!accepting) return false;
+    consumed.push(new TextDecoder().decode(chunk));
+    return true;
+  });
+  bridge.bindOutput({ presentSurface: () => {} });
+  bridge.requestImagePayloads(["png:a"]);
+  const refused = { attempts, consumed: [...consumed] };
+  accepting = true;
+  bridge.notifyInputCapacityAvailable();
+  bridge.notifyInputCapacityAvailable();
+  expect({ refused, attempts, consumed }).toEqual({
+    refused: { attempts: 1, consumed: [] },
+    attempts: 2,
+    consumed: [imagesRequestA],
+  });
   bridge.dispose();
 });

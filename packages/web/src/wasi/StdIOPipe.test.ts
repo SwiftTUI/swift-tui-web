@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { StdIOPipe } from "./StdIOPipe.ts";
+import { deliverToStdIOPipe } from "./StdIOPipeDelivery.ts";
 
 test("an exclusive byte consumer drains startup data and does not retain delivered history", () => {
   const pipe = new StdIOPipe();
@@ -198,4 +199,78 @@ test("w2cb003 waiter-path delivery is isolated from later writer-buffer mutation
   expect(chunkArray(delivered)).toEqual([5, 6]);
   expect(chunkArray(observedChunk)).toEqual([5, 6]);
   pipe.close();
+});
+
+// Wave 3 repair scenario for STUI-1252 (w3cb-w03): delivery is reported apart
+// from observation. A declining observer still makes write() return false
+// (STUI-1181), but the chunk it declined was delivered.
+test("a delivered chunk stays delivered when an observer declines it (w3cb-w03)", async () => {
+  const declined: number[][] = [];
+  const decliningPipe = () => {
+    const pipe = new StdIOPipe();
+    pipe.subscribe((chunk) => {
+      declined.push([...chunk]);
+      return false;
+    });
+    return pipe;
+  };
+
+  const waiterPipe = decliningPipe();
+  const pending = waiterPipe.read();
+  const waiterDelivered = deliverToStdIOPipe(waiterPipe, new Uint8Array([1]));
+  const waiterChunk = chunkArray(await pending);
+  const waiterWrite = waiterPipe.read();
+  const waiterWriteResult = waiterPipe.write(new Uint8Array([2]));
+  await waiterWrite;
+
+  const queuePipe = decliningPipe();
+  const queueDelivered = deliverToStdIOPipe(queuePipe, new Uint8Array([3]));
+  const queuedBytes = queuePipe.bufferedBytes;
+  const queueWriteResult = queuePipe.write(new Uint8Array([4]));
+  const queued = [
+    chunkArray(await queuePipe.read()),
+    chunkArray(await queuePipe.read()),
+  ];
+
+  const refusingPipe = new StdIOPipe();
+  let refusals = 0;
+  refusingPipe.consume(() => {
+    refusals += 1;
+    return false;
+  });
+  const refusedDelivered = deliverToStdIOPipe(
+    refusingPipe,
+    new Uint8Array([5]),
+  );
+
+  const closedPipe = decliningPipe();
+  closedPipe.close();
+  const closedDelivered = deliverToStdIOPipe(closedPipe, new Uint8Array([6]));
+
+  expect({
+    waiterDelivered,
+    waiterChunk,
+    waiterWriteResult,
+    queueDelivered,
+    queuedBytes,
+    queueWriteResult,
+    queued,
+    refusedDelivered,
+    refusals,
+    closedDelivered,
+    declined,
+  }).toEqual({
+    waiterDelivered: true,
+    waiterChunk: [1],
+    waiterWriteResult: false,
+    queueDelivered: true,
+    queuedBytes: 1,
+    queueWriteResult: false,
+    queued: [[3], [4]],
+    refusedDelivered: false,
+    refusals: 1,
+    closedDelivered: false,
+    declined: [[1], [2], [3], [4]],
+  });
+  expect(queuePipe.bufferedBytes).toBe(0);
 });

@@ -12,6 +12,7 @@ import {
 } from "../WebHostTerminalStyle.ts";
 import { sharedInputQueueDefaultCapacity } from "./SharedInputQueue.ts";
 import { StdIOPipe } from "./StdIOPipe.ts";
+import { deliverToStdIOPipe } from "./StdIOPipeDelivery.ts";
 import {
   resolveWasmEngineCapabilities,
   stackProfileEnvironmentDefaults,
@@ -219,8 +220,14 @@ export class BrowserWASIBridge {
       if (!request) {
         return;
       }
-      const accepted = this.stdin.write(encodeResyncControlMessage(request));
-      if (!accepted) {
+      // Only a refused delivery (a closed pipe or a refusing consumer) leaves
+      // the request pending. Subscribers are observers: a decline from one
+      // does not undo a delivery, and retrying would send a second copy.
+      const delivered = deliverToStdIOPipe(
+        this.stdin,
+        encodeResyncControlMessage(request),
+      );
+      if (!delivered) {
         this.decoder.resyncRequestDeliveryFailed(request);
         return;
       }

@@ -1,4 +1,11 @@
+import { provideStdIOPipeDelivery } from "./StdIOPipeDelivery.ts";
+
 export class StdIOPipe implements AsyncIterable<Uint8Array> {
+  static {
+    // Installs the bridge's delivery report (StdIOPipeDelivery.ts).
+    provideStdIOPipeDelivery((pipe, chunk) => pipe.writeChunk(chunk).delivered);
+  }
+
   private readonly chunks: Uint8Array[] = [];
   private readonly waiters: Array<(value: IteratorResult<Uint8Array>) => void> =
     [];
@@ -11,13 +18,29 @@ export class StdIOPipe implements AsyncIterable<Uint8Array> {
     return this.chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
   }
 
+  /**
+   * Returns false when the pipe is closed, the exclusive consumer refused the
+   * chunk, or an observer declined it; a declined chunk is still delivered.
+   */
   write(chunk: Uint8Array | string): boolean {
-    if (this.closed) return false;
+    const { delivered, observed } = this.writeChunk(chunk);
+    return delivered && observed;
+  }
+
+  /**
+   * Delivery and observation, reported apart: `delivered` is false only for a
+   * closed pipe or a refusing consumer, `observed` when an observer declined.
+   */
+  private writeChunk(chunk: Uint8Array | string): {
+    delivered: boolean;
+    observed: boolean;
+  } {
+    if (this.closed) return { delivered: false, observed: true };
     const bytes =
       typeof chunk === "string"
         ? new TextEncoder().encode(chunk)
         : new Uint8Array(chunk);
-    let accepted = true;
+    let delivered = true;
     const waiter = this.waiters.shift();
     if (waiter) {
       // A pending read takes the chunk; it is not also queued. Observers
@@ -25,12 +48,13 @@ export class StdIOPipe implements AsyncIterable<Uint8Array> {
       waiter({ done: false, value: bytes });
     } else {
       if (!this.consumer) this.chunks.push(bytes);
-      accepted = this.consumer?.(bytes) !== false;
+      delivered = this.consumer?.(bytes) !== false;
     }
+    let observed = true;
     for (const listener of this.listeners) {
-      if (listener(bytes) === false) accepted = false;
+      if (listener(bytes) === false) observed = false;
     }
-    return accepted;
+    return { delivered, observed };
   }
 
   close(): void {
