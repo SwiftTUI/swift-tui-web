@@ -11,6 +11,9 @@ const artifacts = fileURLToPath(
 export default defineConfig({
   testDir: ".",
   testMatch: "*.browser.ts",
+  // The W2 adversarial journeys need their own fixture server and build;
+  // they run under w2.playwright.config.ts (`bun run test:browser:w2`).
+  testIgnore: "*.w2.browser.ts",
   fullyParallel: false,
   workers: 1,
   retries: 0,
