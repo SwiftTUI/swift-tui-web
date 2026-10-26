@@ -1285,18 +1285,20 @@ export class WebHostSceneRuntime {
       );
     };
 
-    const handleWheel = (event: WheelEvent) => {
+    // Forwards a wheel to the app and consumes it, or returns false to leave
+    // it to the page or the browser.
+    const forwardWheel = (event: WheelEvent): boolean => {
       // Ctrl/Command+wheel is browser zoom with either renderer; browsers also
       // deliver a trackpad pinch as a Ctrl+wheel. Never claim it for the app.
       if (this.wheelMode === "passive" || event.ctrlKey || event.metaKey) {
-        return;
+        return false;
       }
 
       const location = this.cellLocation(event);
       if (!location) {
         // Pointer is outside the cell grid (sub-cell margin / gutter). Don't
         // capture — let the wheel fall through to the page.
-        return;
+        return false;
       }
 
       // In "chain" mode, capture only while a scrollable region under the
@@ -1312,7 +1314,7 @@ export class WebHostSceneRuntime {
           event.deltaY,
         )
       ) {
-        return;
+        return false;
       }
 
       // Deltas become whole cells of the presented pitch. Sub-cell travel sends
@@ -1327,6 +1329,15 @@ export class WebHostSceneRuntime {
       );
       if (record) this.onInput(record);
       event.preventDefault();
+      return true;
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      // A reversal drops the carried sub-cell travel on every wheel the host
+      // sees, including one it leaves to the page or the browser; otherwise
+      // the next wheel would complete a cell with travel from before it.
+      if (!forwardWheel(event))
+        this.inputEncoder.observeUnforwardedWheel(event);
     };
 
     const cancelPointer = (event: PointerEvent) => {

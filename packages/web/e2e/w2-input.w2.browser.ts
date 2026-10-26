@@ -1059,8 +1059,9 @@ test("w2cb008 a real Control-held wheel over presented chain headroom stays with
 
 // Wave-3 regression hunt, part CB (STUI-1167): a neighbour of the STUI-1191
 // sub-cell carry on the DOM renderer. The coordination root's wave-3 hunt
-// evidence owns the case description (w3cb006).
-test("w3cb006 a Ctrl+wheel reversal on a DOM scene leaves the carried travel", async ({
+// evidence owns the case description (w3cb006). It was a finding, repaired in
+// wave 4 (STUI-1276).
+test("w3cb006 a Ctrl+wheel reversal on a DOM scene drops the carried travel (STUI-1276)", async ({
   page,
 }) => {
   await capturingScene(page, { wheelMode: "capture", renderer: "dom" });
@@ -1103,28 +1104,5 @@ test("w3cb006 a Ctrl+wheel reversal on a DOM scene leaves the carried travel", a
     false,
     true,
   ]);
-  const deltas = results.map((result) => result.deltaY);
-  w3HuntKnownIssue(
-    "w3cb006 NEW-3: on a DOM scene a Ctrl+wheel reversal between two 0.6-row wheels leaves the carry, so the second sends a row; a wheel left to the browser never reaches encodeWheel (WebHostSceneRuntime.ts:1291-1293, InputEventEncoder.ts:298-301); contract: HOST-WIRE-CONTRACT.md:95-97, README.md:568-569; adjacent STUI-1191, STUI-1190",
-    () => expect(deltas).toEqual([[], [], ["1"]]),
-    () => expect(deltas).toEqual([[], [], []]),
-  );
+  expect(results.map((result) => result.deltaY)).toEqual([[], [], []]);
 });
-
-// Wave-3 regression hunt, part CB (STUI-1167): a reproduced finding asserts
-// the observed value, requires the contract expectation to fail, and logs a
-// W3HUNT_KNOWN_ASSERTION line citing the proposed issue. With
-// SWIFTTUI_W3HUNT_UNMARKED=1 only the contract expectation runs.
-function w3HuntKnownIssue(
-  message: string,
-  observed: () => void,
-  contract: () => void,
-): void {
-  if (process.env.SWIFTTUI_W3HUNT_UNMARKED === "1") {
-    contract();
-    return;
-  }
-  observed();
-  expect(contract).toThrow();
-  console.log(`W3HUNT_KNOWN_ASSERTION ${message}`);
-}

@@ -40,20 +40,36 @@ const DOM_DELTA_LINE = 1;
 const DOM_DELTA_PAGE = 2;
 
 /**
+ * One axis of wheel travel in the device unit of the wheel that produced it:
+ * CSS pixels for pixel deltas, cells for line and page deltas (a line is one
+ * cell and a page is the presented grid).
+ */
+interface WheelTravel {
+  /** Travel in device units. */
+  travel: number;
+  /** Device units in one cell: the presented pitch for pixels, else 1. */
+  unitsPerCell: number;
+}
+
+const noWheelTravel: WheelTravel = { travel: 0, unitsPerCell: 1 };
+
+/**
  * Encodes DOM keyboard/pointer/wheel/paste events into the `web-surface` wire
  * messages the SwiftTUI host consumes. This collaborator owns the translation
  * from browser event vocabulary (key names, button indices, wheel deltas,
  * modifier flags) to the transport's message vocabulary; it produces raw byte
  * chunks and holds no DOM or geometry state. Its only state is the sub-cell
- * wheel travel (under one cell per axis) carried to the next wheel event.
+ * wheel travel (under one cell per axis) carried to the next wheel event, kept
+ * in the device unit of the wheel that left it so that travel adding up to an
+ * exact multiple of the pitch sends that cell on the wheel that completes it.
  *
  * Hit-testing (pixel → cell) lives in the host, which passes already-resolved
  * {@link CellLocation}s and {@link WheelCellMetrics} here so the encoder stays
  * free of layout concerns.
  */
 export class InputEventEncoder {
-  private wheelRemainderX = 0;
-  private wheelRemainderY = 0;
+  private wheelCarryX = noWheelTravel;
+  private wheelCarryY = noWheelTravel;
 
   /**
    * Builds the key message for a keyboard event, or `undefined` when the event
@@ -153,8 +169,10 @@ export class InputEventEncoder {
    * deltas are one cell per line, and page deltas are the presented grid.
    * Sub-cell travel carries to the next wheel; a delta opposing the carried
    * travel drops it first. Each axis is bounded by
-   * {@link MAX_WHEEL_CELL_DELTA}. Returns `undefined` when neither axis has
-   * reached a whole cell; the host still consumes the event.
+   * {@link MAX_WHEEL_CELL_DELTA}: when the carried and new travel exceed it,
+   * the record carries the bound and nothing is carried. Returns `undefined`
+   * when neither axis has reached a whole cell; the host still consumes the
+   * event.
    */
   encodeWheel(
     location: CellLocation,
@@ -166,16 +184,16 @@ export class InputEventEncoder {
     // Read the mode before the deltas: Firefox may report line units only to a
     // page that has read `deltaMode` first.
     const mode = event.deltaMode;
-    const [deltaX, remainderX] = wholeWheelCells(
-      this.wheelRemainderX,
+    const [deltaX, carryX] = wholeWheelCells(
+      this.wheelCarryX,
       wheelTravel(event.deltaX, mode, metrics.cellWidth, metrics.columns),
     );
-    const [deltaY, remainderY] = wholeWheelCells(
-      this.wheelRemainderY,
+    const [deltaY, carryY] = wholeWheelCells(
+      this.wheelCarryY,
       wheelTravel(event.deltaY, mode, metrics.cellHeight, metrics.rows),
     );
-    this.wheelRemainderX = remainderX;
-    this.wheelRemainderY = remainderY;
+    this.wheelCarryX = carryX;
+    this.wheelCarryY = carryY;
     if (deltaX === 0 && deltaY === 0) {
       return undefined;
     }
@@ -191,6 +209,18 @@ export class InputEventEncoder {
       geometryRevision,
       viewportRevision,
     );
+  }
+
+  /**
+   * Applies the reversal rule to a wheel the host sees but does not forward
+   * (Ctrl/Command+wheel left to the browser, passive mode, a pointer outside
+   * the grid, a chain-mode fall-through): a delta opposing an axis's carried
+   * travel drops that carry. The wheel adds no travel, and a carry in its own
+   * direction stays.
+   */
+  observeUnforwardedWheel(event: WheelEvent): void {
+    this.wheelCarryX = droppingReversedCarry(this.wheelCarryX, event.deltaX);
+    this.wheelCarryY = droppingReversedCarry(this.wheelCarryY, event.deltaY);
   }
 
   /** Translates a DOM `MouseEvent.button` index into the wire button identity. */
@@ -264,8 +294,9 @@ function modifierMask(event: MouseEvent | KeyboardEvent): number {
 }
 
 /**
- * One axis of a wheel's travel in (fractional) cells. Pixel mode, and any
- * unrecognized mode, divides by the cell pitch; a pitch that is not a finite
+ * One axis of a wheel's travel in its device unit, or `undefined` for no
+ * travel. Pixel mode, and any unrecognized mode, counts CSS pixels against the
+ * cell pitch; line and page deltas count cells. A pitch that is not a finite
  * positive number falls back to one cell in the delta's direction.
  */
 function wheelTravel(
@@ -273,36 +304,65 @@ function wheelTravel(
   mode: number,
   pitch: number,
   extent: number,
-): number {
+): WheelTravel | undefined {
   if (!Number.isFinite(delta) || delta === 0) {
-    return 0;
+    return undefined;
   }
   switch (mode) {
     case DOM_DELTA_LINE:
-      return delta;
+      return { travel: delta, unitsPerCell: 1 };
     case DOM_DELTA_PAGE:
-      return delta * (Number.isFinite(extent) && extent >= 1 ? extent : 1);
+      return {
+        travel: delta * (Number.isFinite(extent) && extent >= 1 ? extent : 1),
+        unitsPerCell: 1,
+      };
     default:
       return Number.isFinite(pitch) && pitch > 0
-        ? delta / pitch
-        : Math.sign(delta);
+        ? { travel: delta, unitsPerCell: pitch }
+        : { travel: Math.sign(delta), unitsPerCell: 1 };
   }
 }
 
 /**
- * Adds `travel` to the carried sub-cell `remainder` and splits the total into
- * the whole cells to send now (bounded by {@link MAX_WHEEL_CELL_DELTA}) and the
- * remainder to carry. A reversal drops the opposing remainder; a clamped total
- * carries nothing.
+ * Adds `next` to the carried sub-cell travel and splits the total into the
+ * whole cells to send now and the remainder to carry, both in `next`'s unit.
+ * A reversal drops the carry first; a carry in another unit (a mode change, or
+ * a pitch change after a resize) keeps its fraction of a cell. A total beyond
+ * {@link MAX_WHEEL_CELL_DELTA} cells sends the bound and carries nothing.
  */
-function wholeWheelCells(remainder: number, travel: number): [number, number] {
+function wholeWheelCells(
+  carry: WheelTravel,
+  next: WheelTravel | undefined,
+): [number, WheelTravel] {
+  if (!next) return [0, carry];
+  const unit = next.unitsPerCell;
+  const kept = droppingReversedCarry(carry, next.travel);
   const carried =
-    travel !== 0 && Math.sign(travel) !== Math.sign(remainder) ? 0 : remainder;
-  const total = carried + travel;
-  const whole = Math.trunc(total);
-  if (Math.abs(whole) > MAX_WHEEL_CELL_DELTA) {
-    return [Math.sign(whole) * MAX_WHEEL_CELL_DELTA, 0];
+    kept.unitsPerCell === unit
+      ? kept.travel
+      : (kept.travel / kept.unitsPerCell) * unit;
+  const total = carried + next.travel;
+  // Scaling by 16 is exact, so the bound applies to the travel itself rather
+  // than to its truncation.
+  if (Math.abs(total) > MAX_WHEEL_CELL_DELTA * unit) {
+    return [
+      Math.sign(total) * MAX_WHEEL_CELL_DELTA,
+      { travel: 0, unitsPerCell: unit },
+    ];
   }
+  // `%` is exact, so travel that sums to a whole number of cells carries
+  // nothing and sends them now.
+  const remainder = total % unit;
   // `|| 0` normalizes -0 so a record never spells a negative zero.
-  return [whole || 0, total - whole];
+  const whole = Math.round((total - remainder) / unit) || 0;
+  return [whole, { travel: remainder, unitsPerCell: unit }];
+}
+
+/** Drops `carry` when `delta` travels the other way. */
+function droppingReversedCarry(carry: WheelTravel, delta: number): WheelTravel {
+  return Number.isFinite(delta) &&
+    delta !== 0 &&
+    Math.sign(delta) !== Math.sign(carry.travel)
+    ? { travel: 0, unitsPerCell: carry.unitsPerCell }
+    : carry;
 }

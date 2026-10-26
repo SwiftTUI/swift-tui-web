@@ -153,3 +153,35 @@ for (let id = 71; id <= 90; id++) {
     }
   });
 }
+
+// Wave 4 neighbour for STUI-1275 (w4web-n03): the carry is kept in the device
+// unit of the wheel that left it, and a pitch change between wheels (a resize
+// or font change) rescales it as the same fraction of a cell.
+test("a pitch change between wheels keeps the carried fraction of a cell (w4web-n03)", () => {
+  const wheelEncoder = new InputEventEncoder();
+  const wheel = { deltaX: 0, deltaY: 0, deltaMode: 0 } as WheelEvent;
+  const metrics = (cellHeight: number) => ({
+    cellWidth: 10,
+    cellHeight,
+    columns: 80,
+    rows: 24,
+  });
+  expect(
+    text(
+      wheelEncoder.encodeWheel(
+        { x: 1, y: 2 },
+        { ...wheel, deltaY: 13.5 },
+        metrics(27),
+      ),
+    ),
+  ).toBeUndefined();
+  expect(
+    text(
+      wheelEncoder.encodeWheel(
+        { x: 1, y: 2 },
+        { ...wheel, deltaY: 10 },
+        metrics(20),
+      ),
+    ),
+  ).toBe("\x1emouse:scrolled:1:2:none:0:1:0\n");
+});

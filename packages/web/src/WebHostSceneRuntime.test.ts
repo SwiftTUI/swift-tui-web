@@ -2698,29 +2698,12 @@ test("w2cb006 an interleaved Ctrl+wheel leaves chain-mode routing of later wheel
   }
 });
 
-// Wave-3 regression hunt, part CB (STUI-1167): a reproduced finding asserts
-// the observed value, requires the contract expectation to fail, and logs a
-// W3HUNT_KNOWN_ASSERTION line citing the proposed issue. With
-// SWIFTTUI_W3HUNT_UNMARKED=1 only the contract expectation runs.
-function w3HuntKnownIssue(
-  message: string,
-  observed: () => void,
-  contract: () => void,
-): void {
-  if (process.env.SWIFTTUI_W3HUNT_UNMARKED === "1") {
-    contract();
-    return;
-  }
-  observed();
-  expect(contract).toThrow();
-  console.log(`W3HUNT_KNOWN_ASSERTION ${message}`);
-}
-
 // Wave-3 regression hunt, part CB (STUI-1167): neighbours of the STUI-1191
 // bounded whole-cell wheel encoder. The coordination root's wave-3 hunt
 // evidence owns the case descriptions (w3cb001 to w3cb005). The fake DOM's
-// Canvas cell is 10 x 27 CSS px on a 4x2 grid.
-test("w3cb001 a wheel between 16 and 17 cells defers its excess to the next wheel", async () => {
+// Canvas cell is 10 x 27 CSS px on a 4x2 grid. w3cb001 to w3cb003 were
+// findings, repaired in wave 4 (STUI-1274 to STUI-1276).
+test("w3cb001 a wheel between 16 and 17 cells discards its excess (STUI-1274)", async () => {
   const dom = installFakeDOM();
   try {
     // 445.5 px is 16.5 rows; 13.5 px is half a row.
@@ -2728,39 +2711,26 @@ test("w3cb001 a wheel between 16 and 17 cells defers its excess to the next whee
       wheelMode: "capture",
       wheels: [{ deltaY: 445.5 }, { deltaY: 13.5 }],
     });
-    const deltas = results.map((result) => result.deltas);
-    w3HuntKnownIssue(
-      "w3cb001 NEW-1: a 16.5-row wheel sends 16 and carries the half row, so the next half-row wheel sends a row; wholeWheelCells clamps only when the truncated cell count exceeds 16 (InputEventEncoder.ts:303); contract: README.md:568-572, HOST-WIRE-CONTRACT.md:101-102; adjacent STUI-1191",
-      () => expect(deltas).toEqual([["0:16"], ["0:1"]]),
-      () => expect(deltas).toEqual([["0:16"], []]),
-    );
+    expect(results.map((result) => result.deltas)).toEqual([["0:16"], []]);
   } finally {
     dom.restore();
   }
 });
 
-test("w3cb002 one-pixel wheels that add up to exactly one row send it on the row boundary", async () => {
+test("w3cb002 one-pixel wheels that add up to exactly one row send it on the row boundary (STUI-1275)", async () => {
   const dom = installFakeDOM();
   try {
     const results = await wheelSequence({
       wheelMode: "capture",
       wheels: Array.from({ length: 28 }, () => ({ deltaY: 1 })),
     });
-    // 1-based wheel numbers that produced a record, with their deltas.
-    const records = results.flatMap((result, index) =>
-      result.deltas.map((deltas) => `${index + 1}=${deltas}`),
-    );
-    w3HuntKnownIssue(
-      "w3cb002 NEW-2: 27 one-pixel wheels over a 27 px row send nothing and the row arrives on wheel 28; the carry is a fraction of a cell and 27 additions of 1/27 sum to 0.9999999999999993 (InputEventEncoder.ts:298-308); contract: HOST-WIRE-CONTRACT.md:90-97, README.md:565-569; adjacent STUI-1191",
-      () => expect(records).toEqual(["28=0:1"]),
-      () => expect(records).toEqual(["27=0:1"]),
-    );
+    expect(wheelRecordNumbers(results)).toEqual(["27=0:1"]);
   } finally {
     dom.restore();
   }
 });
 
-test("w3cb003 a reversing wheel that falls through at a chain edge leaves the carried travel", async () => {
+test("w3cb003 a reversing wheel that falls through at a chain edge drops the carried travel (STUI-1276)", async () => {
   const dom = installFakeDOM();
   try {
     // The region starts at its top: headroom downward only.
@@ -2776,12 +2746,7 @@ test("w3cb003 a reversing wheel that falls through at a chain edge leaves the ca
       false,
       true,
     ]);
-    const deltas = results.map((result) => result.deltas);
-    w3HuntKnownIssue(
-      "w3cb003 NEW-3: after a reversing wheel falls through at the chain edge, the next half-row wheel completes a row with the carried half row; a wheel that does not reach encodeWheel never drops the carry (WebHostSceneRuntime.ts:1306-1317, InputEventEncoder.ts:298-301); contract: HOST-WIRE-CONTRACT.md:95-97, README.md:568-569; adjacent STUI-1191, STUI-1190",
-      () => expect(deltas).toEqual([[], [], ["0:1"]]),
-      () => expect(deltas).toEqual([[], [], []]),
-    );
+    expect(results.map((result) => result.deltas)).toEqual([[], [], []]);
   } finally {
     dom.restore();
   }
@@ -2829,6 +2794,140 @@ test("w3cb005 a reversal on one axis of a diagonal wheel keeps the other axis ca
       ["0:1"],
       ["-1:0"],
     ]);
+  } finally {
+    dom.restore();
+  }
+});
+
+// Wave 4 repair scenarios for STUI-1274, STUI-1275 and STUI-1276. The encoder
+// carries each axis's remainder in the device unit of the wheel that left it,
+// clamps when the carried plus new travel exceeds 16 cells, and every wheel
+// the host sees applies the reversal rule. Same fake DOM as above.
+test("a carried half row plus a 16-row wheel is clamped with nothing carried (w4web-r02)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const downward = await wheelSequence({
+      wheelMode: "capture",
+      wheels: [{ deltaY: 13.5 }, { deltaY: 432 }, { deltaY: 13.5 }],
+    });
+    const upward = await wheelSequence({
+      wheelMode: "capture",
+      wheels: [{ deltaY: -445.5 }, { deltaY: -13.5 }],
+    });
+    expect(downward.map((result) => result.deltas)).toEqual([[], ["0:16"], []]);
+    expect(upward.map((result) => result.deltas)).toEqual([["0:-16"], []]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("exactly 16 cells of travel is not clamped and carries nothing (w4web-n01)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const results = await wheelSequence({
+      wheelMode: "capture",
+      wheels: [{ deltaY: 432 }, { deltaY: 13.5 }, { deltaY: 13.5 }],
+    });
+    expect(results.map((result) => result.deltas)).toEqual([
+      ["0:16"],
+      [],
+      ["0:1"],
+    ]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("one-pixel wheels complete each column on the column boundary (w4web-r04)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const results = await wheelSequence({
+      wheelMode: "capture",
+      wheels: Array.from({ length: 21 }, () => ({ deltaX: 1 })),
+    });
+    expect(wheelRecordNumbers(results)).toEqual(["10=1:0", "20=1:0"]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a page carry completes in pixels (w4web-n03)", async () => {
+  const dom = installFakeDOM();
+  try {
+    // A quarter page of the two-row grid is half a row, 13.5 px.
+    const results = await wheelSequence({
+      wheelMode: "capture",
+      wheels: [{ deltaMode: 2, deltaY: 0.25 }, { deltaY: 13.5 }],
+    });
+    expect(results.map((result) => result.deltas)).toEqual([[], ["0:1"]]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test.each([
+  ["a Ctrl+wheel", { ctrlKey: true }],
+  ["a Command+wheel", { metaKey: true }],
+  ["a wheel outside the cell grid", { clientX: 45, clientY: 60 }],
+] as const)(
+  "Canvas capture: %s reversal drops the carried travel (w4web-r07)",
+  async (_, reversal) => {
+    const dom = installFakeDOM();
+    try {
+      const results = await wheelSequence({
+        wheelMode: "capture",
+        wheels: [
+          { deltaY: 13.5 },
+          { deltaY: -13.5, ...reversal },
+          { deltaY: 13.5 },
+        ],
+      });
+      expect(results.map((result) => result.prevented)).toEqual([
+        true,
+        false,
+        true,
+      ]);
+      expect(results.map((result) => result.deltas)).toEqual([[], [], []]);
+    } finally {
+      dom.restore();
+    }
+  },
+);
+
+test("a Ctrl+wheel reversing one axis drops only that axis carry (w4web-r08)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const results = await wheelSequence({
+      wheelMode: "capture",
+      wheels: [
+        { deltaX: 5, deltaY: 13.5 },
+        { deltaX: -5, deltaY: 5, ctrlKey: true },
+        { deltaX: 5, deltaY: 13.5 },
+      ],
+    });
+    expect(results.map((result) => result.deltas)).toEqual([[], [], ["0:1"]]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a same-direction Ctrl+wheel keeps the carried travel (w4web-n05)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const results = await wheelSequence({
+      wheelMode: "capture",
+      wheels: [
+        { deltaY: 13.5 },
+        { deltaY: 13.5, ctrlKey: true },
+        { deltaY: 13.5 },
+      ],
+    });
+    expect(results.map((result) => result.prevented)).toEqual([
+      true,
+      false,
+      true,
+    ]);
+    expect(results.map((result) => result.deltas)).toEqual([[], [], ["0:1"]]);
   } finally {
     dom.restore();
   }
@@ -4055,28 +4154,37 @@ async function wheelScenario(options: {
   };
 }
 
-// Dispatches a sequence of unmodified wheels at cell (0, 0) of the same 4x2
-// scene and reports, per wheel, whether it was preventDefault'd and the
-// `deltaX:deltaY` fields of the scrolled records it produced.
+// Dispatches a sequence of wheels, unmodified at cell (0, 0) unless a wheel
+// says otherwise, over the same 4x2 scene and reports, per wheel, whether it
+// was preventDefault'd and the `deltaX:deltaY` fields of the scrolled records
+// it produced.
 async function wheelSequence(options: {
   wheelMode?: WheelMode;
   scrollRegions?: Array<Record<string, unknown>>;
-  wheels: Array<{ deltaX?: number; deltaY?: number; deltaMode?: number }>;
+  wheels: Array<{
+    deltaX?: number;
+    deltaY?: number;
+    deltaMode?: number;
+    clientX?: number;
+    clientY?: number;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+  }>;
 }): Promise<Array<{ prevented: boolean; deltas: string[] }>> {
   const { runtime, inputs } = await mountWheelScene(options);
   return options.wheels.map((wheel) => {
     const before = inputs.length;
     let prevented = false;
     runtime.terminalMount.dispatch("wheel", {
-      clientX: 5,
-      clientY: 5,
+      clientX: wheel.clientX ?? 5,
+      clientY: wheel.clientY ?? 5,
       deltaX: wheel.deltaX ?? 0,
       deltaY: wheel.deltaY ?? 0,
       deltaMode: wheel.deltaMode ?? 0,
       shiftKey: false,
       altKey: false,
-      ctrlKey: false,
-      metaKey: false,
+      ctrlKey: wheel.ctrlKey ?? false,
+      metaKey: wheel.metaKey ?? false,
       preventDefault() {
         prevented = true;
       },
@@ -4089,6 +4197,16 @@ async function wheelSequence(options: {
         .map((record) => record.trim().split(":").slice(-3, -1).join(":")),
     };
   });
+}
+
+// The 1-based numbers of the wheels in a `wheelSequence` that produced a
+// record, each with its `deltaX:deltaY` fields.
+function wheelRecordNumbers(
+  results: Array<{ prevented: boolean; deltas: string[] }>,
+): string[] {
+  return results.flatMap((result, index) =>
+    result.deltas.map((deltas) => `${index + 1}=${deltas}`),
+  );
 }
 
 async function mountWheelScene(options: {
