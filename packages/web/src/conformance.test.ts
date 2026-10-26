@@ -354,6 +354,73 @@ describe("host-wire conformance integrity and schema teeth", () => {
     ).toHaveLength(2);
   });
 
+  // Wave-3 regression hunt, part CB (STUI-1167): the bounds of the
+  // non-json-number relaxation. The coordination root's wave-3 hunt evidence
+  // owns the case descriptions (w3cb009, w3cb010).
+  test("w3cb009 the non-json-number class still requires framing and an object when the payload parses", () => {
+    const expectStep = {
+      expect: { rows: [], imagesVisible: [], resyncRequests: [] },
+    };
+    const emits: Record<string, string> = {
+      "array payload": "\u001Esurface:[1]\n",
+      "string payload": '\u001Esurface:"x"\n',
+      "number payload": "\u001Esurface:7\n",
+      "CR before LF": '\u001Esurface:{"opacity":NaN}\r\n',
+      "two records": '\u001Esurface:{"opacity":NaN}\n\u001Esurface:{}\n',
+      "non-surface record": '\u001Eclipboard:{"text":"x"}\n',
+    };
+    const outcomes = Object.entries(emits).map(([label, emit]) => {
+      try {
+        syntheticFixture([{ emit }, expectStep], {
+          mutationClass: "non-json-number",
+        });
+        return `${label}: admitted`;
+      } catch {
+        return `${label}: rejected`;
+      }
+    });
+    expect(outcomes).toEqual(
+      Object.keys(emits).map((label) => `${label}: rejected`),
+    );
+  });
+
+  test("w3cb010 every other mutation class still rejects a non-JSON surface payload", () => {
+    const steps = [
+      { emit: '\u001Esurface:{"version":2,"opacity":NaN}\n' },
+      { expect: { rows: [], imagesVisible: [], resyncRequests: [] } },
+    ];
+    const bindings: Array<Partial<ConformanceManifestEntry>> = [
+      { mutationClass: "control", kind: "record" },
+      { mutationClass: "baseline-loss", kind: "record" },
+      { mutationClass: "epoch-reanchor", kind: "record" },
+      { mutationClass: "unknown-token", kind: "record" },
+      { mutationClass: "style-append", kind: "record" },
+      { mutationClass: "image-forget", kind: "record" },
+      { mutationClass: "image-forget", kind: "web-painter" },
+      { mutationClass: "image-decode-failure", kind: "web-painter" },
+      {
+        mutationClass: "websocket-detached-backlog",
+        kind: "websocket-channel",
+      },
+      { mutationClass: "android-delivery-commit", kind: "android-abi" },
+    ];
+    const outcomes = bindings.map((binding) => {
+      const label = `${binding.mutationClass}/${binding.kind}`;
+      try {
+        syntheticFixture(steps, binding);
+        return `${label}: admitted`;
+      } catch (error) {
+        return `${label}: ${error instanceof SyntaxError ? "SyntaxError" : String(error).includes("not legal") ? "emit not legal" : String(error)}`;
+      }
+    });
+    expect(outcomes).toEqual(
+      bindings.map(
+        (binding) =>
+          `${binding.mutationClass}/${binding.kind}: ${binding.kind === "android-abi" ? "emit not legal" : "SyntaxError"}`,
+      ),
+    );
+  });
+
   test("validates inactive Android labels and channel token lifecycle before execution", () => {
     expect(() =>
       syntheticFixture(

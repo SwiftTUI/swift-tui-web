@@ -1056,3 +1056,75 @@ test("w2cb008 a real Control-held wheel over presented chain headroom stays with
   expect(plain).toEqual({ prevented: true, records: 1 });
   expect(controlHeld).toEqual({ prevented: false, records: 1 });
 });
+
+// Wave-3 regression hunt, part CB (STUI-1167): a neighbour of the STUI-1191
+// sub-cell carry on the DOM renderer. The coordination root's wave-3 hunt
+// evidence owns the case description (w3cb006).
+test("w3cb006 a Ctrl+wheel reversal on a DOM scene leaves the carried travel", async ({
+  page,
+}) => {
+  await capturingScene(page, { wheelMode: "capture", renderer: "dom" });
+  const { cellHeight } = await presentedCells(page);
+  // 0.6 of a row keeps the outcome independent of sub-pixel DOM pitch
+  // rounding: two carried wheels make 1.2 rows, one alone 0.6.
+  const results = await page.evaluate((travel) => {
+    const id = (window as unknown as { __w2id: number }).__w2id;
+    const el = document.querySelector<HTMLElement>(".webhost-scene__terminal");
+    if (!el) throw new Error("no W2 terminal");
+    const rect = el.getBoundingClientRect();
+    return [
+      { deltaY: travel, ctrlKey: false },
+      { deltaY: -travel, ctrlKey: true },
+      { deltaY: travel, ctrlKey: false },
+    ].map(({ deltaY, ctrlKey }) => {
+      const before = window.__w2.mouseInputs(id).length;
+      const event = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY,
+        ctrlKey,
+        deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+        clientX: rect.left + 10,
+        clientY: rect.top + 10,
+      });
+      el.dispatchEvent(event);
+      return {
+        prevented: event.defaultPrevented,
+        deltaY: window.__w2
+          .mouseInputs(id)
+          .slice(before)
+          .filter((r) => r.includes(":scrolled:"))
+          .map((r) => r.split(":").at(-2) ?? ""),
+      };
+    });
+  }, 0.6 * cellHeight);
+  expect(results.map((result) => result.prevented)).toEqual([
+    true,
+    false,
+    true,
+  ]);
+  const deltas = results.map((result) => result.deltaY);
+  w3HuntKnownIssue(
+    "w3cb006 NEW-3: on a DOM scene a Ctrl+wheel reversal between two 0.6-row wheels leaves the carry, so the second sends a row; a wheel left to the browser never reaches encodeWheel (WebHostSceneRuntime.ts:1291-1293, InputEventEncoder.ts:298-301); contract: HOST-WIRE-CONTRACT.md:95-97, README.md:568-569; adjacent STUI-1191, STUI-1190",
+    () => expect(deltas).toEqual([[], [], ["1"]]),
+    () => expect(deltas).toEqual([[], [], []]),
+  );
+});
+
+// Wave-3 regression hunt, part CB (STUI-1167): a reproduced finding asserts
+// the observed value, requires the contract expectation to fail, and logs a
+// W3HUNT_KNOWN_ASSERTION line citing the proposed issue. With
+// SWIFTTUI_W3HUNT_UNMARKED=1 only the contract expectation runs.
+function w3HuntKnownIssue(
+  message: string,
+  observed: () => void,
+  contract: () => void,
+): void {
+  if (process.env.SWIFTTUI_W3HUNT_UNMARKED === "1") {
+    contract();
+    return;
+  }
+  observed();
+  expect(contract).toThrow();
+  console.log(`W3HUNT_KNOWN_ASSERTION ${message}`);
+}

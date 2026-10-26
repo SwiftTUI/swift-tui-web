@@ -595,3 +595,101 @@ test("a resync request a consumer refused is retried once on capacity (w3cb-n01)
   });
   bridge.dispose();
 });
+
+// Wave-3 regression hunt, part CB (STUI-1167): neighbours of the STUI-1252
+// delivery report. The coordination root's wave-3 hunt evidence owns the case
+// descriptions (w3cb007, w3cb008).
+test("w3cb007 split image recovery reaches a consumer once per chunk when an observer declines", () => {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 80,
+    rows: 24,
+  });
+  const consumed: string[] = [];
+  bridge.stdin.consume((chunk) => {
+    consumed.push(new TextDecoder().decode(chunk));
+    return true;
+  });
+  bridge.stdin.subscribe(() => false);
+  bridge.bindOutput({ presentSurface: () => {} });
+  const ids = Array.from(
+    { length: MAX_OUTSTANDING_IMAGE_RECOVERY_IDS },
+    (_, index) => `png:${String(index).padStart(4, "0")}:${"x".repeat(72)}`,
+  );
+  bridge.requestImagePayloads(ids);
+  const chunksAfterRequest = consumed.length;
+  bridge.notifyInputCapacityAvailable();
+  const deliveredIds = consumed.flatMap((message) => {
+    const payload = JSON.parse(message.slice("\u001Eresync:".length, -1)) as {
+      ids: string[];
+    };
+    return payload.ids;
+  });
+  expect({
+    split: chunksAfterRequest > 1,
+    chunksAfterNotification: consumed.length,
+    deliveredIds,
+  }).toEqual({
+    split: true,
+    chunksAfterNotification: chunksAfterRequest,
+    deliveredIds: ids,
+  });
+  bridge.dispose();
+});
+
+test("w3cb008 the bridge alone installs the delivery report and no entrypoint exports it", async () => {
+  // A fresh process whose only import is the bridge: the delivery report is
+  // installed through StdIOPipe's static block, and a declined request is
+  // queued once.
+  const bridgeModule = new URL("./BrowserWASIBridge.ts", import.meta.url)
+    .pathname;
+  const script = `
+    import { BrowserWASIBridge } from ${JSON.stringify(bridgeModule)};
+    const bridge = new BrowserWASIBridge({ sceneId: "main", columns: 80, rows: 24 });
+    bridge.stdin.subscribe(() => false);
+    bridge.bindOutput({ presentSurface: () => {} });
+    bridge.requestImagePayloads(["png:a"]);
+    bridge.notifyInputCapacityAvailable();
+    console.log(JSON.stringify({ bufferedBytes: bridge.stdin.bufferedBytes }));
+  `;
+  const result = Bun.spawnSync({
+    cmd: [process.execPath, "-e", script],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const output = {
+    exitCode: result.exitCode,
+    stdout: new TextDecoder().decode(result.stdout).trim(),
+    stderr: new TextDecoder().decode(result.stderr).trim(),
+  };
+  // Every public entrypoint re-exports the pipe module wholesale, so its
+  // exports are the public surface; no entrypoint names the internal module.
+  const pipeExports = Object.keys(await import("./StdIOPipe.ts")).sort();
+  const packageRoot = new URL("../../", import.meta.url);
+  const entrypoints = [
+    "index.ts",
+    "manifest.ts",
+    "testing.ts",
+    "wasi.ts",
+    "wasi-worker.ts",
+    "websocket.ts",
+    "src/browser.ts",
+  ];
+  const naming = [];
+  for (const entry of entrypoints) {
+    const source = await Bun.file(new URL(entry, packageRoot)).text();
+    if (source.includes("StdIOPipeDelivery")) naming.push(entry);
+  }
+  expect({ output, pipeExports, naming }).toEqual({
+    output: {
+      exitCode: 0,
+      stdout: JSON.stringify({
+        bufferedBytes: '\u001Eresync:{"scope":"images","ids":["png:a"]}\n'
+          .length,
+      }),
+      stderr: "",
+    },
+    pipeExports: ["StdIOPipe"],
+    naming: [],
+  });
+});
