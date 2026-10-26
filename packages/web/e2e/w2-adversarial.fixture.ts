@@ -35,6 +35,8 @@ interface SceneOptions {
   suspendWhenHidden?: boolean;
   mountWidth?: number;
   mountHeight?: number;
+  /** Runtime focus synchronization; off unless a journey asks for it. */
+  synchronizeAccessibilityFocus?: boolean;
 }
 
 interface Scene {
@@ -108,7 +110,8 @@ const scene = {
       bridge,
       wheelMode: options.wheelMode,
       suspendWhenHidden: options.suspendWhenHidden,
-      synchronizeAccessibilityFocus: false,
+      synchronizeAccessibilityFocus:
+        options.synchronizeAccessibilityFocus ?? false,
       onInput: (chunk) => bridge.sendInput(chunk),
       onFrameDiagnostic: () => {},
     });

@@ -85,11 +85,17 @@ producer and adapter sources, as paired framework and browser 0.19.4 provide.
 
 Relationship lists contain wire node IDs, never DOM IDs. The adapter resolves
 present, nonhidden same-scene targets and drops missing, duplicate and self
-references. DOM IDs are collision-free and scoped to each mounted tree. Read-only
-native editors retain focus but send no mutation requests. The Swift runtime
-independently rejects read-only assistive mutations. Role-appropriate properties
-remain the control author's responsibility; metadata alone does not implement
-selection, validation, popup keyboard behavior or a complete widget pattern.
+references. DOM IDs are collision-free and scoped to each mounted tree. Wire IDs
+are occurrence-free, so duplicate siblings can share one; each still gets its
+own element and DOM ID. A control is keyed by its own `actionTarget`, so its
+element does not change when a duplicate sibling appears or leaves; other
+duplicates are told apart by order. A child names the nearest preceding node
+with its `parentId`, and a relationship that names a shared ID is dropped as
+ambiguous. Read-only native editors retain focus but send no mutation
+requests. The Swift runtime independently rejects read-only assistive
+mutations. Role-appropriate properties remain the control author's
+responsibility; metadata alone does not implement selection, validation, popup
+keyboard behavior or a complete widget pattern.
 
 A matching producer may also send `selection` on a Picker node: a presentation
 and ordered options with opaque `id`, `label` and `isEnabled`. The adapter uses

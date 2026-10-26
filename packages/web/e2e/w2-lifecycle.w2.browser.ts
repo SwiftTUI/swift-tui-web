@@ -4,6 +4,7 @@
 // HOST-WIRE-CONTRACT.md (WebHost connection lifecycle, delivery repair uplink,
 // inbound/outbound budgets).
 import { expect, test } from "@playwright/test";
+import { duplicateAccessibilityFrames } from "../test-support/DuplicateAccessibilityFrames.ts";
 import type {} from "./w2-adversarial.fixture.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -369,4 +370,124 @@ test("a dropped oversized message preserves the retained baseline (w2s043)", asy
   // The full baseline survives the dropped oversized message, so the following
   // delta that names it still materializes.
   expect(surfaces).toBe(2);
+});
+
+// Wave 4 repair scenarios for STUI-1259 (w4web-a01 to a04, a06). Real 0.19.4
+// records (test-support/DuplicateAccessibilityFrames.ts) carry two buttons
+// with one occurrence-free id and distinct action targets. Each keeps its own
+// element and DOM id, runtime and assistive focus name exactly that element,
+// and hiding the first leaves the second's element in place (STUI-1288's
+// rule: a duplicate's identity does not depend on its siblings).
+test("duplicate accessibility siblings from real frames keep their own elements and focus (w4web-a01)", async ({
+  page,
+}) => {
+  const frames = duplicateAccessibilityFrames();
+  const record = (label: string) => {
+    const frame = frames.get(`buttons: ${label}`);
+    if (!frame) throw new Error(`missing recorded frame ${label}`);
+    return frame;
+  };
+  // The tab-2 frame (the second focused) with an assistive request for the
+  // first's target, as the session's next generation.
+  const tab2 = JSON.parse(
+    record("tab 2 focuses the second Same").slice("\u001esurface:".length),
+  );
+  const assistive = `\u001esurface:${JSON.stringify({
+    ...tab2,
+    gen: tab2.gen + 1,
+    sequence: tab2.sequence + 1,
+    accessibilityFocusRequest: {
+      generation: "1",
+      target: tab2.accessibilityTree[3].actionTarget,
+    },
+  })}\n`;
+  const result = await page.evaluate(
+    async (steps) => {
+      const id = await window.__w2.create({
+        renderer: "canvas",
+        columns: 30,
+        rows: 8,
+        synchronizeAccessibilityFocus: true,
+      });
+      const sameID = 'App/buttons/Layout[0]/VStack[1]/ID["Same"]';
+      const same = () =>
+        [
+          ...document.querySelectorAll<HTMLElement>("[data-accessibility-id]"),
+        ].filter((element) => element.dataset.accessibilityId === sameID);
+      const present = async (step: string) => {
+        window.__w2.presentRaw(id, step);
+        await window.__w2.settle();
+        const elements = same();
+        return {
+          count: elements.length,
+          distinctIDs: new Set(elements.map((element) => element.id)).size,
+          focused: elements.map(
+            (element) => document.activeElement === element,
+          ),
+        };
+      };
+      const tab1 = await present(steps.tab1);
+      const original = same();
+      for (const element of original) element.click();
+      const activations = window.__w2
+        .inputs(id)
+        .filter((input) => input.includes(":activate"))
+        .map((input) => decodeURIComponent(input.split(":")[2] ?? ""));
+      const tab2 = await present(steps.tab2);
+      const reused = same().every(
+        (element, index) => element === original[index],
+      );
+      const assistive = await present(steps.assistive);
+      const secondID = original[1]?.id;
+      const hidden = await present(steps.hidden);
+      const kept = same()[0] === original[1] && same()[0]?.id === secondID;
+      return { tab1, activations, tab2, reused, assistive, hidden, kept };
+    },
+    {
+      tab1: record("tab 1 focuses the first Same"),
+      tab2: record("tab 2 focuses the second Same"),
+      assistive,
+      hidden: record("return hides the first Same"),
+    },
+  );
+  expect(result).toEqual({
+    tab1: { count: 2, distinctIDs: 2, focused: [true, false] },
+    activations: [
+      '12:App/buttons/Layout[0]/VStack[1]/ID["Same"]#2',
+      '20:App/buttons/Layout[0]/VStack[1]/ID["Same"#1]#3',
+    ],
+    tab2: { count: 2, distinctIDs: 2, focused: [false, true] },
+    reused: true,
+    assistive: { count: 2, distinctIDs: 2, focused: [true, false] },
+    hidden: { count: 1, distinctIDs: 1, focused: [false] },
+    kept: true,
+  });
+});
+
+test("duplicate static text siblings from a real frame keep two reading elements (w4web-a05)", async ({
+  page,
+}) => {
+  const frame = duplicateAccessibilityFrames().get("text: initial");
+  if (!frame) throw new Error("missing recorded frame text: initial");
+  const result = await page.evaluate(async (frame) => {
+    const id = await window.__w2.create({
+      renderer: "canvas",
+      columns: 30,
+      rows: 8,
+    });
+    window.__w2.presentRaw(id, frame);
+    await window.__w2.settle();
+    const elements = [
+      ...document.querySelectorAll<HTMLElement>("[data-accessibility-id]"),
+    ].filter(
+      (element) =>
+        element.dataset.accessibilityId ===
+        'App/text/Layout[0]/VStack[0]/ID["Same"]',
+    );
+    return {
+      text: elements.map((element) => element.textContent),
+      distinctIDs: new Set(elements.map((element) => element.id)).size,
+    };
+  }, frame);
+  expect(result).toEqual({ text: ["Same", "Same"], distinctIDs: 2 });
 });

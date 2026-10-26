@@ -30,6 +30,15 @@ interface RoleMapping {
   level?: number;
 }
 
+/**
+ * A frame node keyed for presentation. `id` is unique in the frame, and
+ * `parentId` and relationship ids name those keys; `wireId` is the id the
+ * frame carried, which duplicate siblings share.
+ */
+type PresentedAccessibilityNode = WebHostAccessibilityNode & {
+  wireId: string;
+};
+
 export class AccessibilityTreeMounter {
   readonly element: HTMLElement;
   readonly announcerElement: HTMLElement;
@@ -50,7 +59,8 @@ export class AccessibilityTreeMounter {
   private hasLiveRegionBaseline = false;
 
   private readingText = new WeakMap<HTMLElement, Text>();
-  private modelsById = new Map<string, WebHostAccessibilityNode>();
+  private modelsById = new Map<string, PresentedAccessibilityNode>();
+  private readonly keysByElement = new WeakMap<Element, string>();
   private presenting = false;
   private nextRequestID = 0n;
   private acknowledgedRequestID = 0n;
@@ -251,8 +261,9 @@ export class AccessibilityTreeMounter {
     options: AccessibilityTreePresentationOptions,
   ): void {
     const activeBeforePresentation = document.activeElement;
-    const reviewedID = (activeBeforePresentation as HTMLElement | null)?.dataset
-      ?.accessibilityId;
+    const reviewedID = activeBeforePresentation
+      ? this.keysByElement.get(activeBeforePresentation)
+      : undefined;
     const reviewedModel = reviewedID
       ? this.modelsById.get(reviewedID)
       : undefined;
@@ -264,12 +275,12 @@ export class AccessibilityTreeMounter {
     // Nodes the app marked hidden stay out of the assistive-technology tree,
     // mirroring the Android host's overlay filter. Hidden is per-node on the
     // wire, so children of a hidden node re-parent to the mount root.
-    const visibleNodes = nodes
-      .filter((node) => !node.hidden)
-      .map((node) => ({
-        ...node,
-        liveRegion: normalizeLiveRegion(node.liveRegion),
-      }));
+    const visibleNodes = presentationNodes(
+      nodes.filter((node) => !node.hidden),
+    ).map((node) => ({
+      ...node,
+      liveRegion: normalizeLiveRegion(node.liveRegion),
+    }));
     const normalizedAnnouncements = announcements.map((announcement) => ({
       ...announcement,
       politeness: normalizePoliteness(announcement.politeness),
@@ -974,12 +985,13 @@ export class AccessibilityTreeMounter {
 
   private applyNodeAttributes(
     element: HTMLElement,
-    node: WebHostAccessibilityNode,
+    node: PresentedAccessibilityNode,
     metrics: AccessibilityTreeMetrics,
     parent?: WebHostAccessibilityNode,
   ): void {
     element.id = `swifttui-a11y-${this.domIdentity}-${stableDOMId(node.id)}`;
-    element.dataset.accessibilityId = node.id;
+    element.dataset.accessibilityId = node.wireId;
+    this.keysByElement.set(element, node.id);
     // Native traversal moves focus before the next key arrives. Waiting for a
     // Swift focus frame leaves rapid Tab+edit input aimed at the old control.
     element.tabIndex = this.isTabStop(node) ? 0 : -1;
@@ -1537,6 +1549,71 @@ function roleMapping(role: string): RoleMapping {
     default:
       return { role: "group" };
   }
+}
+
+const presentationKeySeparator = "\u001F";
+
+/**
+ * Gives each node of a frame a key unique in that frame, and resolves the
+ * frame's id references to keys (STUI-1259). Wire ids are occurrence-free, so
+ * duplicate siblings share one. A control is keyed by its id and its own
+ * opaque action target, so its key does not depend on whether a duplicate
+ * sibling is present; a key that still repeats (duplicate static text, or
+ * nodes sharing a target) takes an occurrence ordinal in frame order. A
+ * `parentId` names the nearest preceding node with that id (the tree is in
+ * pre-order); a relationship id resolves only when one node has it, as the
+ * runtime removes ambiguous targets. Unresolved ids stay as they were.
+ */
+function presentationNodes(
+  nodes: readonly WebHostAccessibilityNode[],
+): PresentedAccessibilityNode[] {
+  const used = new Set<string>();
+  const keysByWireId = new Map<string, string[]>();
+  const keys = nodes.map((node) => {
+    const base =
+      node.actionTarget === undefined
+        ? node.id
+        : `${node.id}${presentationKeySeparator}${node.actionTarget}`;
+    let key = base;
+    for (let occurrence = 1; used.has(key); occurrence++)
+      key = `${base}${presentationKeySeparator}#${occurrence}`;
+    used.add(key);
+    const group = keysByWireId.get(node.id);
+    if (group) group.push(key);
+    else keysByWireId.set(node.id, [key]);
+    return key;
+  });
+  const unique = (id: string) => {
+    const group = keysByWireId.get(id);
+    return group?.length === 1 ? group[0] : group ? undefined : id;
+  };
+  const references = (ids: string[] | undefined) =>
+    ids?.flatMap((id) => unique(id) ?? []);
+  const preceding = new Map<string, string>();
+  return nodes.map((node, index) => {
+    const key = keys[index] ?? node.id;
+    const parentId =
+      node.parentId === undefined
+        ? undefined
+        : (preceding.get(node.parentId) ??
+          keysByWireId.get(node.parentId)?.[0] ??
+          node.parentId);
+    preceding.set(node.id, key);
+    const properties = node.properties && {
+      ...node.properties,
+      labelledBy: references(node.properties.labelledBy),
+      describedBy: references(node.properties.describedBy),
+      errorMessage: references(node.properties.errorMessage),
+      controls: references(node.properties.controls),
+      owns: references(node.properties.owns),
+      flowTo: references(node.properties.flowTo),
+      activeDescendant:
+        node.properties.activeDescendant === undefined
+          ? undefined
+          : unique(node.properties.activeDescendant),
+    };
+    return { ...node, id: key, parentId, properties, wireId: node.id };
+  });
 }
 
 function stableDOMId(id: string): string {

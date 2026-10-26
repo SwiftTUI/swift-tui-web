@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import { duplicateAccessibilityFrames } from "../test-support/DuplicateAccessibilityFrames.ts";
 import { ManualAnimationFrameScheduler } from "./ManualAnimationFrameScheduler.ts";
 import {
   WebHostSceneRuntime,
@@ -27,6 +28,7 @@ import {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const duplicateFrames = duplicateAccessibilityFrames();
 
 test.each(["error", "warning"] as const)(
   "runtime issues reach the browser console at %s severity without stopping frames",
@@ -3288,6 +3290,113 @@ test("accessibility nodes marked hidden stay out of the ARIA tree", async () => 
   }
 });
 
+// Wave 4 repair scenarios for STUI-1259. The wire reports occurrence-free
+// accessibility ids, so duplicate siblings share an id; each still needs its
+// own element, keyed by its own action target. The frames are real 0.19.4
+// records (test-support/DuplicateAccessibilityFrames.ts). Focus, removal and
+// reading text run in Chromium (w2-lifecycle, w4web-a01 to a06).
+test("duplicate wire siblings each keep their own element and action target (w4web-a01, a02)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const inputs: string[] = [];
+    const { runtime, bridge } = await mountAccessibilityScene(inputs);
+    bridge.stdout.write(
+      encoder.encode(
+        duplicateFrames.get("buttons: tab 1 focuses the first Same") ?? "",
+      ),
+    );
+    const tree = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-tree",
+    );
+    const same = descendantsWithData(
+      tree,
+      "accessibilityId",
+      'App/buttons/Layout[0]/VStack[1]/ID["Same"]',
+    );
+    expect(same).toHaveLength(2);
+    expect(new Set(same.map((element) => element.id)).size).toBe(2);
+    expect(same.map((element) => element.getAttribute("aria-label"))).toEqual([
+      "Same",
+      "Same",
+    ]);
+    for (const element of same)
+      element.dispatch("click", {
+        stopPropagation() {},
+        preventDefault() {},
+      });
+    expect(
+      inputs
+        .filter((input) => input.includes(":activate"))
+        .map((input) => decodeURIComponent(input.split(":")[2] ?? "")),
+    ).toEqual([
+      '12:App/buttons/Layout[0]/VStack[1]/ID["Same"]#2',
+      '20:App/buttons/Layout[0]/VStack[1]/ID["Same"#1]#3',
+    ]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("children of duplicate parents nest under their own parent, and an ambiguous relationship is dropped (w4web-a07)", async () => {
+  const dom = installFakeDOM();
+  try {
+    const { runtime, bridge } = await mountAccessibilityScene([]);
+    const button = (target: string, y: number) => ({
+      id: "row/button",
+      parentId: "row",
+      rect: [0, y, 4, 1],
+      role: "button",
+      label: target,
+      actionTarget: target,
+      actions: ["focus", "activate"],
+      isFocused: false,
+    });
+    bridge.stdout.write(
+      encoder.encode(
+        surfaceRecord({
+          version: 2,
+          width: 4,
+          height: 2,
+          styles: [null],
+          rows: [[], []],
+          accessibilityTree: [
+            { id: "title", rect: [0, 0, 4, 1], role: "group", label: "Title" },
+            { id: "row", rect: [0, 0, 4, 1], role: "group", label: "Row" },
+            button("first", 0),
+            { id: "row", rect: [0, 1, 4, 1], role: "group", label: "Row" },
+            button("second", 1),
+            {
+              id: "summary",
+              rect: [0, 1, 4, 1],
+              role: "group",
+              label: "Summary",
+              properties: { labelledBy: ["row", "title"] },
+            },
+          ],
+        }),
+      ),
+    );
+    const tree = childWithClass(
+      runtime.terminalMount,
+      "webhost-scene__accessibility-tree",
+    );
+    const rows = tree.children.filter(
+      (child) => child.dataset.accessibilityId === "row",
+    );
+    expect(
+      rows.map((row) =>
+        row.children.map((child) => child.getAttribute("aria-label")),
+      ),
+    ).toEqual([["first"], ["second"]]);
+    const title = childWithData(tree, "accessibilityId", "title");
+    const summary = childWithData(tree, "accessibilityId", "summary");
+    expect(summary.getAttribute("aria-labelledby")).toBe(title.id);
+  } finally {
+    dom.restore();
+  }
+});
+
 test("runtime exposes focus presentation and preferred grid size", async () => {
   const dom = installFakeDOM();
   try {
@@ -4045,6 +4154,40 @@ function childWithClass(element: FakeElement, className: string): FakeElement {
     throw new Error(`missing child with class ${className}`);
   }
   return child;
+}
+
+// Every element under `element` (depth first) whose data attribute matches.
+function descendantsWithData(
+  element: FakeElement,
+  key: string,
+  value: string,
+): FakeElement[] {
+  return element.children.flatMap((child) => [
+    ...(child.dataset[key] === value ? [child] : []),
+    ...descendantsWithData(child, key, value),
+  ]);
+}
+
+async function mountAccessibilityScene(inputs: string[]): Promise<{
+  runtime: WebHostSceneRuntime;
+  bridge: BrowserWASIBridge;
+}> {
+  const bridge = new BrowserWASIBridge({
+    sceneId: "main",
+    columns: 30,
+    rows: 8,
+  });
+  const runtime = new WebHostSceneRuntime({
+    mount: new FakeElement("div") as unknown as HTMLElement,
+    descriptor: { id: "main", title: "Main", isDefault: true },
+    style: { fontSize: 20 },
+    bridge,
+    onInput: (chunk) => {
+      inputs.push(decoder.decode(chunk));
+    },
+  });
+  await runtime.mount();
+  return { runtime, bridge };
 }
 
 function childWithData(
