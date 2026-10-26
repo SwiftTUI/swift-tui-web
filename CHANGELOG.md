@@ -11,6 +11,29 @@ Additional lockstep release notes are available on
 
 ## [Unreleased]
 
+## [0.19.5] - 2026-10-26
+
+Coordinated package metadata for SwiftTUI 0.19.5, with five browser-runtime
+repairs. The compiled browser fixture stays on framework 0.19.4 until
+coordinated release acceptance.
+
+### Fixed
+
+- Wheel travel between 16 and 17 cells clamps to 16 and discards the excess,
+  as documented, instead of carrying it into the next wheel; the bound applies
+  to the carried plus new travel (STUI-1274).
+- Sub-cell wheel travel is carried in the wheel's device unit, so travel that
+  adds up to an exact number of cells is sent on the wheel that completes it,
+  not one wheel late (STUI-1275).
+- A wheel the host leaves to the page or the browser (Ctrl/Command+wheel,
+  passive mode, a pointer outside the grid, a chain-mode fall-through) applies
+  the reversal rule and drops carried travel when it reverses (STUI-1276).
+- Duplicate accessibility siblings that share an occurrence-free wire id each
+  keep their own element and DOM id, keyed by their `actionTarget`, so
+  activating one no longer targets the other (STUI-1259).
+- `StdIOPipe.consume` keeps a queued chunk that the newly attached consumer
+  refuses, and the chunks after it, so none is lost or overtaken (STUI-1294).
+
 ## [0.19.4] - 2026-10-25
 
 Coordinated package metadata for SwiftTUI 0.19.4, with two browser-runtime
@@ -455,7 +478,8 @@ Lockstep release across the SwiftTUI org (the Android host preview lands in
   `@swifttui/build` published to npm and attached to the GitHub `0.0.18` release
   as tarballs.
 
-[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.19.4...HEAD
+[Unreleased]: https://github.com/SwiftTUI/swift-tui-web/compare/0.19.5...HEAD
+[0.19.5]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.5
 [0.19.4]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.4
 [0.19.3]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.3
 [0.19.2]: https://github.com/SwiftTUI/swift-tui-web/releases/tag/0.19.2

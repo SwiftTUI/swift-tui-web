@@ -3292,7 +3292,7 @@ test("accessibility nodes marked hidden stay out of the ARIA tree", async () => 
 
 // Wave 4 repair scenarios for STUI-1259. The wire reports occurrence-free
 // accessibility ids, so duplicate siblings share an id; each still needs its
-// own element, keyed by its own action target. The frames are real 0.19.4
+// own element, keyed by its own action target. The frames are real 0.19.5
 // records (test-support/DuplicateAccessibilityFrames.ts). Focus, removal and
 // reading text run in Chromium (w2-lifecycle, w4web-a01 to a06).
 test("duplicate wire siblings each keep their own element and action target (w4web-a01, a02)", async () => {

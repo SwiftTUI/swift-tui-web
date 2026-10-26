@@ -372,7 +372,7 @@ test("a dropped oversized message preserves the retained baseline (w2s043)", asy
   expect(surfaces).toBe(2);
 });
 
-// Wave 4 repair scenarios for STUI-1259 (w4web-a01 to a04, a06). Real 0.19.4
+// Wave 4 repair scenarios for STUI-1259 (w4web-a01 to a04, a06). Real 0.19.5
 // records (test-support/DuplicateAccessibilityFrames.ts) carry two buttons
 // with one occurrence-free id and distinct action targets. Each keeps its own
 // element and DOM id, runtime and assistive focus name exactly that element,
