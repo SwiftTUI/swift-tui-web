@@ -274,3 +274,66 @@ test("a delivered chunk stays delivered when an observer declines it (w3cb-w03)"
   });
   expect(queuePipe.bufferedBytes).toBe(0);
 });
+
+// Wave 4 repair scenarios for STUI-1294 (w4web-p01 to p04). A chunk written
+// before a consumer attached was reported delivered, so the pipe keeps it
+// queued when the consumer refuses it at attachment, and later writes cannot
+// overtake it.
+test("a consumer that refuses a queued chunk at attachment leaves it queued, in order (w4web-p01 to p03)", () => {
+  const pipe = new StdIOPipe();
+  const observed: number[][] = [];
+  pipe.subscribe((chunk) => {
+    observed.push([...chunk]);
+  });
+  pipe.write(new Uint8Array([1]));
+  pipe.write(new Uint8Array([2, 2]));
+  pipe.write(new Uint8Array([3, 3, 3]));
+  const offered: number[][] = [];
+  let accepting = (chunk: Uint8Array) => chunk[0] !== 2;
+  pipe.consume((chunk) => {
+    offered.push([...chunk]);
+    return accepting(chunk);
+  });
+  const afterAttach = { offered: [...offered], buffered: pipe.bufferedBytes };
+
+  offered.length = 0;
+  const refusedWrite = pipe.write(new Uint8Array([4]));
+  const whileRefusing = { offered: [...offered], buffered: pipe.bufferedBytes };
+
+  offered.length = 0;
+  accepting = () => true;
+  const acceptedWrite = pipe.write(new Uint8Array([5]));
+
+  expect({
+    afterAttach,
+    refusedWrite,
+    whileRefusing,
+    acceptedWrite,
+    offered,
+    buffered: pipe.bufferedBytes,
+    observed,
+  }).toEqual({
+    afterAttach: { offered: [[1], [2, 2]], buffered: 5 },
+    refusedWrite: false,
+    whileRefusing: { offered: [[2, 2]], buffered: 5 },
+    acceptedWrite: true,
+    offered: [[2, 2], [3, 3, 3], [5]],
+    buffered: 0,
+    observed: [[1], [2, 2], [3, 3, 3], [4], [5]],
+  });
+});
+
+test("a refused queued chunk is readable after the consumer detaches (w4web-p04)", async () => {
+  const pipe = new StdIOPipe();
+  pipe.write(new Uint8Array([1]));
+  pipe.write(new Uint8Array([2]));
+  const detach = pipe.consume(() => false);
+  detach();
+  // Checked before reading, so a lost chunk fails here instead of parking.
+  expect(pipe.bufferedBytes).toBe(2);
+  expect([
+    chunkArray(await pipe.read()),
+    chunkArray(await pipe.read()),
+  ]).toEqual([[1], [2]]);
+  expect(pipe.bufferedBytes).toBe(0);
+});

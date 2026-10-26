@@ -20,7 +20,8 @@ export class StdIOPipe implements AsyncIterable<Uint8Array> {
 
   /**
    * Returns false when the pipe is closed, the exclusive consumer refused the
-   * chunk, or an observer declined it; a declined chunk is still delivered.
+   * chunk (or still refuses an earlier queued one), or an observer declined
+   * it; a declined chunk is still delivered.
    */
   write(chunk: Uint8Array | string): boolean {
     const { delivered, observed } = this.writeChunk(chunk);
@@ -47,8 +48,13 @@ export class StdIOPipe implements AsyncIterable<Uint8Array> {
       // still see it below: they watch writes, not queue consumption.
       waiter({ done: false, value: bytes });
     } else {
+      // Chunks the consumer refused when it attached go first, in order.
+      if (this.consumer && this.chunks.length > 0) this.offerQueued();
       if (!this.consumer) this.chunks.push(bytes);
-      delivered = this.consumer?.(bytes) !== false;
+      // While the consumer still refuses a queued chunk, a later chunk would
+      // overtake it, so it is refused too.
+      else if (this.chunks.length > 0) delivered = false;
+      else delivered = this.consumer(bytes) !== false;
     }
     let observed = true;
     for (const listener of this.listeners) {
@@ -90,6 +96,8 @@ export class StdIOPipe implements AsyncIterable<Uint8Array> {
    * Consume queued and future bytes without retaining a duplicate read history.
    * This is exclusive with another consumer or a pending read. Detaching hands
    * future bytes back to the readable queue. Observers remain independent.
+   * A queued chunk the consumer refuses stays queued with every chunk after
+   * it, and the next write offers them again before its own chunk.
    */
   consume(listener: (chunk: Uint8Array) => boolean | void): () => void {
     if (this.consumer || this.waiters.length > 0)
@@ -97,10 +105,27 @@ export class StdIOPipe implements AsyncIterable<Uint8Array> {
         "The pipe already has an exclusive consumer or pending read",
       );
     this.consumer = listener;
-    for (const chunk of this.chunks.splice(0)) listener(chunk);
+    this.offerQueued();
     return () => {
       if (this.consumer === listener) this.consumer = undefined;
     };
+  }
+
+  /**
+   * Hands queued chunks to the consumer in order, stopping at the first one it
+   * refuses, which stays at the head of the queue. Those chunks were reported
+   * delivered when they were queued, so the pipe is the only one holding them.
+   */
+  private offerQueued(): void {
+    const consumer = this.consumer;
+    while (consumer && this.consumer === consumer) {
+      const chunk = this.chunks.shift();
+      if (!chunk) return;
+      if (consumer(chunk) === false) {
+        this.chunks.unshift(chunk);
+        return;
+      }
+    }
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<Uint8Array> {

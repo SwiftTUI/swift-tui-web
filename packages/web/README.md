@@ -525,7 +525,9 @@ Resizes and restyles paint a complete matching frame as soon as available.
 A document becoming visible again remeasures before painting; disposal cancels
 pending paints, font callbacks and socket work. WASI pipe consumers release delivered byte chunks instead of retaining an unread
 copy of the stream. Diagnostic subscribers remain observers; `StdIOPipe.consume`
-is the explicit exclusive delivery path.
+is the explicit exclusive delivery path. A chunk queued before the consumer
+attached and then refused by it stays queued, and later writes cannot overtake
+it.
 
 Pending WASM fetches are aborted,
 workers are terminated, and late loading completions cannot mount or repaint a
