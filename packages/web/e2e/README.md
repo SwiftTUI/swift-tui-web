@@ -47,6 +47,29 @@ are built). See the [local DOM demo instructions](../../../docs/DEVELOPMENT.md#l
 The separate `/compiled-wasm.html` harness intentionally waits for a test or
 its Start button to initialize the app.
 
+### macOS WebKit navigation harness
+
+The pinned WebKit 2311 can exhaust native AppKit window-animation threads when
+the display sleeps during a long run (STUI-909;
+[upstream diagnosis](https://github.com/microsoft/playwright/issues/42385#issuecomment-5539073362)).
+The symptom is an initial `page.goto` that issues no network request, even
+though the fixture server is healthy. Short slices can pass independently.
+
+On macOS only, `webkit-macos.sh` launches Playwright's pinned executable with
+the process-local `NSAutomaticWindowAnimationsEnabled=NO` preference. It keeps
+Playwright's default arguments, including headed/headless selection. It does
+not write persistent user defaults or change web-page animations, timeouts,
+retries, assertions or the Linux CI launch. Reassess this workaround when
+updating the pinned browser version.
+
+`BrowserNavigation.browser.ts` is the reduced regression: it opens, navigates
+and closes 120 fresh contexts in one browser process without loading SwiftTUI
+code. Run `bun run test:browser:built BrowserNavigation --project=webkit` after
+the normal build. For manual macOS qualification, leave the display asleep
+during the run and wake it afterward; the test itself never changes display
+power state. The regression runs in all three engine projects under the
+existing 60-second test timeout and zero-retry policy.
+
 ## Compiled Swift WASM
 
 `CompiledWasm.browser.ts` executes the two counter scenes in `Fixtures/BrowserApp`,

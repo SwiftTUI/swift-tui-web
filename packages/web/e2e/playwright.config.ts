@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices, webkit } from "@playwright/test";
 
 import { browserJourneyOrigin } from "./journey-environment.ts";
 
@@ -43,7 +43,28 @@ export default defineConfig({
       },
     },
     { name: "firefox", use: { ...devices["Desktop Firefox"] } },
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    {
+      name: "webkit",
+      use: {
+        ...devices["Desktop Safari"],
+        // STUI-909: pinned macOS WebKit leaks native window-animation threads
+        // while the display sleeps. Keep the preference local to this process.
+        // The wrapper preserves Playwright's default arguments (including headed
+        // mode); its argument validator cannot accept the separate value "NO".
+        launchOptions:
+          process.platform === "darwin"
+            ? {
+                executablePath: fileURLToPath(
+                  new URL("./webkit-macos.sh", import.meta.url),
+                ),
+                env: {
+                  ...process.env,
+                  SWIFTTUI_WEBKIT_EXECUTABLE: webkit.executablePath(),
+                },
+              }
+            : undefined,
+      },
+    },
   ],
   webServer: {
     command: "bun run serve.ts",
