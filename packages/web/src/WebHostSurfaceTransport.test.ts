@@ -723,6 +723,58 @@ test("decoder clears only payload-arrived image ids and resets outstanding ids o
   });
 });
 
+test("one image repair deduplicates payloads, preserves a miss, and releases a disappeared ID", () => {
+  const decoder = new WebHostOutputDecoder();
+  const frame: WebHostSurfaceFrame = {
+    version: 2,
+    epoch: 44,
+    gen: 1,
+    width: 2,
+    height: 1,
+    styles: [null],
+    rows: [[]],
+  };
+  const image = {
+    id: "png:a",
+    format: "png" as const,
+    bounds: [0, 0, 1, 1] as [number, number, number, number],
+    visibleBounds: [0, 0, 1, 1] as [number, number, number, number],
+    scalingMode: "stretch" as const,
+  };
+  decoder.prepareToPresentSurface(frame);
+  decoder.requestImagePayloads(["png:a"]);
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:a"],
+  });
+  expect(
+    decoder.prepareToPresentSurface({ ...frame, images: [image] }),
+  ).toEqual([]);
+  decoder.requestImagePayloads(["png:a"]);
+  expect(decoder.takeResyncRequest()).toBeUndefined();
+  expect(
+    decoder.prepareToPresentSurface({
+      ...frame,
+      images: [
+        image,
+        { ...image, dataBase64: "QUJD" },
+        { ...image, dataBase64: "QUJD" },
+      ],
+    }),
+  ).toEqual(["png:a"]);
+  decoder.requestImagePayloads(["png:a"]);
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:a"],
+  });
+  expect(decoder.prepareToPresentSurface(frame)).toEqual([]);
+  decoder.requestImagePayloads(["png:a"]);
+  expect(decoder.takeResyncRequest()).toEqual({
+    scope: "images",
+    ids: ["png:a"],
+  });
+});
+
 test("decoder bounds outstanding image recovery and sweeps disappeared ids", () => {
   const decoder = new WebHostOutputDecoder();
   const visible = decoder.feed(
@@ -1882,6 +1934,67 @@ test("accessibility encoder rejects malformed runtime arguments before returning
     expect(command).toContain(
       `accessibility:${BigInt(id)}:target%3A%0A%1E:activate`,
     );
+  }
+});
+
+test("accessibility encoder serializes each checked getter value exactly once", () => {
+  const injected =
+    "activate\n\u001eresize:19:7\n\u001eaccessibility:2:T:activate";
+  const cases = [
+    {
+      request: { action: "activate" },
+      field: "action",
+      safe: "activate",
+      expected: "activate",
+    },
+    {
+      request: { action: "setValue", value: { type: "boolean", value: true } },
+      field: "value",
+      safe: true,
+      expected: "setValue:boolean:true",
+      nested: true,
+    },
+    {
+      request: { action: "setValue", value: { type: "number", value: 1 } },
+      field: "value",
+      safe: 1,
+      expected: "setValue:number:1",
+      nested: true,
+    },
+    {
+      request: { action: "editText", text: "a", anchor: 0, head: 1 },
+      field: "anchor",
+      safe: 0,
+      expected: "editText:text:a:0:1",
+    },
+    {
+      request: { action: "selectText", text: "a", anchor: 0, head: 1 },
+      field: "head",
+      safe: 1,
+      expected: "selectText:text:a:0:1",
+    },
+    {
+      request: { action: "editText", text: "a", anchor: 0, head: 1 },
+      field: "text",
+      safe: "a",
+      expected: "editText:text:a:0:1",
+    },
+  ];
+  for (const entry of cases) {
+    let reads = 0;
+    const owner = entry.nested ? entry.request.value! : entry.request;
+    Object.defineProperty(owner, entry.field, {
+      get() {
+        return ++reads === 1 ? entry.safe : injected;
+      },
+    });
+    const command = decoder.decode(
+      encodeAccessibilityActionMessage("T", entry.request as never, "1"),
+    );
+    expect(command).toBe(`\u001eaccessibility:1:T:${entry.expected}\n`);
+    expect(command.split("\n")).toHaveLength(2);
+    expect(command.split("\u001e")).toHaveLength(2);
+    expect(reads).toBe(1);
   }
 });
 

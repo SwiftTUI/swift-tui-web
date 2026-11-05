@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import fixture from "../../../Fixtures/Transport/wire-budget-boundaries.json";
-import { fitsWireGrid, HOST_WIRE_MAX_RECORD_BYTES } from "./HostWireBudget.ts";
+import {
+  fitsUTF8,
+  fitsWireGrid,
+  HOST_WIRE_MAX_RECORD_BYTES,
+} from "./HostWireBudget.ts";
 import { WebHostOutputDecoder } from "./WebHostSurfaceTransport.ts";
 
 const encoder = new TextEncoder();
@@ -229,4 +233,30 @@ test("a dense 256 by 256 grid stays supported", () => {
   expect(
     new WebHostOutputDecoder().feed(encoder.encode(wire(frame)))[0]?.type,
   ).toBe("surface");
+});
+
+test("UTF-8 accounting agrees with encoding at scalar and surrogate boundaries", () => {
+  const values = [
+    "",
+    "ASCII",
+    "\0",
+    "\u007f",
+    "\u0080",
+    "\u07ff",
+    "\u0800",
+    "\ud7ff",
+    "\ud800",
+    "\udfff",
+    "\uffff",
+    "😀",
+    "\u{10ffff}",
+    "a\ud800b\udc00c",
+    "\ud800\ud800\udc00",
+  ];
+  for (const text of values) {
+    const size = encoder.encode(text).length;
+    expect(fitsUTF8(text, size)).toBe(true);
+    expect(fitsUTF8(text, size + 1)).toBe(true);
+    if (size > 0) expect(fitsUTF8(text, size - 1)).toBe(false);
+  }
 });

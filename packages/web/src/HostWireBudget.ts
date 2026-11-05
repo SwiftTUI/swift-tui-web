@@ -20,10 +20,21 @@ export const HOST_WIRE_MAX_JSON_DEPTH = JSON_DEPTH;
 
 /** Counts UTF-8 without allocating an encoded copy; stops as soon as over budget. */
 export function fitsUTF8(text: string, limit: number): boolean {
-  let bytes = 0;
-  for (const scalar of text) {
-    const code = scalar.codePointAt(0)!;
-    bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+  let bytes = text.length;
+  if (bytes > limit) return false;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code <= 0x7f) continue;
+    if (code <= 0x7ff) bytes++;
+    else {
+      // A surrogate pair starts with two counted UTF-16 units and uses four
+      // UTF-8 bytes. A lone surrogate uses three replacement-character bytes.
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next = text.charCodeAt(index + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) index++;
+      }
+      bytes += 2;
+    }
     if (bytes > limit) return false;
   }
   return true;
@@ -49,6 +60,12 @@ export function wireStyleLimit(width: number, height: number): number {
  * This avoids JSON serializer differences (number spelling and slash escaping).
  */
 export function fitsStyleContent(style: unknown): boolean {
+  // Scalar leaves cost eight units and require no recursive visitor state.
+  if (
+    style === null ||
+    (typeof style !== "object" && typeof style !== "string")
+  )
+    return HOST_WIRE_MAX_STYLE_BYTES >= 8;
   let remaining = HOST_WIRE_MAX_STYLE_BYTES;
   const chargeString = (text: string): boolean => {
     for (const scalar of text) {
@@ -95,11 +112,8 @@ export function fitsSurfaceBudget(frame: {
 }): boolean {
   const { width, height } = frame;
   if (!fitsWireGrid(width, height)) return false;
-  if (
-    frame.styles.length + (frame.stylesBase ?? 0) >
-    wireStyleLimit(width, height)
-  )
-    return false;
+  const styleCount = frame.styles.length + (frame.stylesBase ?? 0);
+  if (styleCount > wireStyleLimit(width, height)) return false;
   if (!frame.styles.every(fitsStyleContent)) return false;
   if (
     (frame.rows?.length ?? 0) > height ||
@@ -121,7 +135,7 @@ export function fitsSurfaceBudget(frame: {
         !fitsUTF8(text, HOST_WIRE_MAX_CELL_TEXT_BYTES) ||
         !Number.isInteger(style) ||
         style < 0 ||
-        style >= frame.styles.length + (frame.stylesBase ?? 0)
+        style >= styleCount
       )
         return false;
       end = x + span;
@@ -129,10 +143,13 @@ export function fitsSurfaceBudget(frame: {
     return true;
   };
   if (frame.rows && !frame.rows.every(validCells)) return false;
-  const seen = new Set<number>();
-  for (const [y, cells] of frame.deltaRows ?? []) {
-    if (y < 0 || y >= height || seen.has(y) || !validCells(cells)) return false;
-    seen.add(y);
+  if (frame.deltaRows?.length) {
+    const seen = new Set<number>();
+    for (const [y, cells] of frame.deltaRows) {
+      if (y < 0 || y >= height || seen.has(y) || !validCells(cells))
+        return false;
+      seen.add(y);
+    }
   }
   if ((frame.images?.length ?? 0) > HOST_WIRE_MAX_IMAGES) return false;
   for (const image of frame.images ?? []) {
@@ -153,28 +170,28 @@ export function fitsSurfaceBudget(frame: {
   }
   // Paragraph ownership is bounded by the visible grid: no overlapping regions,
   // duplicate identifiers, offscreen rectangles or more regions than cells.
-  const occupied = new Uint8Array(
-    frame.paragraphs?.length ? width * height : 0,
-  );
   if ((frame.paragraphs?.length ?? 0) > width * height) return false;
-  for (const paragraph of frame.paragraphs ?? []) {
-    if (!fitsUTF8(paragraph.id, 1024)) return false;
-    const [x, y, w, h] = paragraph.rect;
-    if (
-      ![x, y, w, h].every(Number.isInteger) ||
-      x < 0 ||
-      y < 0 ||
-      w <= 0 ||
-      h <= 0 ||
-      x + w > width ||
-      y + h > height
-    )
-      return false;
-    for (let row = y; row < y + h; row++) {
-      for (let col = x; col < x + w; col++) {
-        const index = row * width + col;
-        if (occupied[index]) return false;
-        occupied[index] = 1;
+  if (frame.paragraphs?.length) {
+    const occupied = new Uint8Array(width * height);
+    for (const paragraph of frame.paragraphs) {
+      if (!fitsUTF8(paragraph.id, 1024)) return false;
+      const [x, y, w, h] = paragraph.rect;
+      if (
+        ![x, y, w, h].every(Number.isInteger) ||
+        x < 0 ||
+        y < 0 ||
+        w <= 0 ||
+        h <= 0 ||
+        x + w > width ||
+        y + h > height
+      )
+        return false;
+      for (let row = y; row < y + h; row++) {
+        for (let col = x; col < x + w; col++) {
+          const index = row * width + col;
+          if (occupied[index]) return false;
+          occupied[index] = 1;
+        }
       }
     }
   }
@@ -203,8 +220,9 @@ export function fitsSurfaceBudget(frame: {
   )
     return false;
   for (const rows of [frame.links, frame.damage?.textRows]) {
+    if (!rows?.length) continue;
     const seenRows = new Set<number>();
-    for (const [y, ranges] of rows ?? []) {
+    for (const [y, ranges] of rows) {
       if (
         !Number.isInteger(y) ||
         y < 0 ||

@@ -10,7 +10,7 @@ import {
   TEXT_RANGE_ARITY,
   TEXT_ROW_ARITY,
 } from "./HostContract.generated.ts";
-import { checkWireJSON } from "./HostWireJSON.ts";
+import { WireJSONAdmission } from "./HostWireJSON.ts";
 /**
  * Browser consumer for SwiftTUI's host wire. The normative cross-host
  * contract lives upstream:
@@ -20,6 +20,7 @@ import { checkWireJSON } from "./HostWireJSON.ts";
 import { isGeometryRevision } from "./HostGeometryProtocol.ts";
 import {
   fitsSurfaceBudget,
+  fitsUTF8,
   HOST_WIRE_MAX_RECORD_BYTES,
 } from "./HostWireBudget.ts";
 import {
@@ -27,6 +28,11 @@ import {
   type WebHostTerminalStyle,
 } from "./WebHostTerminalStyle.ts";
 import { normalizeWireUInt64 } from "./WireUInt64.ts";
+
+const noRecoveredImagePayloads: readonly string[] = Object.freeze([]);
+const streamingDecodeOptions: TextDecodeOptions = Object.freeze({
+  stream: true,
+});
 
 export interface WebHostSurfaceStyle {
   fg?: string;
@@ -102,30 +108,40 @@ export type WebHostAccessibilityAction =
       head: number;
     };
 
+function invalidAccessibilityField(field: string): never {
+  throw new TypeError(`invalid accessibility ${field}`);
+}
+function escapedAccessibilityField(
+  value: unknown,
+  field: string,
+  nonempty = false,
+): string {
+  if (typeof value !== "string" || (nonempty && !value.length))
+    return invalidAccessibilityField(field);
+  try {
+    return encodeURIComponent(value);
+  } catch {
+    return invalidAccessibilityField(field);
+  }
+}
+
 export function encodeAccessibilityActionMessage(
   target: string,
   request: WebHostAccessibilityAction,
   requestID?: string,
 ): Uint8Array {
-  const invalid = (field: string): never => {
-    throw new TypeError(`invalid accessibility ${field}`);
-  };
-  const escaped = (value: unknown, field: string, nonempty = false): string => {
-    if (typeof value !== "string" || (nonempty && !value.length))
-      return invalid(field);
-    try {
-      return encodeURIComponent(value);
-    } catch {
-      return invalid(field);
-    }
-  };
-  const encodedTarget = escaped(target, "target", true);
+  const encodedTarget = escapedAccessibilityField(target, "target", true);
   const id =
     requestID === undefined ? undefined : normalizeWireUInt64(requestID);
-  if (requestID !== undefined && id === undefined) invalid("requestID");
-  if (!request || typeof request !== "object") invalid("request");
+  if (requestID !== undefined && id === undefined)
+    invalidAccessibilityField("requestID");
+  if (!request || typeof request !== "object")
+    invalidAccessibilityField("request");
+  // JavaScript callers may supply getters. Serialize exactly the values that
+  // were checked, without reading a property again after validation.
+  const action = request.action;
   let value = "";
-  switch (request.action) {
+  switch (action) {
     case "focus":
     case "accessibilityFocus":
     case "accessibilityBlur":
@@ -134,53 +150,60 @@ export function encodeAccessibilityActionMessage(
     case "decrement":
       break;
     case "custom":
-      value = `:name:${escaped(request.name, "name", true)}`;
+      value = `:name:${escapedAccessibilityField(request.name, "name", true)}`;
       break;
     case "editText":
     case "selectText": {
-      const text = escaped(request.text, "text");
-      for (const offset of [request.anchor, request.head]) {
+      const sourceText = request.text;
+      const anchor = request.anchor;
+      const head = request.head;
+      const text = escapedAccessibilityField(sourceText, "text");
+      for (const offset of [anchor, head]) {
         if (
           !Number.isSafeInteger(offset) ||
           offset < 0 ||
-          offset > request.text.length
+          offset > sourceText.length
         )
-          invalid("UTF-16 selection");
+          invalidAccessibilityField("UTF-16 selection");
       }
-      value = `:text:${text}:${request.anchor}:${request.head}`;
+      value = `:text:${text}:${anchor}:${head}`;
       break;
     }
     case "setValue": {
       const payload = request.value;
-      if (!payload || typeof payload !== "object") invalid("value");
+      if (!payload || typeof payload !== "object")
+        invalidAccessibilityField("value");
+      const payloadValue = payload.value;
       switch (payload.type) {
         case "text":
-          value = `:text:${escaped(payload.value, "value")}`;
+          value = `:text:${escapedAccessibilityField(payloadValue, "value")}`;
           break;
         case "boolean":
-          if (typeof payload.value !== "boolean") invalid("boolean value");
-          value = `:boolean:${payload.value}`;
+          if (typeof payloadValue !== "boolean")
+            invalidAccessibilityField("boolean value");
+          value = `:boolean:${payloadValue}`;
           break;
         case "number":
           if (
-            typeof payload.value !== "number" ||
-            !Number.isFinite(payload.value)
+            typeof payloadValue !== "number" ||
+            !Number.isFinite(payloadValue)
           )
-            invalid("number value");
-          value = `:number:${payload.value}`;
+            invalidAccessibilityField("number value");
+          value = `:number:${payloadValue}`;
           break;
         default:
-          invalid("value type");
+          invalidAccessibilityField("value type");
       }
       break;
     }
     default:
-      invalid("action");
+      invalidAccessibilityField("action");
   }
   // Percent encoding makes the entire command ASCII, so length is its byte size.
-  const command = `\u001Eaccessibility:${id === undefined ? "" : `${id}:`}${encodedTarget}:${request.action}${value}\n`;
-  if (command.length > HOST_WIRE_MAX_RECORD_BYTES) invalid("record size");
-  return new TextEncoder().encode(command);
+  const command = `\u001Eaccessibility:${id === undefined ? "" : `${id}:`}${encodedTarget}:${action}${value}\n`;
+  if (command.length > HOST_WIRE_MAX_RECORD_BYTES)
+    invalidAccessibilityField("record size");
+  return textEncoder.encode(command);
 }
 
 /** An app-origin semantic focus request, applied once per session generation. */
@@ -527,7 +550,7 @@ export function isWebHostImageRecoveryId(id: string): boolean {
   return (
     id.length > 0 &&
     id.length <= MAX_IMAGE_RECOVERY_ID_BYTES &&
-    textEncoder.encode(id).byteLength <= MAX_IMAGE_RECOVERY_ID_BYTES
+    fitsUTF8(id, MAX_IMAGE_RECOVERY_ID_BYTES)
   );
 }
 
@@ -542,6 +565,7 @@ export function isWebHostImageRecoveryId(id: string): boolean {
 export const SUPPORTED_SURFACE_VERSION = 3;
 
 export class WebHostOutputDecoder {
+  private readonly jsonAdmission = new WireJSONAdmission();
   private textDecoder = new TextDecoder("utf-8", { fatal: true });
   private bufferedText = "";
   private bufferedBytes = 0;
@@ -573,7 +597,7 @@ export class WebHostOutputDecoder {
           try {
             this.bufferedText += this.textDecoder.decode(
               chunk.subarray(offset, end),
-              { stream: true },
+              newline < 0 ? streamingDecodeOptions : undefined,
             );
           } catch {
             records.push(this.refuseUTF8());
@@ -583,7 +607,6 @@ export class WebHostOutputDecoder {
       if (newline >= 0) {
         if (!this.discardingLine) {
           try {
-            this.bufferedText += this.textDecoder.decode();
             records.push(this.decodeLine(this.bufferedText));
           } catch {
             records.push(this.refuseUTF8());
@@ -672,26 +695,29 @@ export class WebHostOutputDecoder {
    * only for this admitted subset.
    */
   requestImagePayloads(ids: Iterable<string>): readonly string[] {
-    const acceptedIds = new Set<string>();
+    const firstAccepted: string[] = [];
+    let acceptedIds: Set<string> | undefined;
     for (const id of ids) {
       if (!isWebHostImageRecoveryId(id)) {
         continue;
       }
-      if (this.imageResyncOutstandingIds.has(id)) {
-        acceptedIds.add(id);
-        continue;
+      if (!this.imageResyncOutstandingIds.has(id)) {
+        if (
+          this.imageResyncOutstandingIds.size >=
+          MAX_OUTSTANDING_IMAGE_RECOVERY_IDS
+        )
+          continue;
+        this.imageResyncOutstandingIds.add(id);
+        this.imageResyncPendingIds.add(id);
       }
-      if (
-        this.imageResyncOutstandingIds.size >=
-        MAX_OUTSTANDING_IMAGE_RECOVERY_IDS
-      ) {
-        continue;
-      }
-      this.imageResyncOutstandingIds.add(id);
-      this.imageResyncPendingIds.add(id);
-      acceptedIds.add(id);
+      // A single-ID painter miss needs only the result array. Promote to a
+      // set only when a second distinct ID needs general deduplication.
+      if (acceptedIds) acceptedIds.add(id);
+      else if (firstAccepted.length === 0) firstAccepted.push(id);
+      else if (firstAccepted[0] !== id)
+        acceptedIds = new Set([firstAccepted[0]!, id]);
     }
-    return [...acceptedIds];
+    return acceptedIds ? [...acceptedIds] : firstAccepted;
   }
 
   /**
@@ -703,16 +729,46 @@ export class WebHostOutputDecoder {
    * content-addressed retransmission uses identical bytes.
    */
   prepareToPresentSurface(frame: WebHostSurfaceFrame): readonly string[] {
-    const recoveredImagePayloadIds = this.recoveredImagePayloadIds(
-      frame.images,
-    );
-    this.resetImageResyncForEpoch(frame.epoch);
-    this.sweepImageResyncForPresentedImages(frame.images);
-    this.clearArrivedImagePayloads(frame.images);
-    if (frame.epoch !== undefined) {
-      this.lastPresentedEpoch = frame.epoch;
+    if (this.imageResyncOutstandingIds.size === 0) {
+      if (frame.epoch !== undefined) this.lastPresentedEpoch = frame.epoch;
+      return noRecoveredImagePayloads;
     }
-    return recoveredImagePayloadIds;
+    return this.preparePendingImageRepairs(frame);
+  }
+
+  private preparePendingImageRepairs(frame: WebHostSurfaceFrame): string[] {
+    const recoveredImagePayloadIds: string[] = [];
+    // Deleting on arrival both deduplicates the result and retires the request.
+    // No temporary set is needed, and later duplicate placements are harmless.
+    if (this.imageResyncOutstandingIds.size > 0) {
+      for (const image of frame.images ?? []) {
+        if (
+          image.dataBase64 !== undefined &&
+          this.imageResyncOutstandingIds.delete(image.id)
+        ) {
+          recoveredImagePayloadIds.push(image.id);
+          this.imageResyncPendingIds.delete(image.id);
+        }
+      }
+    }
+    this.resetImageResyncForEpoch(frame.epoch);
+    // Only unresolved requests need the disappeared-image sweep. Most frames
+    // have none, and a successful repair has already retired its request above.
+    if (this.imageResyncOutstandingIds.size > 0) {
+      const presentedIds = new Set<string>();
+      for (const image of frame.images ?? []) {
+        if (this.imageResyncOutstandingIds.has(image.id))
+          presentedIds.add(image.id);
+      }
+      for (const id of this.imageResyncOutstandingIds) {
+        if (!presentedIds.has(id)) {
+          this.imageResyncOutstandingIds.delete(id);
+          this.imageResyncPendingIds.delete(id);
+        }
+      }
+    }
+    if (frame.epoch !== undefined) this.lastPresentedEpoch = frame.epoch;
+    return recoveredImagePayloadIds.sort();
   }
 
   resyncRequestDeliveryFailed(request: WebHostResyncRequest): void {
@@ -732,7 +788,7 @@ export class WebHostOutputDecoder {
 
   private decodeLine(line: string): WebHostOutputRecord {
     if (line.startsWith(recordPrefix)) {
-      const admission = checkWireJSON(line.slice(line.indexOf(":") + 1));
+      const admission = this.jsonAdmission.check(line, line.indexOf(":") + 1);
       if (admission === "depth") return this.refuseBudget();
       if (admission !== "admitted") {
         if (line.startsWith(`${recordPrefix}surface:`))
@@ -905,51 +961,6 @@ export class WebHostOutputDecoder {
     }
     this.imageResyncOutstandingIds.clear();
     this.imageResyncPendingIds.clear();
-  }
-
-  private clearArrivedImagePayloads(
-    images: WebHostSurfaceImage[] | undefined,
-  ): void {
-    for (const image of images ?? []) {
-      if (image.dataBase64 === undefined) {
-        continue;
-      }
-      this.imageResyncOutstandingIds.delete(image.id);
-      this.imageResyncPendingIds.delete(image.id);
-    }
-  }
-
-  private recoveredImagePayloadIds(
-    images: WebHostSurfaceImage[] | undefined,
-  ): string[] {
-    const recoveredIds = new Set<string>();
-    for (const image of images ?? []) {
-      if (
-        image.dataBase64 !== undefined &&
-        this.imageResyncOutstandingIds.has(image.id)
-      ) {
-        recoveredIds.add(image.id);
-      }
-    }
-    return [...recoveredIds].sort();
-  }
-
-  private sweepImageResyncForPresentedImages(
-    images: WebHostSurfaceImage[] | undefined,
-  ): void {
-    const presentedIds = new Set<string>();
-    for (const image of images ?? []) {
-      if (this.imageResyncOutstandingIds.has(image.id)) {
-        presentedIds.add(image.id);
-      }
-    }
-    for (const id of this.imageResyncOutstandingIds) {
-      if (presentedIds.has(id)) {
-        continue;
-      }
-      this.imageResyncOutstandingIds.delete(id);
-      this.imageResyncPendingIds.delete(id);
-    }
   }
 
   private materializeDeltaFrame(
@@ -1536,11 +1547,15 @@ function isWebHostAccessibilityNode(
         node.actions.every((action) => typeof action === "string"))) &&
     (node.isEnabled === undefined || typeof node.isEnabled === "boolean") &&
     (node.value === undefined || isAccessibilityValue(node.value)) &&
-    [node.valueMin, node.valueMax, node.valueStep].every(
-      (value) =>
-        value === undefined ||
-        (typeof value === "number" && Number.isFinite(value)),
-    )
+    isOptionalFiniteNumber(node.valueMin) &&
+    isOptionalFiniteNumber(node.valueMax) &&
+    isOptionalFiniteNumber(node.valueStep)
+  );
+}
+
+function isOptionalFiniteNumber(value: unknown): boolean {
+  return (
+    value === undefined || (typeof value === "number" && Number.isFinite(value))
   );
 }
 
