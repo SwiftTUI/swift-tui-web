@@ -180,7 +180,15 @@ test("style append and invalid deltas cannot grow or replace the retained baseli
   expect(decoder.feed(encoder.encode(wire(delta)))[0]?.type).toBe(
     "surfaceDropped",
   );
-  // Inspect the same baseline using an empty valid append (no new table allocation).
+  // A valid delta cannot cancel an outstanding repair. Only a full frame reanchors it.
+  expect(
+    decoder.feed(encoder.encode(wire({ ...delta, styles: [] })))[0]?.type,
+  ).toBe("surfaceDropped");
+  expect(
+    decoder.feed(
+      encoder.encode(wire({ ...base(), styles: Array(1024).fill(null) })),
+    )[0]?.type,
+  ).toBe("surface");
   expect(
     decoder.feed(encoder.encode(wire({ ...delta, styles: [] })))[0]?.type,
   ).toBe("surface");

@@ -1,0 +1,11 @@
+{
+  "formatVersion": 1,
+  "profiles": [
+    "swifttui.host-wire/1"
+  ],
+  "schema": "https://swifttui.dev/contracts/1/schemas/host.schema.json",
+  "schemaSHA256": "b03076c14b62ced68ada2fcf232d63c4e4d935431c967cde7fc5df49db52b064",
+  "generatedFiles": {
+    "packages/web/src/HostContract.generated.ts": "92276290da59482a15e80e0f0c5dcb473cd03a0c741466e3bd0cd6cea24eb6b1"
+  }
+}

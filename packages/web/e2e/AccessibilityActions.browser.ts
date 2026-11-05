@@ -19,6 +19,7 @@ declare global {
         response?: WebHostAccessibilityActionResponse,
         announcements?: WebHostAccessibilityAnnouncement[],
         focusRequest?: WebHostAccessibilityFocusPresentation,
+        epoch?: number,
       ): void;
     };
   }
@@ -1507,4 +1508,57 @@ test("unissued, mismatched and repeated replies never settle a pending edit", as
     result: "accepted",
   });
   await expect(text).toHaveValue("new pending");
+});
+
+test("epoch replacement retires pending edits and late replies for reused targets", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  await present(page);
+  const text = page.getByRole("textbox", { name: "Name" });
+  await text.fill("old pending");
+  const oldID = (await records(page)).at(-1)!.split(":")[1]!;
+  const updated = structuredClone(nodes);
+  updated[3]!.value = { type: "text", value: "new session" };
+  await page.evaluate(
+    (next) =>
+      window.accessibilityActions.present(
+        next,
+        undefined,
+        undefined,
+        undefined,
+        42,
+      ),
+    updated,
+  );
+  await expect(text).toHaveValue("new session");
+  await text.fill("current pending");
+  const currentID = (await records(page)).at(-1)!.split(":")[1]!;
+  expect(BigInt(currentID)).toBeGreaterThan(BigInt(oldID));
+  await page.evaluate(
+    ({ next, oldID }) =>
+      window.accessibilityActions.present(
+        next,
+        { requestID: oldID, target: "4:text", result: "invalidValue" },
+        undefined,
+        undefined,
+        42,
+      ),
+    { next: updated, oldID },
+  );
+  await expect(text).toHaveValue("current pending");
+  await page.evaluate(
+    ({ next, currentID }) =>
+      window.accessibilityActions.present(
+        next,
+        { requestID: currentID, target: "4:text", result: "invalidValue" },
+        undefined,
+        undefined,
+        42,
+      ),
+    { next: updated, currentID },
+  );
+  await expect(text).toHaveValue("new session");
 });

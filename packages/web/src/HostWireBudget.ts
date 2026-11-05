@@ -1,12 +1,22 @@
-/** Cross-host allocation policy; mirrored by Swift and Kotlin. */
-export const HOST_WIRE_MAX_RECORD_BYTES = 4 * 1024 * 1024;
-export const HOST_WIRE_MAX_GRID_DIMENSION = 1024;
-export const HOST_WIRE_MAX_GRID_CELLS = 65536;
-export const HOST_WIRE_MAX_IMAGES = 1024;
-export const HOST_WIRE_MAX_METADATA_ENTRIES = 65536;
-export const HOST_WIRE_MAX_CELL_TEXT_BYTES = 256;
-export const HOST_WIRE_MAX_STYLE_BYTES = 1024;
-export const HOST_WIRE_MAX_JSON_DEPTH = 32;
+import {
+  CELL_TEXT_BYTES,
+  GRID_CELLS,
+  GRID_DIMENSION,
+  IMAGES,
+  JSON_DEPTH,
+  METADATA_ENTRIES,
+  RECORD_BYTES,
+  STYLE_BYTES,
+} from "./HostContract.generated.ts";
+/** Limits generated from the public contract schema. */
+export const HOST_WIRE_MAX_RECORD_BYTES = RECORD_BYTES;
+export const HOST_WIRE_MAX_GRID_DIMENSION = GRID_DIMENSION;
+export const HOST_WIRE_MAX_GRID_CELLS = GRID_CELLS;
+export const HOST_WIRE_MAX_IMAGES = IMAGES;
+export const HOST_WIRE_MAX_METADATA_ENTRIES = METADATA_ENTRIES;
+export const HOST_WIRE_MAX_CELL_TEXT_BYTES = CELL_TEXT_BYTES;
+export const HOST_WIRE_MAX_STYLE_BYTES = STYLE_BYTES;
+export const HOST_WIRE_MAX_JSON_DEPTH = JSON_DEPTH;
 
 /** Counts UTF-8 without allocating an encoded copy; stops as soon as over budget. */
 export function fitsUTF8(text: string, limit: number): boolean {
@@ -62,24 +72,6 @@ export function fitsStyleContent(style: unknown): boolean {
     return true;
   };
   return visit(style);
-}
-
-/** Lexical check before JSON.parse; braces inside strings do not count. */
-export function fitsJSONDepth(text: string): boolean {
-  let depth = 0;
-  let quoted = false;
-  let escaped = false;
-  for (const character of text) {
-    if (quoted) {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') quoted = false;
-    } else if (character === '"') quoted = true;
-    else if (character === "[" || character === "{") {
-      if (++depth > HOST_WIRE_MAX_JSON_DEPTH) return false;
-    } else if (character === "]" || character === "}") depth--;
-  }
-  return true;
 }
 
 /** Runs only on structurally valid frames, before retaining or expanding them. */

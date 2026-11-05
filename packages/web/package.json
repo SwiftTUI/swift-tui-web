@@ -19,7 +19,8 @@
     "dist",
     "browser.html",
     "fonts",
-    "style.css"
+    "style.css",
+    "contract-profile.json"
   ],
   "exports": {
     ".": {

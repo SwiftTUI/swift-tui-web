@@ -1,3 +1,16 @@
+import {
+  CELL_ARITY,
+  DELTA_ROW_ARITY,
+  LINK_ROW_ARITY,
+  LINK_RUN_ARITY,
+  POINT_ARITY,
+  RECT_ARITY,
+  RESULT_TOKENS,
+  SIZE_ARITY,
+  TEXT_RANGE_ARITY,
+  TEXT_ROW_ARITY,
+} from "./HostContract.generated.ts";
+import { checkWireJSON } from "./HostWireJSON.ts";
 /**
  * Browser consumer for SwiftTUI's host wire. The normative cross-host
  * contract lives upstream:
@@ -6,7 +19,6 @@
 
 import { isGeometryRevision } from "./HostGeometryProtocol.ts";
 import {
-  fitsJSONDepth,
   fitsSurfaceBudget,
   HOST_WIRE_MAX_RECORD_BYTES,
 } from "./HostWireBudget.ts";
@@ -530,7 +542,7 @@ export function isWebHostImageRecoveryId(id: string): boolean {
 export const SUPPORTED_SURFACE_VERSION = 3;
 
 export class WebHostOutputDecoder {
-  private readonly textDecoder = new TextDecoder();
+  private textDecoder = new TextDecoder("utf-8", { fatal: true });
   private bufferedText = "";
   private bufferedBytes = 0;
   private discardingLine = false;
@@ -553,21 +565,29 @@ export class WebHostOutputDecoder {
         if (end - offset > HOST_WIRE_MAX_RECORD_BYTES - this.bufferedBytes) {
           this.bufferedText = "";
           this.bufferedBytes = 0;
-          this.textDecoder.decode();
+          this.textDecoder = new TextDecoder("utf-8", { fatal: true });
           this.discardingLine = true;
           records.push(this.refuseBudget());
         } else {
           this.bufferedBytes += end - offset;
-          this.bufferedText += this.textDecoder.decode(
-            chunk.subarray(offset, end),
-            { stream: true },
-          );
+          try {
+            this.bufferedText += this.textDecoder.decode(
+              chunk.subarray(offset, end),
+              { stream: true },
+            );
+          } catch {
+            records.push(this.refuseUTF8());
+          }
         }
       }
       if (newline >= 0) {
         if (!this.discardingLine) {
-          this.bufferedText += this.textDecoder.decode();
-          records.push(this.decodeLine(this.bufferedText));
+          try {
+            this.bufferedText += this.textDecoder.decode();
+            records.push(this.decodeLine(this.bufferedText));
+          } catch {
+            records.push(this.refuseUTF8());
+          }
         }
         this.bufferedText = "";
         this.bufferedBytes = 0;
@@ -589,7 +609,13 @@ export class WebHostOutputDecoder {
   }
 
   flush(): WebHostOutputRecord[] {
-    this.bufferedText += this.textDecoder.decode();
+    try {
+      this.bufferedText += this.textDecoder.decode();
+    } catch {
+      const refused = this.refuseUTF8();
+      this.discardingLine = false;
+      return [refused];
+    }
     this.bufferedBytes = 0;
     this.discardingLine = false;
     if (!this.bufferedText) {
@@ -605,7 +631,7 @@ export class WebHostOutputDecoder {
     this.bufferedText = "";
     this.bufferedBytes = 0;
     this.discardingLine = false;
-    this.textDecoder.decode();
+    this.textDecoder = new TextDecoder("utf-8", { fatal: true });
     return this.refuseBudget();
   }
 
@@ -705,8 +731,14 @@ export class WebHostOutputDecoder {
   }
 
   private decodeLine(line: string): WebHostOutputRecord {
-    if (line.startsWith(recordPrefix) && !fitsJSONDepth(line)) {
-      return this.refuseBudget();
+    if (line.startsWith(recordPrefix)) {
+      const admission = checkWireJSON(line.slice(line.indexOf(":") + 1));
+      if (admission === "depth") return this.refuseBudget();
+      if (admission !== "admitted") {
+        if (line.startsWith(`${recordPrefix}surface:`))
+          return this.refuseInvalidRecord(line);
+        return { type: "text", text: `${line}\n` };
+      }
     }
     if (line.startsWith(`${recordPrefix}clipboard:`)) {
       try {
@@ -813,12 +845,13 @@ export class WebHostOutputDecoder {
           return { type: "surfaceDropped", reason: "noBaseline" };
         }
         if (
-          carriesDeliveryStamps &&
-          (frame.epoch === undefined ||
-            frame.gen === undefined ||
-            frame.baselineGen === undefined ||
-            frame.epoch !== this.lastEpoch ||
-            frame.baselineGen !== this.lastGen)
+          this.keyframeResyncOutstanding ||
+          (carriesDeliveryStamps &&
+            (frame.epoch === undefined ||
+              frame.gen === undefined ||
+              frame.baselineGen === undefined ||
+              frame.epoch !== this.lastEpoch ||
+              frame.baselineGen !== this.lastGen))
         ) {
           this.requestKeyframeResync();
           return { type: "surfaceDropped", reason: "staleBaseline" };
@@ -836,6 +869,11 @@ export class WebHostOutputDecoder {
       // Fall through to the text path below so malformed output remains visible.
     }
 
+    return this.refuseInvalidRecord(line);
+  }
+
+  private refuseInvalidRecord(line: string): WebHostOutputRecord {
+    this.requestKeyframeResync();
     return { type: "text", text: `${line}\n` };
   }
 
@@ -845,6 +883,15 @@ export class WebHostOutputDecoder {
     }
     this.keyframeResyncOutstanding = true;
     this.keyframeResyncPending = true;
+  }
+
+  private refuseUTF8(): WebHostOutputRecord {
+    this.bufferedText = "";
+    this.bufferedBytes = 0;
+    this.discardingLine = true;
+    this.textDecoder = new TextDecoder("utf-8", { fatal: true });
+    this.requestKeyframeResync();
+    return { type: "text", text: "host.wire.invalidUTF8: record discarded\n" };
   }
 
   private refuseBudget(): WebHostOutputRecord {
@@ -1227,6 +1274,7 @@ function isWebHostSurfaceFrame(value: unknown): value is WebHostSurfaceFrame {
   const frame = value as Partial<WebHostSurfaceFrame>;
   return (
     (frame.version === 1 || frame.version === 2) &&
+    (frame.epoch === undefined) === (frame.gen === undefined) &&
     (frame.sequence === undefined ||
       (Number.isSafeInteger(frame.sequence) && frame.sequence >= 0)) &&
     isSurfaceGridDimension(frame.width) &&
@@ -1331,8 +1379,7 @@ function isAccessibilityFocusPresentation(
   const request = value as Partial<WebHostAccessibilityFocusPresentation>;
   return (
     typeof request.generation === "string" &&
-    /^(0|[1-9][0-9]{0,19})$/.test(request.generation) &&
-    BigInt(request.generation) <= 18446744073709551615n &&
+    normalizeWireUInt64(request.generation) === request.generation &&
     (request.target === undefined || typeof request.target === "string")
   );
 }
@@ -1352,7 +1399,7 @@ function isWebHostSurfaceLinkRow(
 ): value is WebHostSurfaceLinkRow {
   return (
     Array.isArray(value) &&
-    value.length === 2 &&
+    value.length === LINK_ROW_ARITY &&
     Number.isSafeInteger(value[0]) &&
     value[0] >= 0 &&
     Array.isArray(value[1]) &&
@@ -1363,7 +1410,7 @@ function isWebHostSurfaceLinkRow(
 function isWebHostSurfaceLinkRun(
   value: unknown,
 ): value is WebHostSurfaceLinkRun {
-  if (!Array.isArray(value) || value.length !== 3) {
+  if (!Array.isArray(value) || value.length !== LINK_RUN_ARITY) {
     return false;
   }
   const [x, span, targetIndex] = value as number[];
@@ -1404,7 +1451,7 @@ function isWebHostSurfaceDeltaRow(
 ): value is WebHostSurfaceDeltaRow {
   return (
     Array.isArray(value) &&
-    value.length === 2 &&
+    value.length === DELTA_ROW_ARITY &&
     Number.isSafeInteger(value[0]) &&
     value[0] >= 0 &&
     isWebHostSurfaceRow(value[1])
@@ -1418,7 +1465,7 @@ function isWebHostSurfaceRow(value: unknown): value is WebHostSurfaceCell[] {
 function isWebHostSurfaceCell(value: unknown): value is WebHostSurfaceCell {
   return (
     Array.isArray(value) &&
-    value.length === 4 &&
+    value.length === CELL_ARITY &&
     Number.isSafeInteger(value[0]) &&
     value[0] >= 0 &&
     typeof value[1] === "string" &&
@@ -1627,14 +1674,7 @@ function isAccessibilityActionResponse(
     typeof response.target === "string" &&
     response.target.length > 0 &&
     typeof response.result === "string" &&
-    [
-      "accepted",
-      "staleTarget",
-      "disabled",
-      "outOfScope",
-      "unsupported",
-      "invalidValue",
-    ].includes(response.result)
+    (RESULT_TOKENS as readonly string[]).includes(response.result)
   );
 }
 
@@ -1662,7 +1702,7 @@ function isWebHostAccessibilityPoint(
 ): value is WebHostAccessibilityPoint {
   return (
     Array.isArray(value) &&
-    value.length === 2 &&
+    value.length === POINT_ARITY &&
     value.every((entry) => typeof entry === "number")
   );
 }
@@ -1730,7 +1770,7 @@ function isWebHostSurfaceDamageTextRow(
 ): value is WebHostSurfaceDamageTextRow {
   return (
     Array.isArray(value) &&
-    value.length === 2 &&
+    value.length === TEXT_ROW_ARITY &&
     typeof value[0] === "number" &&
     Array.isArray(value[1]) &&
     value[1].every(isWebHostSurfaceDamageRange)
@@ -1742,7 +1782,7 @@ function isWebHostSurfaceDamageRange(
 ): value is WebHostSurfaceDamageRange {
   return (
     Array.isArray(value) &&
-    value.length === 2 &&
+    value.length === TEXT_RANGE_ARITY &&
     typeof value[0] === "number" &&
     typeof value[1] === "number"
   );
@@ -1793,7 +1833,7 @@ function isWebHostScrollRegion(value: unknown): value is WebHostScrollRegion {
 function isWebHostSurfaceRect(value: unknown): value is WebHostSurfaceRect {
   return (
     Array.isArray(value) &&
-    value.length === 4 &&
+    value.length === RECT_ARITY &&
     value.every((entry) => typeof entry === "number")
   );
 }
@@ -1801,7 +1841,7 @@ function isWebHostSurfaceRect(value: unknown): value is WebHostSurfaceRect {
 function isWebHostSurfaceSize(value: unknown): value is WebHostSurfaceSize {
   return (
     Array.isArray(value) &&
-    value.length === 2 &&
+    value.length === SIZE_ARITY &&
     value.every((entry) => typeof entry === "number")
   );
 }

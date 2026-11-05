@@ -67,11 +67,14 @@ const api = {
     response?: WebHostAccessibilityActionResponse,
     announcements?: WebHostAccessibilityAnnouncement[],
     focusRequest?: WebHostAccessibilityFocusPresentation,
+    epoch?: number,
   ) {
     bridge.stdout.write(
       new TextEncoder().encode(
         `\u001esurface:${JSON.stringify({
           version: 2,
+          epoch,
+          gen: epoch === undefined ? undefined : sequence + 1,
           width: 40,
           height: 12,
           styles: [],

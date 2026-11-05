@@ -1742,6 +1742,7 @@ export class WebHostSceneRuntime {
           this.synchronizeAccessibilityFocus &&
           !this.nativePointerGesture &&
           !this.hasSurfaceSelection(),
+        epoch: frame.epoch,
         actionResponse: frame.accessibilityActionResponse,
         focusRequest: frame.accessibilityFocusRequest,
       },

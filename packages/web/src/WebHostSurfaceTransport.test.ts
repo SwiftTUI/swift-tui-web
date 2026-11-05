@@ -1418,8 +1418,15 @@ test("grid dimensions reject malformed full and delta frames without replacing t
       expect(output.feed(encode({ ...delta, [axis]: invalid }))[0]?.type).toBe(
         "text",
       );
-      const repaired = surfaceFrame(output.feed(encode(delta))[0]);
-      expect(repaired.rows).toEqual([[[0, "b", 1, 0]]]);
+      expect(output.takeResyncRequest()).toEqual({ scope: "keyframe" });
+      expect(output.feed(encode(delta))[0]?.type).toBe("surfaceDropped");
+      expect(output.takeResyncRequest()).toBeUndefined();
+      // Only a full replacement completes repair; the old committed rows were
+      // preserved throughout the malformed records and matching-base delta.
+      const repaired = surfaceFrame(
+        output.feed(encode({ ...baseline, gen: 3 }))[0],
+      );
+      expect(repaired.rows).toEqual([[[0, "a", 1, 0]]]);
     }
   }
 });
@@ -1875,5 +1882,65 @@ test("accessibility encoder rejects malformed runtime arguments before returning
     expect(command).toContain(
       `accessibility:${BigInt(id)}:target%3A%0A%1E:activate`,
     );
+  }
+});
+
+test("ambiguous state records preserve the baseline and request one repair", () => {
+  const full = {
+    version: 2,
+    epoch: 7,
+    gen: 1,
+    width: 1,
+    height: 1,
+    styles: [null],
+    rows: [[[0, "A", 1, 0]]],
+    images: [],
+  };
+  const line = (value: unknown) =>
+    encoder.encode(`\u001esurface:${JSON.stringify(value)}\n`);
+  for (const malformed of [
+    JSON.stringify(full).replace('"version":2', '"version":2,"version":2'),
+    JSON.stringify(full).replace('"version":2', '"unknown":1e999,"version":2'),
+    JSON.stringify({ ...full, gen: undefined }),
+  ]) {
+    const d = new WebHostOutputDecoder();
+    expect(d.feed(line(full))[0]?.type).toBe("surface");
+    expect(
+      d.feed(encoder.encode(`\u001esurface:${malformed}\n`))[0]?.type,
+    ).toBe("text");
+    expect(d.takeResyncRequest()).toEqual({ scope: "keyframe" });
+    d.feed(encoder.encode(`\u001esurface:${malformed}\n`));
+    expect(d.takeResyncRequest()).toBeUndefined();
+    expect(d.feed(line({ ...full, gen: 2 }))[0]?.type).toBe("surface");
+  }
+});
+
+test("invalid UTF-8 never becomes committed replacement characters at any stream split", () => {
+  const fixture = encoder.encode(transportFixture("web-surface-basic"));
+  const bad = fixture.slice();
+  bad[bad.indexOf(79)] = 255; // corrupt the O cell
+  for (let split = 0; split <= bad.length; split++) {
+    const d = new WebHostOutputDecoder();
+    const records = [
+      ...d.feed(bad.subarray(0, split)),
+      ...d.feed(bad.subarray(split)),
+    ];
+    expect(records).toEqual([
+      { type: "text", text: "host.wire.invalidUTF8: record discarded\n" },
+    ]);
+    expect(d.takeResyncRequest()).toEqual({ scope: "keyframe" });
+    expect(d.feed(fixture)[0]?.type).toBe("surface");
+  }
+  const d = new WebHostOutputDecoder();
+  d.feed(new Uint8Array([0xe2]));
+  expect(d.flush()[0]?.type).toBe("text");
+  expect(d.feed(fixture)[0]?.type).toBe("surface");
+});
+
+test("request IDs ending in a line terminator fail before any bytes are emitted", () => {
+  for (const id of ["1\n", "1\r", "1\r\n", "1\u2028", "1\u2029", "1\u001e"]) {
+    expect(() =>
+      encodeAccessibilityActionMessage("target", { action: "activate" }, id),
+    ).toThrow("requestID");
   }
 });

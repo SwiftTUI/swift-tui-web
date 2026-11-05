@@ -21,6 +21,7 @@ interface AccessibilityTreeMetrics {
 }
 
 interface AccessibilityTreePresentationOptions {
+  epoch?: number;
   synchronizeFocus?: boolean;
   actionResponse?: WebHostAccessibilityActionResponse;
   focusRequest?: WebHostAccessibilityFocusPresentation;
@@ -44,6 +45,8 @@ export class AccessibilityTreeMounter {
   readonly element: HTMLElement;
   readonly announcerElement: HTMLElement;
   readonly navigationElement: HTMLDetailsElement;
+  private presentedEpoch?: number;
+  private hasPresentedSession = false;
   private readonly categorySelect: HTMLSelectElement;
   private readonly targetSelect: HTMLSelectElement;
   private readonly navigationGo: HTMLButtonElement;
@@ -244,6 +247,10 @@ export class AccessibilityTreeMounter {
     announcements: WebHostAccessibilityAnnouncement[] = [],
     options: AccessibilityTreePresentationOptions = {},
   ): void {
+    if (this.hasPresentedSession && this.presentedEpoch !== options.epoch)
+      this.resetSession();
+    this.presentedEpoch = options.epoch;
+    this.hasPresentedSession = true;
     this.presenting = true;
     try {
       this.presentFrame(nodes, metrics, announcements, options);
@@ -506,6 +513,8 @@ export class AccessibilityTreeMounter {
   }
 
   resetSession(): void {
+    this.presentedEpoch = undefined;
+    this.hasPresentedSession = false;
     this.requests.reset();
     this.pendingMenu = undefined;
     this.pendingMenuReturn = undefined;

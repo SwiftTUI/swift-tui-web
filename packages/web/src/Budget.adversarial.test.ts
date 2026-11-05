@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import {
-  fitsJSONDepth,
   fitsStyleContent,
   fitsSurfaceBudget,
   fitsUTF8,
   fitsWireGrid,
 } from "./HostWireBudget.ts";
+import { admitsWireJSON } from "./HostWireJSON.ts";
 
 type BudgetFrame = Parameters<typeof fitsSurfaceBudget>[0];
 const frame = (overrides: Partial<BudgetFrame> = {}): BudgetFrame => ({
@@ -55,7 +55,7 @@ for (let id = 91; id <= 110; id++) {
         break;
       case 98:
         expect(
-          fitsJSONDepth(
+          admitsWireJSON(
             JSON.stringify({ text: '[{"quoted":"\\""}]'.repeat(3) }),
           ),
         ).toBe(true);

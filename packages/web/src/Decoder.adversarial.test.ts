@@ -153,7 +153,8 @@ for (let id = 111; id <= 130; id++) {
         feed(full());
         feed(delta({ stylesBase: 2, styles: [] }));
         expect(decoder.takeResyncRequest()).toBeDefined();
-        expect(surface(feed(delta())[0]).gen).toBe(2);
+        expect(feed(delta())[0]?.type).toBe("surfaceDropped");
+        expect(surface(feed(full({ gen: 2 }))[0]).gen).toBe(2);
         break;
       case 126:
         feed(full());
@@ -161,7 +162,8 @@ for (let id = 111; id <= 130; id++) {
           type: "surfaceDropped",
           reason: "staleBaseline",
         });
-        expect(surface(feed(delta())[0]).gen).toBe(2);
+        expect(feed(delta())[0]?.type).toBe("surfaceDropped");
+        expect(surface(feed(full({ gen: 2 }))[0]).gen).toBe(2);
         break;
       case 127:
         feed(full());
