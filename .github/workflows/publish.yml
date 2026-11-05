@@ -129,86 +129,9 @@ jobs:
           }
           NODE
 
-      - name: Create or update GitHub release
+      - name: Publish or resume matching immutable artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME}"
-          web_tarball="${{ steps.pack.outputs.web_tarball }}"
-          build_tarball="${{ steps.pack.outputs.build_tarball }}"
-          if gh release view "$version" >/dev/null 2>&1; then
-            gh release upload "$version" "$web_tarball" "$build_tarball" --clobber
-          else
-            gh release create "$version" \
-              --target "$GITHUB_SHA" \
-              --title "$version" \
-              --notes "" \
-              "$web_tarball" \
-              "$build_tarball"
-          fi
-
-      - name: Publish npm packages
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME}"
-          if npm view "@swifttui/web@$version" version >/dev/null 2>&1; then
-            echo "@swifttui/web@$version already exists on npm; skipping"
-          else
-            npm publish "${{ steps.pack.outputs.web_tarball }}" --access public --provenance
-          fi
-
-          if npm view "@swifttui/build@$version" version >/dev/null 2>&1; then
-            echo "@swifttui/build@$version already exists on npm; skipping"
-          else
-            npm publish "${{ steps.pack.outputs.build_tarball }}" --access public --provenance
-          fi
-
-      # Poll rather than assert once. npm's registry read path lags a fresh
-      # publish by up to a few minutes, and a single `npm view` right after
-      # `npm publish` failed on attempt 1 of 19/19 release tags — every one
-      # passed on a manual rerun with no change (swift-tui-org plan
-      # 2026-08-25-001 §2 item 10). The GitHub release download can lag its
-      # upload the same way, so it gets a shorter poll. Success costs nothing
-      # extra; only a genuinely missing artifact waits out the deadline.
-      - name: Verify published artifacts
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME}"
-          poll_interval_seconds=15
-
-          wait_for() {
-            label=$1
-            deadline_seconds=$2
-            shift 2
-            waited=0
-            until "$@"; do
-              if [ "$waited" -ge "$deadline_seconds" ]; then
-                echo "::error::$label still not visible after ${deadline_seconds}s"
-                return 1
-              fi
-              echo "$label not visible yet (${waited}s elapsed); retrying in ${poll_interval_seconds}s"
-              sleep "$poll_interval_seconds"
-              waited=$((waited + poll_interval_seconds))
-            done
-            echo "$label visible after ${waited}s"
-          }
-
-          release_asset_visible() {
-            curl -fsSL -o /dev/null \
-              "https://github.com/SwiftTUI/swift-tui-web/releases/download/$version/$1"
-          }
-
-          npm_version_visible() {
-            published="$(npm view "$1@$version" version --json 2>/dev/null | tr -d '\"' || true)"
-            [ "$published" = "$version" ]
-          }
-
-          npm_packages_visible() {
-            npm_version_visible "@swifttui/web" && npm_version_visible "@swifttui/build"
-          }
-
-          for f in "swifttui-web-$version.tgz" "swifttui-build-$version.tgz"; do
-            wait_for "release asset $f" 60 release_asset_visible "$f"
-          done
-          wait_for "@swifttui/web@$version and @swifttui/build@$version on npm" 300 npm_packages_visible
+          bun Scripts/publish.ts "$GITHUB_REF_NAME" "$GITHUB_SHA" \
+            "${{ steps.pack.outputs.web_tarball }}" "${{ steps.pack.outputs.build_tarball }}"

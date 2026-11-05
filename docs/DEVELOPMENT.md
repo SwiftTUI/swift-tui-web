@@ -24,6 +24,15 @@ packages do not contain raw TypeScript source. Run `bun run pack:web` or
 internal `workspace:*` dependency with a concrete version. Thus, the published
 `@swifttui/build` package depends on a published `@swifttui/web` version.
 
+The tag workflow runs `Scripts/publish.ts` for publication and retry. It checks
+the clean checkout and public tag, compares existing GitHub and npm tarball
+bytes before writing, and uploads a `publication.json` source/digest receipt.
+Matching retries publish only missing outputs. Different bytes or source require
+a new version; no release asset is overwritten. A failed registry/authentication
+read is not treated as an absent package. Missing listings are polled after
+publication; an unreadable already-listed asset aborts preflight for a later retry.
+The offline recovery rehearsal runs with the normal `bun run test` gate.
+
 The host-wire corpus in `Fixtures/Transport/conformance-*` is a byte-identical
 copy of the canonical `swift-tui` corpus. `bun test` makes sure that its
 manifest and body hashes match. It rejects missing or extra bodies. It also
