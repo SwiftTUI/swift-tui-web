@@ -95,7 +95,9 @@ jobs:
     name: Browser (${{ matrix.engine }})
     needs: wasm-fixture
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Installing the pinned engines can take eight minutes; keep room for the
+    # complete serial journey suite and its retained failure artifacts.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
