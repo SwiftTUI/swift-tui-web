@@ -148,7 +148,10 @@ test("DOM worker failure shows a diagnostic and closes its execution resources",
     }, 0);
   });
   await expect(page.locator(".webhost-scene__diagnostic")).toContainText(
-    "worker failed",
+    "wasi.worker.startFailed",
+  );
+  await expect(page.locator(".webhost-scene__diagnostic")).toContainText(
+    "Injected worker failure",
   );
   await expect.poll(() => closed, { timeout: 2000 }).toBe(started);
   expect(started).toBe(1);
