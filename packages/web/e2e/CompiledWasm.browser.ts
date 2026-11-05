@@ -181,3 +181,116 @@ async function clickIncrement(page: Page, scene: string): Promise<void> {
   // Keep a real pointer click: this journey still exercises mouse ingress.
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
+
+const header = [0, 97, 115, 109, 1, 0, 0, 0];
+for (const [name, bytes, code] of [
+  ["empty", header, "missingExport"],
+  [
+    "missing memory",
+    [
+      ...header,
+      1,
+      4,
+      1,
+      0x60,
+      0,
+      0,
+      3,
+      2,
+      1,
+      0,
+      7,
+      10,
+      1,
+      6,
+      ...Buffer.from("_start"),
+      0,
+      0,
+      10,
+      4,
+      1,
+      2,
+      0,
+      0x0b,
+    ],
+    "missingExport",
+  ],
+  [
+    "missing start",
+    [...header, 5, 3, 1, 0, 1, 7, 10, 1, 6, ...Buffer.from("memory"), 2, 0],
+    "missingExport",
+  ],
+] as const) {
+  for (const mode of ["worker", "main-thread"] as const) {
+    test(`${name} WASM is diagnosed before first frame (${mode})`, async ({
+      page,
+    }) => {
+      await page.route("**/invalid.wasm", (route) =>
+        route.fulfill({
+          body: Buffer.from(bytes),
+          contentType: "application/wasm",
+        }),
+      );
+      await openFixture(page);
+      test.skip(
+        mode === "main-thread" &&
+          !(await snapshot(page)).capabilities.supportsJSPI,
+        "Engine does not advertise JSPI",
+      );
+      await page.evaluate(
+        ({ mode }) =>
+          window.__compiledWasm.start(mode, "alpha", undefined, "canvas", {
+            wasm: "/invalid.wasm",
+          }),
+        { mode },
+      );
+      await expect
+        .poll(async () => (await snapshot(page)).errors.join("\n"))
+        .toContain(`wasi.profile.${code}`);
+      expect((await snapshot(page)).frames).toEqual({});
+    });
+  }
+}
+
+test("missing worker has an attributable startup failure", async ({ page }) => {
+  await page.route("**/missing-worker.js", (route) =>
+    route.fulfill({ status: 404 }),
+  );
+  await openFixture(page);
+  await page.evaluate(() =>
+    window.__compiledWasm.start("worker", "alpha", undefined, "canvas", {
+      worker: "/missing-worker.js",
+    }),
+  );
+  await expect
+    .poll(async () => (await snapshot(page)).errors.join("\n"))
+    .toContain("wasi.worker.startFailed");
+  expect((await snapshot(page)).frames).toEqual({});
+});
+
+test("invalid execution mode is rejected", async ({ page }) => {
+  await openFixture(page);
+  const message = await page.evaluate(async () => {
+    try {
+      await window.__compiledWasm.start("invalid" as "worker");
+      return "unexpected success";
+    } catch (error) {
+      return String(error);
+    }
+  });
+  expect(message).toContain("wasi.profile.unsupportedMode");
+  expect((await snapshot(page)).frames).toEqual({});
+});
+
+test("unsupported JSPI reports its missing requirement", async ({ page }) => {
+  await openFixture(page);
+  test.skip(
+    (await snapshot(page)).capabilities.supportsJSPI,
+    "This engine supports JSPI",
+  );
+  await page.evaluate(() => window.__compiledWasm.start("main-thread"));
+  await expect
+    .poll(async () => (await snapshot(page)).errors.join("\n"))
+    .toContain("wasi.profile.requiresJSPI");
+  expect((await snapshot(page)).frames).toEqual({});
+});

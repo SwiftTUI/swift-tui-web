@@ -4,6 +4,7 @@ import {
   SharedInputQueueReader,
 } from "./SharedInputQueue.ts";
 import { WasiPollScheduler } from "./WasiPollScheduler.ts";
+import { validateWasmExecutionProfile } from "./WasmExecutionProfile.ts";
 import {
   installPausableClockTimeGet,
   PausableMonotonicClock,
@@ -195,7 +196,9 @@ async function startWasmScene(
       );
     }
 
-    const module = await WebAssembly.compile(await response.arrayBuffer());
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const module = await WebAssembly.compile(bytes);
+    validateWasmExecutionProfile(module, bytes, wasiBridge.wasiImport);
     const instance = await WebAssembly.instantiate(module, {
       wasi_snapshot_preview1: wasiBridge.wasiImport,
     });

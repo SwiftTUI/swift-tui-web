@@ -4,8 +4,42 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packageBrowserValidatedWasm } from "./buildAppWasm.ts";
 
+const wasmHeader = [0, 97, 115, 109, 1, 0, 0, 0];
+// A command with one memory and a () -> () entry point, not an empty module.
 const minimalWasmBytes = new Uint8Array([
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  ...wasmHeader,
+  1,
+  4,
+  1,
+  0x60,
+  0,
+  0,
+  3,
+  2,
+  1,
+  0,
+  5,
+  3,
+  1,
+  0,
+  1,
+  7,
+  19,
+  2,
+  6,
+  ...new TextEncoder().encode("memory"),
+  2,
+  0,
+  6,
+  ...new TextEncoder().encode("_start"),
+  0,
+  0,
+  10,
+  4,
+  1,
+  2,
+  0,
+  0x0b,
 ]);
 
 const temporaryDirectories: string[] = [];
@@ -154,7 +188,7 @@ function buildHugeFunctionTypeWasm(parameterCount: number): Uint8Array {
   ];
 
   return new Uint8Array([
-    ...minimalWasmBytes,
+    ...wasmHeader,
     0x01,
     ...encodeUnsignedLEB128(payload.length),
     ...payload,
@@ -179,3 +213,14 @@ function encodeUnsignedLEB128(value: number): number[] {
 
   return bytes;
 }
+
+test("rejects a parseable empty module before packaging succeeds", async () => {
+  const fixture = await createFixture(new Uint8Array(wasmHeader));
+  await expect(
+    packageBrowserValidatedWasm({
+      ...fixture,
+      optimize: async () => {},
+      strip: async () => {},
+    }),
+  ).rejects.toThrow("wasi.profile.missingExport");
+});

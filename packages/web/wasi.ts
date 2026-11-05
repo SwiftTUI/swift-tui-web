@@ -3,5 +3,6 @@ export * from "./src/wasi/MainThreadWasmExecutor.ts";
 export * from "./src/wasi/SharedInputQueue.ts";
 export * from "./src/wasi/StdIOPipe.ts";
 export * from "./src/wasi/WasmEngineCapabilities.ts";
+export * from "./src/wasi/WasmExecutionProfile.ts";
 export * from "./src/wasi/WasmRuntimePause.ts";
 export * from "./src/wasi/WasmSceneRuntime.ts";

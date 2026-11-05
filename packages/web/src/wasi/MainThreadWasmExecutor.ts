@@ -5,10 +5,10 @@ import {
   WASIProcExit,
   wasi,
 } from "@bjorn3/browser_wasi_shim";
-
 import { MainThreadInputQueue } from "./MainThreadInputQueue.ts";
 import { SuspendingWasiPollScheduler } from "./WasiPollScheduler.ts";
 import { jspiConstructors } from "./WasmEngineCapabilities.ts";
+import { validateWasmExecutionProfile } from "./WasmExecutionProfile.ts";
 import {
   installPausableClockTimeGet,
   MainThreadWasmPauseGate,
@@ -82,7 +82,7 @@ export class MainThreadWasmExecutor {
       const jspi = jspiConstructors();
       if (!jspi) {
         throw new Error(
-          "WebAssembly JSPI (Suspending/promising) is unavailable in this engine",
+          "wasi.profile.requiresJSPI: WebAssembly JSPI (Suspending/promising) is unavailable in this engine",
         );
       }
 
@@ -134,7 +134,9 @@ export class MainThreadWasmExecutor {
           `failed to load ${String(this.options.wasmURL)}: ${response.status} ${response.statusText}`,
         );
       }
-      const module = await WebAssembly.compile(await response.arrayBuffer());
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const module = await WebAssembly.compile(bytes);
+      validateWasmExecutionProfile(module, bytes, shim.wasiImport);
       if (this.disposed) return;
       const instance = await WebAssembly.instantiate(module, {
         wasi_snapshot_preview1: {

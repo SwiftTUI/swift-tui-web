@@ -1,7 +1,9 @@
 {
   "formatVersion": 1,
   "profiles": [
-    "swifttui.host-wire/1"
+    "swifttui.host-wire/1",
+    "swifttui.wasi-command/1",
+    "swifttui.companion/1"
   ],
   "schema": "https://swifttui.dev/contracts/1/schemas/host.schema.json",
   "schemaSHA256": "b03076c14b62ced68ada2fcf232d63c4e4d935431c967cde7fc5df49db52b064",

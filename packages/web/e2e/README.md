@@ -68,14 +68,15 @@ code. Run `bun run test:browser:built BrowserNavigation --project=webkit` after
 the normal build. For manual macOS qualification, leave the display asleep
 during the run and wake it afterward; the test itself never changes display
 power state. The regression runs in all three engine projects under the
-existing 60-second test timeout and zero-retry policy.
+180-second navigation timeout and zero-retry policy. Other browser tests retain
+their configured budgets.
 
 ## Compiled Swift WASM
 
 `CompiledWasm.browser.ts` executes the two counter scenes in `Fixtures/BrowserApp`,
 which also contains animation/deep-tree probes, images, an accessibility action
 scene, richer controls and nested scrolling. The app is pinned to the public HTTPS
-`swift-tui` tag **0.15.0**, with transitive
+`swift-tui` tag **0.20.0**, with transitive
 versions recorded in `Package.resolved`. `build-wasm-fixture.ts` calls the public
 `@swifttui/build` entry point to capture the native scene manifest and compile,
 optimize, strip and validate the WASI module. No sibling checkout or Bazel is
@@ -140,7 +141,7 @@ same bridge with a synthetic semantic frame. All three engines verify focus,
 activation, adjustment, native input editing, acknowledgements, rejected-value
 restoration, disabled nodes, removed listeners and update-echo suppression.
 These protocol checks do not execute Swift or listen to a screen reader.
-The public Swift fixture remains pinned to 0.15.0; action acceptance against an
+The public Swift fixture remains pinned to 0.20.0; action acceptance against an
 unreleased framework is coordination-owned until a released tag is adopted.
 
 ## Semantic presentation boundary

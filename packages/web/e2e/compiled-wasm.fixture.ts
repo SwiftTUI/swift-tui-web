@@ -197,6 +197,7 @@ const api = {
     scene = "alpha",
     environment?: Record<string, string>,
     renderer: "canvas" | "dom" = "canvas",
+    assets: { wasm?: string; worker?: string } = {},
   ) {
     if (controller) throw new Error("The compiled WASM app is already started");
     controller = await createWebHostApp({
@@ -217,46 +218,52 @@ const api = {
         return bridge;
       },
       sceneRuntimeFactory: (options) =>
-        createWasmSceneRuntimeFactory(new URL("/app.wasm", location.href), {
-          executionMode: mode,
-          onInputWritten: (event) => {
-            const sample = controlSamples.at(-1);
-            if (controlSampling && sample && sample.decoded === undefined)
-              sample.written = event.writtenAt;
-          },
-          onRuntimeCreated: (runtime) => {
-            runtimes.push(
-              runtime as import("../dist/index.js").WebHostSceneRuntime,
-            );
-            // Test-only observation of the actual input routing boundary.
-            // Forward every byte unchanged into the production shared queue.
-            const observed = runtime as unknown as {
-              onInput(chunk: Uint8Array): void;
-            };
-            const send = observed.onInput.bind(runtime);
-            observed.onInput = (chunk) => {
-              const text = new TextDecoder().decode(chunk);
-              // Input observations are diagnostics, not an editable-value log.
-              sentInputs.push(
-                text.replace(
-                  /(:(?:setValue|editText|selectText):text:)[^\n]*/g,
-                  "$1<redacted>",
-                ),
+        createWasmSceneRuntimeFactory(
+          new URL(assets.wasm ?? "/app.wasm", location.href),
+          {
+            executionMode: mode,
+            onInputWritten: (event) => {
+              const sample = controlSamples.at(-1);
+              if (controlSampling && sample && sample.decoded === undefined)
+                sample.written = event.writtenAt;
+            },
+            onRuntimeCreated: (runtime) => {
+              runtimes.push(
+                runtime as import("../dist/index.js").WebHostSceneRuntime,
               );
-              if (sentInputs.length > 256) sentInputs.shift();
-              const revision = /^geometry:(\d+):/.exec(text.slice(1))?.[1];
-              if (revision)
-                geometryTimings.push({
-                  revision: Number(revision),
-                  sent: performance.now(),
-                  animationFrame,
-                });
-              if (geometryTimings.length > 256) geometryTimings.shift();
-              send(chunk);
-            };
+              // Test-only observation of the actual input routing boundary.
+              // Forward every byte unchanged into the production shared queue.
+              const observed = runtime as unknown as {
+                onInput(chunk: Uint8Array): void;
+              };
+              const send = observed.onInput.bind(runtime);
+              observed.onInput = (chunk) => {
+                const text = new TextDecoder().decode(chunk);
+                // Input observations are diagnostics, not an editable-value log.
+                sentInputs.push(
+                  text.replace(
+                    /(:(?:setValue|editText|selectText):text:)[^\n]*/g,
+                    "$1<redacted>",
+                  ),
+                );
+                if (sentInputs.length > 256) sentInputs.shift();
+                const revision = /^geometry:(\d+):/.exec(text.slice(1))?.[1];
+                if (revision)
+                  geometryTimings.push({
+                    revision: Number(revision),
+                    sent: performance.now(),
+                    animationFrame,
+                  });
+                if (geometryTimings.length > 256) geometryTimings.shift();
+                send(chunk);
+              };
+            },
+            workerModuleURL: new URL(
+              assets.worker ?? "/compiled-wasm-worker.js",
+              location.href,
+            ),
           },
-          workerModuleURL: new URL("/compiled-wasm-worker.js", location.href),
-        })({
+        )({
           ...options,
           onSurfacePainted: (event) => {
             const sample = controlSamples.at(-1);

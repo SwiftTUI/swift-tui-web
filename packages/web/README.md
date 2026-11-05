@@ -757,3 +757,16 @@ single true flag wins, then declaration order. Duplicate IDs, conflicting keys,
 unknown defaults, nonboolean flags and ambiguous flags are errors. Serialization
 emits `defaultSceneId` and derives every legacy flag from that selection. An
 empty catalog cannot be mounted in the browser.
+
+## Host contract profiles
+
+`contract-profile.json` identifies the wire schema and generated bindings in
+this package, together with `swifttui.wasi-command/1` and
+`swifttui.companion/1`. The public framework's `Contracts/1` kit defines those
+profiles. WASI modules are checked before instantiation: exported wasm32 memory,
+a `() -> ()` `_start`, and implemented WASI Preview 1 function imports are
+required. Missing exports/imports, unsupported execution modes and worker-load
+failures report a stable `wasi.*` prefix. Worker mode requires SharedArrayBuffer
+and the browser's isolation requirements; JSPI mode requires its WebAssembly
+suspension APIs. A package must include its module, scene catalog and selected
+worker asset. Package versions and wire capabilities remain independent.

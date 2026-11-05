@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { validateWasmExecutionProfile } from "@swifttui/web/wasi";
 import { optimizePackagedWasm } from "./optimizePackagedWasm.ts";
 import {
   type ResolveSwiftArtifactsOptions,
@@ -104,7 +105,8 @@ async function validateBrowserWasm(
   const bytes = await readFile(wasmPath);
   try {
     // Validate against the same JS API the browser uses before we publish it.
-    await WebAssembly.compile(bytes);
+    const module = await WebAssembly.compile(bytes);
+    validateWasmExecutionProfile(module, bytes);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(

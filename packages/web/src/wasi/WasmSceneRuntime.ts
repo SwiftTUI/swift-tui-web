@@ -123,6 +123,9 @@ export function resolveWasmExecutionMode(
   capabilities: WasmEngineCapabilities,
   sharedInputQueueAvailable: boolean,
 ): WasmExecutionMode {
+  if (!["auto", "worker", "main-thread"].includes(preference)) {
+    throw new Error(`wasi.profile.unsupportedMode: ${String(preference)}`);
+  }
   if (preference !== "auto") {
     return preference;
   }
@@ -372,12 +375,18 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
         );
       }
       this.writeOutput(
-        "\r\nSwiftTUI WASI browser runtime requires SharedArrayBuffer-backed stdin. Serve the app with COOP/COEP headers.\r\n",
+        "\r\n[wasi.profile.requiresSharedMemory] SwiftTUI WASI browser runtime requires SharedArrayBuffer-backed stdin. Serve the app with COOP/COEP headers.\r\n",
       );
       return;
     }
 
-    this.worker = new Worker(this.workerModuleURL, { type: "module" });
+    try {
+      this.worker = new Worker(this.workerModuleURL, { type: "module" });
+    } catch (error) {
+      this.bridge.stderr.write(`\nwasi.worker.startFailed: ${String(error)}\n`);
+      this.stopExecution();
+      return;
+    }
     this.worker.addEventListener(
       "message",
       (event: MessageEvent<WorkerMessage>) => {
@@ -387,7 +396,7 @@ class WasmSceneRuntime extends WebHostSceneRuntime {
     this.worker.addEventListener("error", (event) => {
       if (this.runtimeDisposed) return;
       this.bridge?.stderr.write(
-        `\nSwiftTUI WASI worker failed: ${event.message || "unknown worker error"}\n`,
+        `\nwasi.worker.startFailed: ${event.message || "failed to load worker module"}\n`,
       );
       this.stopExecution();
     });
