@@ -1,3 +1,4 @@
+import { AccessibilityRequests } from "./AccessibilityRequests.ts";
 import {
   presentSelection,
   selectionFocusElement,
@@ -62,8 +63,7 @@ export class AccessibilityTreeMounter {
   private modelsById = new Map<string, PresentedAccessibilityNode>();
   private readonly keysByElement = new WeakMap<Element, string>();
   private presenting = false;
-  private nextRequestID = 0n;
-  private acknowledgedRequestID = 0n;
+  private readonly requests = new AccessibilityRequests();
   private pendingValues = new Map<string, bigint>();
   private pendingFocus?: { id: string; requestID: bigint };
   private runtimeFocusedElement?: HTMLElement;
@@ -133,7 +133,7 @@ export class AccessibilityTreeMounter {
     if (!element || !node.actionTarget) return;
     element.focus({ preventScroll: true });
     if (this.presenting && node.actions?.includes("focus")) {
-      const requestID = ++this.nextRequestID;
+      const requestID = this.requests.issue(node.actionTarget);
       this.pendingFocus = { id: node.id, requestID };
       this.sendAction?.(
         node.actionTarget,
@@ -156,7 +156,7 @@ export class AccessibilityTreeMounter {
     this.sendAction?.(
       trigger.actionTarget,
       { action: "setValue", value: { type: "boolean", value: expanded } },
-      String(++this.nextRequestID),
+      String(this.requests.issue(trigger.actionTarget)),
     );
     return true;
   }
@@ -214,7 +214,7 @@ export class AccessibilityTreeMounter {
       this.sendAction?.(
         node.actionTarget,
         { action: "accessibilityFocus" },
-        String(++this.nextRequestID),
+        String(this.requests.issue(node.actionTarget)),
       );
     });
 
@@ -285,11 +285,14 @@ export class AccessibilityTreeMounter {
       ...announcement,
       politeness: normalizePoliteness(announcement.politeness),
     }));
-    if (options.actionResponse) {
-      const acknowledged = BigInt(options.actionResponse.requestID);
-      if (acknowledged > this.acknowledgedRequestID)
-        this.acknowledgedRequestID = acknowledged;
-    }
+    this.requests.retainTargets(
+      new Set(
+        visibleNodes.flatMap((node) =>
+          node.actionTarget ? [node.actionTarget] : [],
+        ),
+      ),
+    );
+    if (options.actionResponse) this.requests.settle(options.actionResponse);
     const previousById = this.nodesById;
     const nextById = new Map<string, HTMLElement>();
     const modelsById = new Map(visibleNodes.map((node) => [node.id, node]));
@@ -396,7 +399,7 @@ export class AccessibilityTreeMounter {
         this.sendAction?.(
           chosen.actionTarget,
           { action: "accessibilityFocus" },
-          String(++this.nextRequestID),
+          String(this.requests.issue(chosen.actionTarget)),
         );
       }
     }
@@ -474,7 +477,7 @@ export class AccessibilityTreeMounter {
     const element = focused ? this.nodesById.get(focused.id) : undefined;
     const pending = this.pendingFocus;
     const focusAcknowledged =
-      pending !== undefined && pending.requestID <= this.acknowledgedRequestID;
+      pending !== undefined && !this.requests.has(pending.requestID);
     // Reconcile a focus response only while the user is still on its target.
     // Moving to a disabled node or outside the scene produces no newer runtime
     // focus request, but must still supersede an in-flight assistive request.
@@ -502,7 +505,11 @@ export class AccessibilityTreeMounter {
     }
   }
 
-  dispose(): void {
+  resetSession(): void {
+    this.requests.reset();
+    this.pendingMenu = undefined;
+    this.pendingMenuReturn = undefined;
+    this.hasLiveRegionBaseline = false;
     for (const element of this.nodesById.values()) {
       this.clearEditable(element);
     }
@@ -516,6 +523,11 @@ export class AccessibilityTreeMounter {
     this.appliedAssistiveFocusGeneration = -1n;
     this.element.replaceChildren();
     this.announcerElement.replaceChildren();
+    this.refreshNavigation([]);
+  }
+
+  dispose(): void {
+    this.resetSession();
     this.navigationElement.remove();
   }
 
@@ -652,7 +664,7 @@ export class AccessibilityTreeMounter {
           this.sendAction?.(
             current.actionTarget,
             { action: "custom", name },
-            String(++this.nextRequestID),
+            String(this.requests.issue(current.actionTarget)),
           );
         });
       }
@@ -693,7 +705,7 @@ export class AccessibilityTreeMounter {
         !model.actions?.includes(request.action)
       )
         return;
-      const requestID = ++this.nextRequestID;
+      const requestID = this.requests.issue(model.actionTarget);
       if (["setValue", "editText", "selectText"].includes(request.action))
         this.pendingValues.set(node.id, requestID);
       if (request.action === "focus")
@@ -1239,7 +1251,7 @@ export class AccessibilityTreeMounter {
       const pending = this.pendingValues.get(node.id);
       if (
         !this.composing.has(element) &&
-        (pending === undefined || pending <= this.acknowledgedRequestID)
+        (pending === undefined || !this.requests.has(pending))
       ) {
         this.pendingValues.delete(node.id);
         const previous = nativeTextSelection(input);
@@ -1275,7 +1287,7 @@ export class AccessibilityTreeMounter {
     if (node.selection) {
       const pending = this.pendingValues.get(node.id);
       const synchronizeValue =
-        pending === undefined || pending <= this.acknowledgedRequestID;
+        pending === undefined || !this.requests.has(pending);
       if (synchronizeValue) this.pendingValues.delete(node.id);
       presentSelection(
         element,

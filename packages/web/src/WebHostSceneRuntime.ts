@@ -518,6 +518,7 @@ export class WebHostSceneRuntime {
 
     this.bridge?.bindOutput({
       resetSurfaceSession: () => {
+        this.accessibilityTree?.resetSession();
         this.awaitingConnectionFrame = true;
         this.currentFrame = undefined;
         this.paintedGeometryRevision = undefined;

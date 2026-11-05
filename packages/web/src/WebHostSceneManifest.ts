@@ -25,14 +25,31 @@ export function normalizeWebHostSceneManifest(
     throw new Error("scene manifest must contain at least one scene");
   }
 
-  const defaultScene = scenes.find((scene) => scene.isDefault) ?? scenes[0];
+  const ids = new Set<string>();
+  for (const scene of scenes) {
+    if (ids.has(scene.id)) throw new Error(`duplicate scene id: ${scene.id}`);
+    ids.add(scene.id);
+  }
+  const catalog = isObject(source) && !Array.isArray(source) ? source : {};
+  const explicit = [catalog.defaultSceneId, catalog.defaultSceneID].filter(
+    (id) => id !== undefined && id !== null,
+  );
+  if (explicit.some((id) => typeof id !== "string" || !ids.has(id)))
+    throw new Error("default scene must name an existing scene");
+  if (explicit.length === 2 && explicit[0] !== explicit[1])
+    throw new Error("conflicting defaultSceneId and defaultSceneID");
+  const flagged = scenes.filter((scene) => scene.isDefault);
+  if (!explicit.length && flagged.length > 1)
+    throw new Error(
+      "multiple default scenes require an explicit defaultSceneId",
+    );
+  const defaultSceneId =
+    (explicit[0] as string | undefined) ?? flagged[0]?.id ?? scenes[0].id;
   return {
-    defaultSceneId: defaultScene.id,
-    scenes: scenes.map((scene, index) => ({
+    defaultSceneId,
+    scenes: scenes.map((scene) => ({
       ...scene,
-      isDefault:
-        scene.id === defaultScene.id ||
-        (index === 0 && !scenes.some((entry) => entry.isDefault)),
+      isDefault: scene.id === defaultSceneId,
     })),
   };
 }
@@ -40,9 +57,10 @@ export function normalizeWebHostSceneManifest(
 export function webTUISceneManifestToJSON(
   manifest: WebHostSceneManifest,
 ): string {
+  const normalized = normalizeWebHostSceneManifest(manifest);
   return JSON.stringify({
-    defaultSceneId: manifest.defaultSceneId,
-    scenes: manifest.scenes.map((scene) => ({
+    defaultSceneId: normalized.defaultSceneId,
+    scenes: normalized.scenes.map((scene) => ({
       id: scene.id,
       ...(scene.title ? { title: scene.title } : {}),
       isDefault: scene.isDefault,
@@ -118,13 +136,16 @@ function normalizeDescriptor(
     );
   }
 
-  const id = String((value as { id?: unknown }).id ?? "").trim();
-  if (!id) {
+  const id = value.id;
+  if (typeof id !== "string" || !id.trim()) {
     throw new Error(`scene descriptor at index ${index ?? 0} is missing an id`);
   }
 
   const titleValue = (value as { title?: unknown }).title;
-  const isDefaultValue = Boolean((value as { isDefault?: unknown }).isDefault);
+  const isDefaultValue =
+    value.isDefault === undefined ? false : value.isDefault;
+  if (typeof isDefaultValue !== "boolean")
+    throw new Error(`scene ${id} isDefault must be boolean`);
 
   return {
     id,

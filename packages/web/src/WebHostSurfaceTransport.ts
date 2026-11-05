@@ -14,6 +14,7 @@ import {
   encodeWebHostTerminalRenderStyleBase64,
   type WebHostTerminalStyle,
 } from "./WebHostTerminalStyle.ts";
+import { normalizeWireUInt64 } from "./WireUInt64.ts";
 
 export interface WebHostSurfaceStyle {
   fg?: string;
@@ -94,17 +95,80 @@ export function encodeAccessibilityActionMessage(
   request: WebHostAccessibilityAction,
   requestID?: string,
 ): Uint8Array {
-  const value =
-    request.action === "editText" || request.action === "selectText"
-      ? `:text:${encodeURIComponent(request.text)}:${request.anchor}:${request.head}`
-      : request.action === "setValue"
-        ? `:${request.value.type}:${encodeURIComponent(String(request.value.value))}`
-        : request.action === "custom"
-          ? `:name:${encodeURIComponent(request.name)}`
-          : "";
-  return new TextEncoder().encode(
-    `\u001Eaccessibility:${requestID === undefined ? "" : `${requestID}:`}${encodeURIComponent(target)}:${request.action}${value}\n`,
-  );
+  const invalid = (field: string): never => {
+    throw new TypeError(`invalid accessibility ${field}`);
+  };
+  const escaped = (value: unknown, field: string, nonempty = false): string => {
+    if (typeof value !== "string" || (nonempty && !value.length))
+      return invalid(field);
+    try {
+      return encodeURIComponent(value);
+    } catch {
+      return invalid(field);
+    }
+  };
+  const encodedTarget = escaped(target, "target", true);
+  const id =
+    requestID === undefined ? undefined : normalizeWireUInt64(requestID);
+  if (requestID !== undefined && id === undefined) invalid("requestID");
+  if (!request || typeof request !== "object") invalid("request");
+  let value = "";
+  switch (request.action) {
+    case "focus":
+    case "accessibilityFocus":
+    case "accessibilityBlur":
+    case "activate":
+    case "increment":
+    case "decrement":
+      break;
+    case "custom":
+      value = `:name:${escaped(request.name, "name", true)}`;
+      break;
+    case "editText":
+    case "selectText": {
+      const text = escaped(request.text, "text");
+      for (const offset of [request.anchor, request.head]) {
+        if (
+          !Number.isSafeInteger(offset) ||
+          offset < 0 ||
+          offset > request.text.length
+        )
+          invalid("UTF-16 selection");
+      }
+      value = `:text:${text}:${request.anchor}:${request.head}`;
+      break;
+    }
+    case "setValue": {
+      const payload = request.value;
+      if (!payload || typeof payload !== "object") invalid("value");
+      switch (payload.type) {
+        case "text":
+          value = `:text:${escaped(payload.value, "value")}`;
+          break;
+        case "boolean":
+          if (typeof payload.value !== "boolean") invalid("boolean value");
+          value = `:boolean:${payload.value}`;
+          break;
+        case "number":
+          if (
+            typeof payload.value !== "number" ||
+            !Number.isFinite(payload.value)
+          )
+            invalid("number value");
+          value = `:number:${payload.value}`;
+          break;
+        default:
+          invalid("value type");
+      }
+      break;
+    }
+    default:
+      invalid("action");
+  }
+  // Percent encoding makes the entire command ASCII, so length is its byte size.
+  const command = `\u001Eaccessibility:${id === undefined ? "" : `${id}:`}${encodedTarget}:${request.action}${value}\n`;
+  if (command.length > HOST_WIRE_MAX_RECORD_BYTES) invalid("record size");
+  return new TextEncoder().encode(command);
 }
 
 /** An app-origin semantic focus request, applied once per session generation. */
@@ -709,6 +773,19 @@ export class WebHostOutputDecoder {
               "to render it.",
           },
         };
+      }
+      // Optional replies cannot invalidate otherwise usable committed state.
+      if (
+        frame &&
+        typeof frame === "object" &&
+        "accessibilityActionResponse" in frame
+      ) {
+        if (!isAccessibilityActionResponse(frame.accessibilityActionResponse))
+          delete frame.accessibilityActionResponse;
+        else
+          frame.accessibilityActionResponse.requestID = normalizeWireUInt64(
+            frame.accessibilityActionResponse.requestID,
+          );
       }
       if (isWebHostSurfaceFrame(frame)) {
         if (!fitsSurfaceBudget(frame)) return this.refuseBudget();
@@ -1546,8 +1623,9 @@ function isAccessibilityActionResponse(
   const response = value as Partial<WebHostAccessibilityActionResponse>;
   return (
     typeof response.requestID === "string" &&
-    /^[0-9]{1,20}$/.test(response.requestID) &&
+    normalizeWireUInt64(response.requestID) !== undefined &&
     typeof response.target === "string" &&
+    response.target.length > 0 &&
     typeof response.result === "string" &&
     [
       "accepted",

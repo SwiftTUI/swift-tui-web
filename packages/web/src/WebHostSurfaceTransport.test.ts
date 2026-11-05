@@ -1578,12 +1578,22 @@ test("accessibility state and acknowledgement survive decoding with validation",
         ?.type,
     ).toBe("text");
   }
-  expect(
-    decode({
-      ...frame,
-      accessibilityActionResponse: { ...response, requestID: 1 },
-    })[0]?.type,
-  ).toBe("text");
+  for (const invalid of [
+    { requestID: 1 },
+    { requestID: "18446744073709551616" },
+    { requestID: "+1" },
+    { target: "" },
+    { result: "unknown" },
+  ]) {
+    const decoded = surfaceFrame(
+      decode({
+        ...frame,
+        accessibilityActionResponse: { ...response, ...invalid },
+      })[0],
+    );
+    expect(decoded.accessibilityActionResponse).toBeUndefined();
+    expect(decoded.accessibilityTree).toEqual([node]);
+  }
 });
 
 test("optional widget properties survive decoding and reject malformed known fields", () => {
@@ -1811,5 +1821,59 @@ test("assistive focus requests round-trip full and delta frames with lossless ge
         encodeAccessibilityActionMessage("9:heading#2", { action }, "3"),
       ),
     ).toBe(`\u001eaccessibility:3:9%3Aheading%232:${action}\n`);
+  }
+});
+
+test("accessibility encoder rejects malformed runtime arguments before returning bytes", () => {
+  const valid = { action: "activate" } as const;
+  const invalidIDs = [
+    "",
+    "+1",
+    "-1",
+    "1_0",
+    "１",
+    "18446744073709551616",
+    "1\n\u001ekey:enter",
+    1,
+    null,
+  ];
+  for (const id of invalidIDs) {
+    expect(() =>
+      encodeAccessibilityActionMessage("target", valid, id as string),
+    ).toThrow("requestID");
+  }
+  for (const action of [
+    null,
+    {},
+    { action: "activate\n\u001ekey:enter" },
+    { action: "setValue", value: { type: "text\n", value: "x" } },
+    { action: "setValue", value: { type: "boolean", value: "false" } },
+    { action: "setValue", value: { type: "number", value: Infinity } },
+    { action: "setValue", value: { type: "number", value: NaN } },
+    { action: "setValue", value: { type: "text", value: "\ud800" } },
+    { action: "custom", name: "" },
+    { action: "editText", text: "😀", anchor: -1, head: 2 },
+    { action: "editText", text: "😀", anchor: 0, head: 3 },
+    { action: "selectText", text: "a", anchor: 0.5, head: 1 },
+  ])
+    expect(() =>
+      encodeAccessibilityActionMessage("target", action as never),
+    ).toThrow();
+  for (const target of ["", "\ud800", null, 42])
+    expect(() =>
+      encodeAccessibilityActionMessage(target as string, valid),
+    ).toThrow("target");
+  for (const id of ["0", "18446744073709551615", "00042"]) {
+    const bytes = encodeAccessibilityActionMessage(
+      "target:\n\u001e",
+      valid,
+      id,
+    );
+    const command = decoder.decode(bytes);
+    expect(command.split("\n").length).toBe(2);
+    expect(command.split("\u001e").length).toBe(2);
+    expect(command).toContain(
+      `accessibility:${BigInt(id)}:target%3A%0A%1E:activate`,
+    );
   }
 });

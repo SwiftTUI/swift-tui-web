@@ -734,3 +734,26 @@ controls remain operable. `properties.modal` maps to `aria-modal`; a modal alert
 uses `alertdialog`. Framework Back and Dismiss operations use the existing named
 custom-action buttons. These browser behaviors are covered by the automated
 engine matrix; screen-reader task and announcement qualification is separate.
+
+
+### Host input and scene discovery
+
+`encodeAccessibilityActionMessage` validates runtime arguments and throws a
+`TypeError` naming the invalid field before returning any bytes. Its return
+value remains `Uint8Array`. Correlation IDs are bounded ASCII decimal UInt64
+strings, emitted without leading zeros. Text selection offsets are UTF-16
+units within the supplied text. Unknown actions, malformed strings, nonfinite
+values and commands above the wire record limit are rejected.
+
+The accessibility mount correlates replies with the exact outstanding request
+and action target. A later reply does not acknowledge earlier requests. Pending
+requests expire after 30 seconds, are capped at 256, and are retired when their
+target disappears or the connection resets. Invalid optional replies are
+ignored without discarding the frame.
+
+Scene catalogs accept `defaultSceneId`, the legacy `defaultSceneID`, and legacy
+arrays. An explicit existing scene wins over descriptor flags; otherwise a
+single true flag wins, then declaration order. Duplicate IDs, conflicting keys,
+unknown defaults, nonboolean flags and ambiguous flags are errors. Serialization
+emits `defaultSceneId` and derives every legacy flag from that selection. An
+empty catalog cannot be mounted in the browser.

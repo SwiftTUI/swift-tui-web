@@ -1465,3 +1465,46 @@ test("modal alert properties expose an alert dialog and a separate dismiss opera
     (await records(page)).filter((value) => value.includes(":custom:")),
   ).toHaveLength(1);
 });
+
+test("unissued, mismatched and repeated replies never settle a pending edit", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  await present(page);
+  const text = page.getByRole("textbox", { name: "Name" });
+  await text.fill("pending");
+  const requestID = (await records(page)).at(-1)!.split(":")[1]!;
+  const updated = structuredClone(nodes);
+  updated[3]!.value = { type: "text", value: "authoritative" };
+  for (const response of [
+    {
+      requestID: "18446744073709551615",
+      target: "4:text",
+      result: "accepted" as const,
+    },
+    { requestID, target: "different-target", result: "accepted" as const },
+    {
+      requestID: "18446744073709551616",
+      target: "4:text",
+      result: "accepted" as const,
+    },
+  ]) {
+    await present(page, updated, response);
+    await expect(text).toHaveValue("pending");
+  }
+  await present(page, updated, {
+    requestID,
+    target: "4:text",
+    result: "invalidValue",
+  });
+  await expect(text).toHaveValue("authoritative");
+  await text.fill("new pending");
+  await present(page, updated, {
+    requestID,
+    target: "4:text",
+    result: "accepted",
+  });
+  await expect(text).toHaveValue("new pending");
+});
