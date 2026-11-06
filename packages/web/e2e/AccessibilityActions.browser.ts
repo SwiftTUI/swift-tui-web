@@ -1562,3 +1562,43 @@ test("epoch replacement retires pending edits and late replies for reused target
   );
   await expect(text).toHaveValue("new session");
 });
+
+test("a coalesced activation reply redirects focus only while its button owns it", async ({
+  page,
+}) => {
+  await page.goto("/health");
+  await page.addScriptTag({ url: "/accessibility-actions.js", type: "module" });
+  await page.waitForFunction(() => !!window.accessibilityActions);
+  const button = page.getByRole("button", { name: "Increment" });
+  const name = page.getByRole("textbox", { name: "Name" });
+  const unavailable = page.getByRole("button", { name: "Unavailable" });
+  const redirected = nodes.map((node) => ({
+    ...node,
+    isFocused: node.id === "text",
+  }));
+
+  for (const navigateAway of [false, true]) {
+    await present(page);
+    await button.focus();
+    await button.press("Enter");
+    const [focus, activate] = (await records(page)).slice(-2);
+    expect(focus).toMatch(/:focus$/);
+    expect(activate).toMatch(/:activate$/);
+    const response = {
+      requestID: activate!.split(":")[1]!,
+      target: "1:button",
+      result: "accepted" as const,
+    };
+    // Neither the previous focus reply nor a different control acknowledges
+    // this activation. A producer is allowed to present only the final reply.
+    await present(page, redirected, {
+      ...response,
+      requestID: focus!.split(":")[1]!,
+    });
+    await present(page, redirected, { ...response, target: "4:text" });
+    await expect(button).toBeFocused();
+    if (navigateAway) await unavailable.focus();
+    await present(page, redirected, response);
+    await expect(navigateAway ? unavailable : name).toBeFocused();
+  }
+});
