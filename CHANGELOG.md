@@ -16,7 +16,7 @@ Additional lockstep release notes are available on
 The browser runtime and build CLI continue to ship together. The packed build
 package selects the exact paired web package. Browser/WASI compatibility is
 qualified through named host, surface and launch profiles, including recovery
-after a missed frame. The compiled Swift fixture retains its published 0.20.1
+after a missed frame. The compiled Swift fixture selects the published 0.20.1
 framework selection. A future web update does not require the framework to
 replace its deliberately selected browser bundle.
 
