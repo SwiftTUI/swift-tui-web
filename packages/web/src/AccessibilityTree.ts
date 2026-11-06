@@ -68,6 +68,7 @@ export class AccessibilityTreeMounter {
   private presenting = false;
   private readonly requests = new AccessibilityRequests();
   private pendingValues = new Map<string, bigint>();
+  private readonly pendingTextRanges = new WeakMap<HTMLElement, bigint>();
   private pendingFocus?: { id: string; requestID: bigint };
   private runtimeFocusedElement?: HTMLElement;
   private pendingMenu?: { trigger: string; last: boolean };
@@ -715,8 +716,16 @@ export class AccessibilityTreeMounter {
       )
         return;
       const requestID = this.requests.issue(model.actionTarget);
-      if (["setValue", "editText", "selectText"].includes(request.action))
+      if (request.action === "selectText") {
+        // A browser caret move owns a range within this text, never its value.
+        this.pendingTextRanges.set(element, requestID);
+      } else if (
+        request.action === "setValue" ||
+        request.action === "editText"
+      ) {
+        this.pendingTextRanges.delete(element);
         this.pendingValues.set(node.id, requestID);
+      }
       if (
         request.action === "focus" ||
         (request.action === "activate" && this.pendingFocus?.id === node.id)
@@ -1274,10 +1283,17 @@ export class AccessibilityTreeMounter {
         this.pendingValues.delete(node.id);
         const previous = nativeTextSelection(input);
         if (node.role !== "secureField" && input.value !== value) {
+          // A new authoritative string invalidates any selection in the old one.
+          this.pendingTextRanges.delete(element);
           this.compositionCommits.delete(element);
           input.value = value;
         }
-        if (input.selectionStart !== null) {
+        const range = this.pendingTextRanges.get(element);
+        if (
+          input.selectionStart !== null &&
+          (range === undefined || !this.requests.has(range))
+        ) {
+          this.pendingTextRanges.delete(element);
           const [anchor, head] = node.textSelection ?? [
             previous.anchor,
             previous.head,

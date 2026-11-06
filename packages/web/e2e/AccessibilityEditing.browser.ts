@@ -105,6 +105,51 @@ for (const renderer of ["canvas", "dom"] as const) {
         .toContain(":selectText:text:caf%C3%A9:4:1");
     });
 
+    test("an unacknowledged caret selection cannot hold replacement text", async ({
+      page,
+    }) => {
+      const notes = page.getByRole("textbox", { name: "Notes" });
+      await notes.focus();
+      await notes.evaluate((element) =>
+        (element as HTMLTextAreaElement).setSelectionRange(2, 5, "backward"),
+      );
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.accessibilityActions.records.some((r) =>
+              r.includes(":selectText:"),
+            ),
+          ),
+        )
+        .toBe(true);
+      const state = await notes.evaluate((element, model) => {
+        const input = element as HTMLTextAreaElement;
+        window.accessibilityActions.present([model]);
+        const retained = [
+          input.selectionStart,
+          input.selectionEnd,
+          input.selectionDirection,
+        ];
+        window.accessibilityActions.present([
+          {
+            ...model,
+            value: { type: "text", value: "new text" },
+            textSelection: [3, 3],
+          },
+        ]);
+        return {
+          retained,
+          value: input.value,
+          caret: [input.selectionStart, input.selectionEnd],
+        };
+      }, editor);
+      expect(state).toEqual({
+        retained: [2, 5, "backward"],
+        value: "new text",
+        caret: [3, 3],
+      });
+    });
+
     test("middle correction and native undo preserve selection through acknowledgements", async ({
       page,
     }) => {
