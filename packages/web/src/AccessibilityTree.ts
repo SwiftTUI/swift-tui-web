@@ -717,8 +717,17 @@ export class AccessibilityTreeMounter {
       const requestID = this.requests.issue(model.actionTarget);
       if (["setValue", "editText", "selectText"].includes(request.action))
         this.pendingValues.set(node.id, requestID);
-      if (request.action === "focus")
+      if (
+        request.action === "focus" ||
+        (request.action === "activate" && this.pendingFocus?.id === node.id)
+      ) {
+        // Activation can redirect runtime focus before the producer paints the
+        // preceding focus reply. The new intent owns reconciliation on this
+        // element; a reply for a different request or target still cannot do it.
+        if (this.pendingFocus)
+          this.requests.cancel(this.pendingFocus.requestID);
         this.pendingFocus = { id: node.id, requestID };
+      }
       this.sendAction?.(model.actionTarget, request, String(requestID));
     };
     element.addEventListener(node.selection ? "focusin" : "focus", () => {
