@@ -67,8 +67,8 @@ Each tagged GitHub release also attaches npm-compatible tarballs:
 
 ```bash
 npm install \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.20.1/swifttui-web-0.20.1.tgz \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.20.1/swifttui-build-0.20.1.tgz
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.21.0/swifttui-web-0.21.0.tgz \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.21.0/swifttui-build-0.21.0.tgz
 ```
 
 ## Basic use
@@ -122,3 +122,8 @@ cross-repo fixture-corpus contract live in
 
 MIT; see [LICENSE](LICENSE). Each published package (`@swifttui/web`,
 `@swifttui/build`) also bundles the license text.
+
+## Version compatibility
+
+See the [compatibility policy](docs/COMPATIBILITY.md) for supported minor lines,
+independent dependency adoption, and experimental interfaces.
