@@ -3,13 +3,20 @@
 All notable changes to the `@swifttui/web` and `@swifttui/build` packages are
 documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
-follows pre-1.0 semantics: while the public surface is being proven, minor
-releases may include source-breaking changes.
+preserves supported contracts from 0.21.0 until the next major release.
+Breaking changes require 1.0.0; see [COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
-Additional lockstep release notes are available on
+Additional release notes are available on
 [GitHub Releases](https://github.com/SwiftTUI/swift-tui-web/releases).
 
 ## [Unreleased]
+
+## [0.22.0] - 2026-11-10
+
+The browser runtime and build CLI retain their paired package identity and
+supported protocol contracts. This is the final synchronized organization
+release; later releases version independently under the major-compatible policy.
+The frozen compiled framework fixture remains at 0.20.1.
 
 ## [0.21.0] - 2026-11-05
 

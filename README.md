@@ -67,8 +67,8 @@ Each tagged GitHub release also attaches npm-compatible tarballs:
 
 ```bash
 npm install \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.21.0/swifttui-web-0.21.0.tgz \
-  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.21.0/swifttui-build-0.21.0.tgz
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.22.0/swifttui-web-0.22.0.tgz \
+  https://github.com/SwiftTUI/swift-tui-web/releases/download/0.22.0/swifttui-build-0.22.0.tgz
 ```
 
 ## Basic use
