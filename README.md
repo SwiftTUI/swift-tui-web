@@ -125,5 +125,5 @@ MIT; see [LICENSE](LICENSE). Each published package (`@swifttui/web`,
 
 ## Version compatibility
 
-See the [compatibility policy](docs/COMPATIBILITY.md) for supported minor lines,
+See the [compatibility policy](docs/COMPATIBILITY.md) for supported major lines,
 independent dependency adoption, and experimental interfaces.
