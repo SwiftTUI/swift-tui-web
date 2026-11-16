@@ -805,6 +805,17 @@ export class AccessibilityTreeMounter {
     }
     element.addEventListener("keydown", (event) => {
       const model = current();
+      // Candidate navigation and confirmation belong to the native editor.
+      // Safari may deliver the confirming Enter after compositionend, with
+      // isComposing already false but the IME process-key code still present.
+      if (
+        this.composing.has(element) ||
+        event.isComposing ||
+        (event.key === "Enter" && event.keyCode === 229)
+      ) {
+        event.stopPropagation();
+        return;
+      }
       if (!model || event.key === "Tab") return;
       const menu = this.enclosingMenu(model);
       if (menu && ["Escape", "ArrowLeft"].includes(event.key)) {

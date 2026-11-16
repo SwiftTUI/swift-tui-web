@@ -262,7 +262,10 @@ and `selectText`; older producers receive the existing value changes. Selection-
 review sends the expected text and does not write the application binding. Incoming
 frames preserve local composition, pending edits and unchanged native values, so
 acknowledgements retain the browser undo history. Composition sends the final
-committed value and caret once; this does not add shared Swift pre-edit/IME support. Secure proxy values are cleared
+committed value and caret once; this does not add shared Swift pre-edit/IME support.
+Candidate navigation and confirmation stay in the native editor, including Safari's
+confirming Enter after composition ends. A subsequent ordinary Enter still reaches
+Swift from single-line fields. Secure proxy values are cleared
 on blur, replacement, removal and disposal and never copied into attributes.
 Nonsecure `textSelection: [anchor, head]` snapshots update native selection in
 either direction. Secure fields omit that state. Ordinary prose, headings and

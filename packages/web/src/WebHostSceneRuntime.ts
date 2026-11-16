@@ -1037,6 +1037,8 @@ export class WebHostSceneRuntime {
       if (
         event.metaKey ||
         event.isComposing ||
+        // Safari's IME-confirming Enter can arrive after compositionend.
+        (event.key === "Enter" && event.keyCode === 229) ||
         (this.rendererKind === "dom" &&
           event.ctrlKey &&
           ([

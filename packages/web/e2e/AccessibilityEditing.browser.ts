@@ -29,6 +29,112 @@ for (const renderer of ["canvas", "dom"] as const) {
       );
     });
 
+    test("surface IME Enter is ignored without dropping ordinary mobile character keys", async ({
+      page,
+    }) => {
+      const result = await page
+        .locator(".webhost-scene__terminal")
+        .evaluate((element) => {
+          const api = window.accessibilityActions;
+          api.inputRecords.length = 0;
+          const confirming = new KeyboardEvent("keydown", {
+            key: "Enter",
+            keyCode: 229,
+            bubbles: true,
+            cancelable: true,
+          });
+          element.dispatchEvent(confirming);
+          const confirmingKeys = [...api.inputRecords];
+          element.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "a",
+              keyCode: 229,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          return {
+            confirmingKeys,
+            prevented: confirming.defaultPrevented,
+            keys: api.inputRecords,
+          };
+        });
+      expect(result.confirmingKeys).toEqual([]);
+      expect(result.prevented).toBe(false);
+      expect(result.keys).toHaveLength(1);
+      expect(result.keys[0]).toContain("key:character:");
+    });
+
+    for (const role of ["textField", "secureField"] as const) {
+      test(`${role} leaves IME confirmation to the editor and forwards ordinary Enter`, async ({
+        page,
+      }) => {
+        await page.evaluate(
+          (role) =>
+            window.accessibilityActions.present([
+              {
+                id: "field",
+                actionTarget: "field:1",
+                role,
+                label: "Input",
+                rect: [0, 0, 30, 1],
+                actions: ["focus", "editText", "selectText"],
+                value: { type: "text", value: "" },
+                textSelection: [0, 0],
+              },
+            ]),
+          role,
+        );
+        const input = page.locator("input[data-accessibility-id='field']");
+        await input.focus();
+        const result = await input.evaluate((element) => {
+          const api = window.accessibilityActions;
+          const keys = () =>
+            api.inputRecords.filter((r) => r.startsWith("\u001ekey:"));
+          const dispatch = (init: KeyboardEventInit) => {
+            const event = new KeyboardEvent("keydown", {
+              bubbles: true,
+              cancelable: true,
+              ...init,
+            });
+            element.dispatchEvent(event);
+            return event.defaultPrevented;
+          };
+          api.inputRecords.length = 0;
+          element.dispatchEvent(
+            new CompositionEvent("compositionstart", { bubbles: true }),
+          );
+          // Candidate selection and Tab must stay with the editor, even when
+          // the keyboard event omits isComposing but composition is active.
+          const prevented = [
+            dispatch({ key: "Enter", isComposing: true }),
+            dispatch({ key: "Enter" }),
+            dispatch({ key: "Tab" }),
+            dispatch({ key: "Escape" }),
+          ];
+          element.dispatchEvent(
+            new CompositionEvent("compositionend", { bubbles: true }),
+          );
+          prevented.push(dispatch({ key: "Enter", keyCode: 229 }));
+          const confirmingKeys = [...keys()];
+          const ordinaryPrevented = dispatch({ key: "Enter", keyCode: 13 });
+          return {
+            prevented,
+            confirmingKeys,
+            ordinaryPrevented,
+            keys: keys(),
+            focused: document.activeElement === element,
+          };
+        });
+        expect(result.prevented).toEqual([false, false, false, false, false]);
+        expect(result.confirmingKeys).toEqual([]);
+        expect(result.ordinaryPrevented).toBe(true);
+        expect(result.keys).toHaveLength(1);
+        expect(result.keys[0]).toContain("key:return:");
+        expect(result.focused).toBe(true);
+      });
+    }
+
     test("composition survives incoming frames and commits text and caret once", async ({
       page,
     }) => {
