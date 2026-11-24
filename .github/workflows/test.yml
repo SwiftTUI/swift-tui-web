@@ -95,9 +95,9 @@ jobs:
     name: Browser (${{ matrix.engine }})
     needs: wasm-fixture
     runs-on: ubuntu-24.04
-    # Installing the pinned engines can take eight minutes; keep room for the
-    # complete serial journey suite and its retained failure artifacts.
-    timeout-minutes: 30
+    # A cold WebKit install can spend over 30 minutes downloading Ubuntu packages.
+    # Allow time for the browser journeys and their failure artifacts as well.
+    timeout-minutes: ${{ matrix.engine == 'webkit' && 75 || 30 }}
     strategy:
       fail-fast: false
       matrix:
