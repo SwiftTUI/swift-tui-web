@@ -1,5 +1,5 @@
 {
-  "originHash" : "2125639079386c8aed821dbaaff68f51d27a7c0bc1e76b64a4417a530d2bbc42",
+  "originHash" : "15ace92a46a427cf6c2398df06ad7f127c2376b842590920a08f664c3b66be49",
   "pins" : [
     {
       "identity" : "swift-argument-parser",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-async-algorithms.git",
       "state" : {
-        "revision" : "d0b4a06d0f173a2f3be27d3ea21b3c3aa18db440",
-        "version" : "1.1.4"
+        "revision" : "13713a4ffdee8abd929f92568ee9462a46ae26e0",
+        "version" : "1.1.7"
       }
     },
     {
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SwiftTUI/swift-tui.git",
       "state" : {
-        "revision" : "482e6b42f5ff381a89d2df237077d0d6fb3f75bf",
-        "version" : "0.20.1"
+        "revision" : "d5d5f5c12e232b10ac54c1daeb717b97a56c7f36",
+        "version" : "0.25.1"
       }
     }
   ],

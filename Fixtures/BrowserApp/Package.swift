@@ -5,7 +5,7 @@ let package = Package(
   name: "BrowserApp",
   platforms: [.macOS(.v15)],
   dependencies: [
-    .package(url: "https://github.com/SwiftTUI/swift-tui.git", exact: "0.20.1")
+    .package(url: "https://github.com/SwiftTUI/swift-tui.git", exact: "0.25.1")
   ],
   targets: [
     .executableTarget(
