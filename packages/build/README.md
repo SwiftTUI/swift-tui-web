@@ -32,7 +32,7 @@ This exposes the `swifttui-web` CLI (`npx swifttui-web build --app <Exe>`) and a
 programmatic ESM API. The package contains compiled JavaScript in `dist/`. The
 binary runs on Node (`#!/usr/bin/env node`). You do not need Bun or a TypeScript
 toolchain to use it. To compile a SwiftTUI app to wasm, install Swift 6.4.x and
-the `swift-6.4.0-RELEASE_wasm` SDK.
+the `swift-6.4.3-RELEASE_wasm` SDK.
 
 ## Use
 
@@ -112,7 +112,7 @@ Toolchain defaults match the repo:
 
 - Swift command: `swiftly run swift` when `swiftly` is on `PATH`, otherwise
   `swift`
-- SDK: `swift-6.4.0-RELEASE_wasm`
+- SDK: `swift-6.4.3-RELEASE_wasm`
 - Release Swift flags:
   `-Xswiftc -Osize -Xswiftc -Xfrontend -Xswiftc -disable-llvm-merge-functions-pass`
 - Initial memory: `536870912`

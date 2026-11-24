@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swift_version="$(tr -d '[:space:]' < .swift-version)"
 case "$swift_version" in
-  6.4.0) sdk_checksum="f07b7be3c586d92d7a07051fc6d303b87ebea67eadc40640ba59d5a8b79aa86d" ;;
+  6.4.3) sdk_checksum="5f24408dc9737ce4cb23b7e3ed4306cabfa02cc02f22ab260b14579b955d4b12" ;;
   *) echo "No pinned WASI SDK checksum for Swift $swift_version" >&2; exit 1 ;;
 esac
 

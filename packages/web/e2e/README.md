@@ -15,7 +15,7 @@ bun run test:browser
 
 The full command builds both packages, compiles the Swift fixture and runs the
 matrix. Compiling requires Node 24, Bun 1.3.14, swiftly with the repository's
-`.swift-version` (6.4.0), the matching `swift-6.4.0-RELEASE_wasm` SDK, and
+`.swift-version` (6.4.3), the matching `swift-6.4.3-RELEASE_wasm` SDK, and
 Binaryen 130 (`wasm-opt`). Swiftly supplies `llvm-objcopy`. Ubuntu CI installs
 these using `.github/workflows/test.yml` and
 `Scripts/install_browser_fixture_toolchain.sh`.
