@@ -11,6 +11,11 @@ Additional release notes are available on
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-11-23
+
+The build CLI selects the Swift 6.4.3 WASI SDK by default. The browser
+runtime preserves input method editor (IME) confirmation in native editors.
+
 ## [0.22.0] - 2026-11-10
 
 The browser runtime and build CLI retain their paired package identity and
